@@ -1,70 +1,52 @@
 # Lifting Intel — Biomechanical Computation Engine
 
-FastAPI-based biomechanical modeling engine with versioned activation matrices, phase decomposition, bottleneck analysis, stabilization scoring, and composite muscle profiling.
+FastAPI-based biomechanical engine. Real activation matrix imported from CSV — no invented data.
 
 ## Tech Stack
 - **Runtime**: Python 3.11
 - **Framework**: FastAPI + Uvicorn (port 5000)
 - **Database**: PostgreSQL (Replit-managed, via DATABASE_URL)
 - **ORM**: SQLAlchemy
-- **Validation**: Pydantic v2
 
 ## Project Structure
 ```
 app/
-  main.py          — FastAPI app, table creation, seed trigger, admin UI
+  main.py          — FastAPI app, table creation, CSV seed, admin UI
   database.py      — SQLAlchemy engine + session
-  models.py        — All ORM models (exercises, muscles, matrix tables, volume_logs)
-  schemas.py       — Pydantic request/response schemas
-  seed.py          — Seed data: 93 exercises, 26 muscles, all matrix tables
+  models.py        — Exercise, Muscle, ActivationMatrixV2, VolumeLog
+  schemas.py       — Pydantic schemas
+  seed.py          — CSV importer (Exercise_Muscle_Matrix_v2.csv)
   routers/
-    datasets.py    — GET /datasets (version registry)
-    matrix.py      — GET /matrix/v2, /matrix/v3, /matrix/v4, /matrix/v5, /matrix/composite
+    datasets.py    — GET /datasets
+    matrix.py      — GET /matrix/v2
     volume.py      — POST /volume/ingest, GET /volume/logs
-    reports.py     — GET /reports/weekly (stimulus analysis)
-    optimizer.py   — GET /optimizer (matrix-driven exercise selection)
+    reports.py     — GET /reports/weekly
+    optimizer.py   — GET /optimizer
 run.py             — Entry point (uvicorn)
+attached_assets/
+  Exercise_Muscle_Matrix_v2_*.csv  — Source of truth
 ```
 
 ## Database Tables
-| Table | Description |
-|-------|-------------|
-| `exercises` | 93 exercises with category, movement pattern, equipment, bilateral flag |
-| `muscles` | 26 muscles with group and region classification |
-| `activation_matrix_v2` | Base activation matrix (exercise × muscle, 0–1 scale) |
-| `role_weighted_matrix_v2` | Role-weighted activation (prime_mover / synergist / stabilizer) |
-| `phase_matrix_v3` | Phase-expanded: initiation, mid, lockout per exercise×muscle |
-| `bottleneck_matrix_v4` | Bottleneck coefficients, is_limiting flag |
-| `stabilization_matrix_v5` | Stabilization score + dynamic score per pair |
-| `composite_index` | Composite score = weighted blend of all components |
-| `volume_logs` | Logged sets with auto-computed tonnage and estimated 1RM |
+| Table | Rows | Description |
+|-------|------|-------------|
+| `exercises` | 92 | Exercise names from CSV first column |
+| `muscles` | 26 | Muscle names from CSV header |
+| `activation_matrix_v2` | 2392 | 92×26 integer activations (0–5), PK (exercise_id, muscle_id) |
+| `volume_logs` | var | Logged training sets |
 
 ## API Routes
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/datasets` | List matrix versions with row counts and dimensions |
-| GET | `/matrix/v2` | Base activation matrix (`?exercise=`, `?muscle=`, `?include_roles=true`) |
-| GET | `/matrix/v3` | Phase matrix (`?exercise=`, `?muscle=`, `?phase=initiation\|mid\|lockout`) |
-| GET | `/matrix/v4` | Bottleneck matrix (`?exercise=`, `?muscle=`, `?limiting_only=true`) |
-| GET | `/matrix/v5` | Stabilization matrix (`?exercise=`, `?muscle=`) |
-| GET | `/matrix/composite` | Composite index (`?exercise=`, `?muscle=`, `?min_score=0.3`) |
+| GET | `/datasets` | List dataset versions with row counts |
+| GET | `/matrix/v2` | Full 92×26 activation matrix (integer 0–5) |
 | POST | `/volume/ingest` | Log a training set |
 | GET | `/volume/logs` | Query volume history |
-| GET | `/reports/weekly` | Weekly report with per-muscle stimulus from activation matrices |
-| GET | `/optimizer` | Matrix-driven optimization (`?goal=coverage\|bottleneck\|stabilization\|composite&n=8&target_muscles=...&constraints=...`) |
+| GET | `/reports/weekly` | Weekly report with per-muscle stimulus |
+| GET | `/optimizer` | Greedy set-cover exercise selection |
+| GET | `/docs` | Swagger UI |
 
-## Dataset Versions
-- **v2** — Base Activation Matrix (93×26): raw muscle activation levels per exercise
-- **v3** — Phase-Expanded Matrices: initiation/mid/lockout decomposition
-- **v4** — Bottleneck Coefficient Matrix: identifies limiting muscles per exercise
-- **v5** — Stabilization & Dynamic Matrices: stabilization vs dynamic contribution
-- **composite** — Composite Muscle Profile Index: weighted integration of all components
-
-## Seed Data
-- Activation values derived from movement-pattern heuristics with per-exercise overrides
-- Role classification: prime_mover (≥0.70), synergist (≥0.30), stabilizer (<0.30)
-- Composite formula: 0.35×activation + 0.25×phase_avg + 0.20×bottleneck + 0.10×stab + 0.10×dynamic
-
-## Workflow
-- **Command**: `python run.py`
-- **Port**: 5000 (webview)
+## Data Integrity
+- Source: `Exercise_Muscle_Matrix_v2.csv` (92 exercises × 26 muscles)
+- Activation values: integers 0–5, stored as-is (no normalization)
+- Seed runs once at startup; skips if exercises already exist

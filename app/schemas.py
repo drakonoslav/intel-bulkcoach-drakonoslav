@@ -3,75 +3,19 @@ from typing import Optional, List, Dict, Any
 from datetime import date as DateType
 
 
-class ExerciseOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    name: str
-    category: str
-    movement_pattern: str
-    equipment: Optional[str]
-    bilateral: int
-
-
-class MuscleOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    name: str
-    group_name: str
-    region: str
-
-
-class ActivationEntry(BaseModel):
-    exercise: str
-    muscle: str
-    activation: float
-    role: Optional[str] = None
-    weight: Optional[float] = None
-    weighted_activation: Optional[float] = None
-
-
-class PhaseEntry(BaseModel):
-    exercise: str
-    muscle: str
-    phase: str
-    activation: float
-
-
-class BottleneckEntry(BaseModel):
-    exercise: str
-    muscle: str
-    bottleneck_coefficient: float
-    is_limiting: bool
-
-
-class StabilizationEntry(BaseModel):
-    exercise: str
-    muscle: str
-    stabilization_score: float
-    dynamic_score: float
-
-
-class CompositeEntry(BaseModel):
-    exercise: str
-    muscle: str
-    composite_score: float
-    activation_component: float
-    phase_component: float
-    bottleneck_component: float
-    stabilization_component: float
+class MatrixV2Response(BaseModel):
+    exercises: List[str]
+    muscles: List[str]
+    matrix: List[List[int]]
 
 
 class DatasetInfo(BaseModel):
     version: str
     name: str
     description: str
-    dimensions: Dict[str, int]
-
-
-class MatrixResponse(BaseModel):
-    version: str
-    dimensions: Dict[str, int]
-    data: List[Dict[str, Any]]
+    exercises: int
+    muscles: int
+    rows: int
 
 
 class VolumeIngest(BaseModel):
