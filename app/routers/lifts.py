@@ -11,12 +11,12 @@ router = APIRouter(prefix="/lifts", tags=["lifts"])
 
 
 class LiftSetIn(BaseModel):
-    performed_at: date
-    exercise: str
-    weight: float = Field(..., ge=0)
-    reps: int = Field(..., ge=0)
-    notes: Optional[str] = None
-    source: Optional[str] = None
+    performed_at: date = Field(..., examples=["2026-02-28"])
+    exercise: str = Field(..., examples=["Conventional Deadlift"])
+    weight: float = Field(..., ge=0, examples=[225])
+    reps: int = Field(..., ge=0, examples=[5])
+    notes: Optional[str] = Field(None, examples=["felt strong"])
+    source: Optional[str] = Field(None, examples=["expo"])
 
 
 @router.post("/sets", summary="Log a lift set")
@@ -55,9 +55,9 @@ def create_lift_set(payload: LiftSetIn, db: Session = Depends(get_db)):
 @router.get("/sets", summary="Query lift sets by date range")
 def get_lift_sets(
     db: Session = Depends(get_db),
-    from_date: Optional[date] = Query(None, alias="from", description="Start date YYYY-MM-DD"),
-    to_date: Optional[date] = Query(None, alias="to", description="End date YYYY-MM-DD"),
-    exercise: Optional[str] = Query(None),
+    from_date: Optional[date] = Query(None, alias="from", description="Start date YYYY-MM-DD", examples=["2026-02-23"]),
+    to_date: Optional[date] = Query(None, alias="to", description="End date YYYY-MM-DD", examples=["2026-02-25"]),
+    exercise: Optional[str] = Query(None, examples=["Conventional Deadlift"]),
     limit: int = Query(200, ge=1, le=1000),
 ):
     q = db.query(LiftSet).join(Exercise)

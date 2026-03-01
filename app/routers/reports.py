@@ -34,7 +34,7 @@ def _compute_muscle_stimulus(db: Session, logs: list) -> Dict[str, float]:
 
 @router.get("/weekly", summary="Weekly training report with muscle stimulus")
 def weekly_report(
-    week: str = Query(..., description="ISO week, e.g. 2026-W09"),
+    week: str = Query(..., description="ISO week, e.g. 2026-W09", examples=["2026-W09"]),
     db: Session = Depends(get_db),
 ):
     logs = db.query(VolumeLog).filter(VolumeLog.week == week).all()

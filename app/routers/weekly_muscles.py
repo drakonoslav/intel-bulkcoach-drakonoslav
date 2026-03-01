@@ -1,3 +1,4 @@
+import re
 from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -15,13 +16,23 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 VALID_LENSES = {"v2", "role", "v3", "v4", "v5"}
 
+_WEEK_RE = re.compile(r"^(\d{4})-W(\d{2})$")
+
 
 def _iso_week_bounds(week_str: str):
-    parts = week_str.split("-W")
-    if len(parts) != 2:
-        raise HTTPException(status_code=400, detail=f"Invalid week format: {week_str}. Use YYYY-WNN")
-    year = int(parts[0])
-    wk = int(parts[1])
+    m = _WEEK_RE.match(week_str)
+    if not m:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid week format: '{week_str}'. Expected YYYY-WNN (e.g. 2026-W09).",
+        )
+    year = int(m.group(1))
+    wk = int(m.group(2))
+    if wk < 1 or wk > 53:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Week number must be 01-53, got {wk:02d}.",
+        )
     jan4 = date(year, 1, 4)
     start_of_w1 = jan4 - timedelta(days=jan4.isoweekday() - 1)
     monday = start_of_w1 + timedelta(weeks=wk - 1)
@@ -31,8 +42,8 @@ def _iso_week_bounds(week_str: str):
 
 @router.get("/weekly-muscles", summary="Weekly muscle stimulus report with configurable lens")
 def weekly_muscles(
-    week: str = Query(..., description="ISO week e.g. 2026-W09"),
-    lens: str = Query("v2", description="v2, role, v3, v4, or v5"),
+    week: str = Query(..., description="ISO week e.g. 2026-W09", examples=["2026-W09"]),
+    lens: str = Query("v2", description="Matrix lens: v2, role, v3, v4, or v5", examples=["v2", "role", "v3", "v4", "v5"]),
     includeSets: bool = Query(False, description="Include individual sets in response"),
     db: Session = Depends(get_db),
 ):
