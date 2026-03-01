@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from app.database import engine, SessionLocal, DATABASE_URL
 from app.models import Base
 from app.seed import seed_from_csv
-from app.routers import datasets, matrix, volume, reports, optimizer, composite, presets, weekly_optimizer, lifts, weekly_muscles, muscle_dose, coach
+from app.routers import datasets, matrix, volume, reports, optimizer, composite, presets, weekly_optimizer, lifts, weekly_muscles, muscle_dose, coach, admin
 
 _parsed = urlparse(DATABASE_URL)
 _dialect = _parsed.scheme.split("+")[0] if "+" in _parsed.scheme else _parsed.scheme
@@ -72,6 +72,7 @@ app.include_router(lifts.router)
 app.include_router(weekly_muscles.router)
 app.include_router(muscle_dose.router)
 app.include_router(coach.router)
+app.include_router(admin.router)
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

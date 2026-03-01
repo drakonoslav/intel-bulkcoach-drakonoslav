@@ -34,3 +34,8 @@ outputType = "webview"
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+ADMIN_TOKEN = "9ca7fda99d336704e2450de272d4cd8a198cc3b26e0db50f"
