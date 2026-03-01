@@ -43,6 +43,7 @@ def seed_from_csv(db: Session) -> bool:
         _seed_exercise_tags(db)
         _seed_equipment(db)
         _seed_exercise_equipment(db)
+        _seed_hands_grip_muscle(db)
         return False
 
     with open(ACTIVATION_CSV, newline="", encoding="utf-8") as f:
@@ -83,6 +84,7 @@ def seed_from_csv(db: Session) -> bool:
     _seed_exercise_tags(db)
     _seed_equipment(db)
     _seed_exercise_equipment(db)
+    _seed_hands_grip_muscle(db)
     return True
 
 
@@ -505,6 +507,18 @@ _EXERCISE_EQUIPMENT = {
     "Sled Pull": ["sled"],
     "Tire Flip": ["tire"],
 }
+
+
+def _seed_hands_grip_muscle(db: Session):
+    from app.models import Muscle
+    existing = db.query(Muscle).filter(Muscle.name == "Hands/Grip").first()
+    if existing:
+        return
+    m = Muscle(name="Hands/Grip")
+    db.add(m)
+    db.commit()
+    db.refresh(m)
+    print(f"  muscles: added Hands/Grip (id={m.id})")
 
 
 def _seed_equipment(db: Session):
