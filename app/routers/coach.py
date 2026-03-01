@@ -625,6 +625,8 @@ class SessionStartIn(BaseModel):
     planned_for: date = Field(..., examples=["2026-02-28"])
     mode: str = Field("compound", examples=["compound", "isolation"])
     preset: str = Field("hypertrophy", examples=["hypertrophy"])
+    context: str = Field("gym", examples=["gym", "home"])
+    available: Optional[str] = Field(None, examples=["dumbbell,bench,pullup_bar"])
     slots: Optional[str] = Field(None, examples=["hinge:2,squat:2,push:2,pull:2"])
 
 
@@ -637,6 +639,14 @@ class SessionCompleteIn(BaseModel):
 def session_start(payload: SessionStartIn, db: Session = Depends(get_db)):
     if payload.mode not in ("compound", "isolation"):
         raise HTTPException(status_code=400, detail="mode must be 'compound' or 'isolation'")
+    if payload.preset not in ("hypertrophy", "strength", "injury"):
+        raise HTTPException(status_code=400, detail="preset must be 'hypertrophy', 'strength', or 'injury'")
+    if payload.context not in ("gym", "home"):
+        raise HTTPException(status_code=400, detail="context must be 'gym' or 'home'")
+
+    avail = payload.available
+    if avail is not None and avail.strip() == "":
+        avail = None
 
     plan_response = recommend_session(
         date_param=payload.planned_for,
@@ -648,6 +658,7 @@ def session_start(payload: SessionStartIn, db: Session = Depends(get_db)):
         bnPercentile=60,
         stabPercentile=70,
         ctPercentile=70,
+        available=avail,
         db=db,
     )
 
