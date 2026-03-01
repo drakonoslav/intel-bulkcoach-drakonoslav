@@ -35,6 +35,20 @@ class ActivationMatrixV2(Base):
     muscle = relationship("Muscle")
 
 
+class RoleWeightedMatrixV2(Base):
+    __tablename__ = "role_weighted_matrix_v2"
+    __table_args__ = (
+        CheckConstraint("role_weight BETWEEN 0 AND 1", name="ck_rw_range"),
+    )
+
+    exercise_id = Column(Integer, ForeignKey("exercises.id"), primary_key=True)
+    muscle_id = Column(Integer, ForeignKey("muscles.id"), primary_key=True)
+    role_weight = Column(Float, nullable=False)
+
+    exercise = relationship("Exercise")
+    muscle = relationship("Muscle")
+
+
 class VolumeLog(Base):
     __tablename__ = "volume_logs"
 
