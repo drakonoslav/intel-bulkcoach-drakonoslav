@@ -38,4 +38,4 @@ externalPort = 80
 [userenv]
 
 [userenv.shared]
-ADMIN_TOKEN = "9ca7fda99d336704e2450de272d4cd8a198cc3b26e0db50f"
+ADMIN_TOKEN = "7e194a28791ebb0e46df01dd1525b3f8ecc8e642dadcf774e8688d70090ea406"
