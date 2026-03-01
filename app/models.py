@@ -49,6 +49,22 @@ class RoleWeightedMatrixV2(Base):
     muscle = relationship("Muscle")
 
 
+class PhaseMatrixV3(Base):
+    __tablename__ = "phase_matrix_v3"
+    __table_args__ = (
+        CheckConstraint("phase IN ('initiation','midrange','lockout')", name="ck_phase_val"),
+        CheckConstraint("phase_value BETWEEN 0 AND 5", name="ck_pv_range"),
+    )
+
+    exercise_id = Column(Integer, ForeignKey("exercises.id"), primary_key=True)
+    muscle_id = Column(Integer, ForeignKey("muscles.id"), primary_key=True)
+    phase = Column(Text, primary_key=True)
+    phase_value = Column(Float, nullable=False)
+
+    exercise = relationship("Exercise")
+    muscle = relationship("Muscle")
+
+
 class VolumeLog(Base):
     __tablename__ = "volume_logs"
 
