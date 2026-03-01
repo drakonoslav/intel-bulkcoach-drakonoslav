@@ -54,7 +54,7 @@ def get_composite_muscles(
     raw_hierarchy = [r.payload.get("V2_RoleWeightedExposure", 0) for r, _ in rows]
     raw_bottleneck = [r.payload.get("Total_Bottleneck_Pressure", 0) for r, _ in rows]
     raw_stability = [r.payload.get("Stabilization_Burden_Total", 0) for r, _ in rows]
-    raw_phase = [abs(r.payload.get("V3_PhaseSkew_Index", 0)) for r, _ in rows]
+    raw_phase = [r.payload.get("V3_PeakPhaseShare", 0) for r, _ in rows]
 
     n_exp = _normalize(raw_exposure)
     n_hier = _normalize(raw_hierarchy)
