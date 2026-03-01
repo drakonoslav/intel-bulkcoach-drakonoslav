@@ -1,11 +1,18 @@
+import logging
+import traceback
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from typing import Optional, List
 from datetime import date
 
 from app.database import get_db
 from app.models import LiftSet, Exercise
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/lifts", tags=["lifts"])
 
@@ -62,51 +69,83 @@ def create_lift_sets_batch(
     bestEffort: bool = Query(False, description="If true, insert valid sets and return errors for invalid ones"),
     db: Session = Depends(get_db),
 ):
-    ex_cache = {}
-    all_exercises = db.query(Exercise).all()
-    for e in all_exercises:
-        ex_cache[e.name] = e
+    error_id = uuid.uuid4().hex[:12]
 
-    if not bestEffort:
-        errors = []
+    try:
+        ex_cache = {}
+        all_exercises = db.query(Exercise).all()
+        for e in all_exercises:
+            ex_cache[e.name] = e
+
+        if not bestEffort:
+            errors = []
+            for i, s in enumerate(payload.sets):
+                if s.exercise not in ex_cache:
+                    errors.append({"index": i, "exercise": s.exercise, "error": "Unknown exercise"})
+            if errors:
+                raise HTTPException(status_code=400, detail={"message": "Batch rejected: unknown exercises", "errors": errors})
+
+        rows = []
+        inserted_errors = []
         for i, s in enumerate(payload.sets):
-            if s.exercise not in ex_cache:
-                errors.append({"index": i, "exercise": s.exercise, "error": "Unknown exercise"})
-        if errors:
-            raise HTTPException(status_code=400, detail={"message": "Batch rejected: unknown exercises", "errors": errors})
+            ex = ex_cache.get(s.exercise)
+            if not ex:
+                if bestEffort:
+                    inserted_errors.append({"index": i, "exercise": s.exercise, "error": "Unknown exercise"})
+                    continue
+            tonnage = s.weight * s.reps
+            row = LiftSet(
+                performed_at=s.performed_at,
+                exercise_id=ex.id,
+                weight=s.weight,
+                reps=s.reps,
+                tonnage=tonnage,
+                notes=s.notes,
+                source=s.source,
+            )
+            db.add(row)
+            rows.append(row)
 
-    rows = []
-    inserted_errors = []
-    for i, s in enumerate(payload.sets):
-        ex = ex_cache.get(s.exercise)
-        if not ex:
-            if bestEffort:
-                inserted_errors.append({"index": i, "exercise": s.exercise, "error": "Unknown exercise"})
-                continue
-        tonnage = s.weight * s.reps
-        row = LiftSet(
-            performed_at=s.performed_at,
-            exercise_id=ex.id,
-            weight=s.weight,
-            reps=s.reps,
-            tonnage=tonnage,
-            notes=s.notes,
-            source=s.source,
+        logger.info("batch error_id=%s before_commit count=%d", error_id, len(rows))
+        db.flush()
+        pre_commit_ids = [r.id for r in rows]
+        db.commit()
+        logger.info("batch error_id=%s after_commit ids=%s", error_id, pre_commit_ids)
+
+        persisted = db.execute(
+            text("SELECT id, performed_at, exercise_id, weight, reps, tonnage FROM lift_sets WHERE id = ANY(:ids) ORDER BY id"),
+            {"ids": pre_commit_ids},
+        ).fetchall()
+
+        persisted_rows = [
+            {"id": r[0], "performed_at": str(r[1]), "exercise_id": r[2], "weight": float(r[3]), "reps": r[4], "tonnage": float(r[5])}
+            for r in persisted
+        ]
+
+        result = {
+            "inserted": len(persisted_rows),
+            "rows": persisted_rows,
+            "committed": True,
+            "persisted_count": len(persisted_rows),
+        }
+        if bestEffort and inserted_errors:
+            result["errors"] = inserted_errors
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("batch error_id=%s EXCEPTION\n%s", error_id, traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "internal_error",
+                "error_id": error_id,
+                "where": "lifts.batch",
+                "hint": str(exc)[:200],
+                "committed": False,
+            },
         )
-        db.add(row)
-        rows.append(row)
-
-    db.commit()
-    for row in rows:
-        db.refresh(row)
-
-    result = {
-        "inserted": len(rows),
-        "rows": [{"id": r.id, "tonnage": r.tonnage} for r in rows],
-    }
-    if bestEffort and inserted_errors:
-        result["errors"] = inserted_errors
-    return result
 
 
 @router.get("/sets", summary="Query lift sets by date range")
