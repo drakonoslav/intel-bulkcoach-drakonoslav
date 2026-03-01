@@ -362,3 +362,40 @@ def _seed_exercise_tags(db: Session):
     db.commit()
     for slot in sorted(counts):
         print(f"  exercise_tags: {slot} = {counts[slot]}")
+    _seed_exercise_tag_overrides(db)
+
+
+_TAG_OVERRIDES = {
+    "Push Press": ["oly"],
+    "Thruster": ["squat", "push"],
+    "Clean and Jerk": ["hinge", "push"],
+    "Power Clean": ["hinge"],
+    "Hang Power Clean": ["hinge"],
+    "Clean Pull": ["hinge"],
+    "Clean High Pull": ["hinge"],
+    "Power Snatch": ["hinge"],
+    "Hang Power Snatch": ["hinge"],
+    "Snatch Pull": ["hinge"],
+    "Muscle-Up": ["push"],
+    "Devil\u2019s Press": ["hinge", "push"],
+    "Overhead Carry": ["push"],
+}
+
+
+def _seed_exercise_tag_overrides(db: Session):
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    ex_map = _get_exercise_map(db)
+    added = 0
+    for ex_name, extra_slots in _TAG_OVERRIDES.items():
+        eid = ex_map.get(ex_name)
+        if eid is None:
+            continue
+        for slot in extra_slots:
+            stmt = pg_insert(ExerciseTag).values(
+                exercise_id=eid, slot=slot
+            ).on_conflict_do_nothing()
+            result = db.execute(stmt)
+            added += result.rowcount
+    db.commit()
+    if added:
+        print(f"  exercise_tags: added {added} secondary tags via overrides")
