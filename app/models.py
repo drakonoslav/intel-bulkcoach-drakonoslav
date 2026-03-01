@@ -109,6 +109,18 @@ class CompositeMuscleIndex(Base):
     muscle = relationship("Muscle")
 
 
+class ExerciseTag(Base):
+    __tablename__ = "exercise_tags"
+    __table_args__ = (
+        CheckConstraint("slot IN ('hinge','squat','push','pull','carry','oly')", name="ck_slot_val"),
+    )
+
+    exercise_id = Column(Integer, ForeignKey("exercises.id"), primary_key=True)
+    slot = Column(Text, primary_key=True)
+
+    exercise = relationship("Exercise")
+
+
 class Preset(Base):
     __tablename__ = "presets"
 

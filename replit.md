@@ -45,6 +45,7 @@ attached_assets/
 | `stabilization_matrix_v5` | 4784 | 92×26×2 float values (0–1), PK (exercise_id, muscle_id, component) |
 | `composite_muscle_index` | 26 | Per-muscle composite score (0–100) + JSONB payload, PK (muscle_id) |
 | `presets` | 3 | Named weight presets (hypertrophy/strength/injury), JSONB weights, PK (name) |
+| `exercise_tags` | 92 | Per-exercise slot tags (hinge/squat/push/pull/carry/oly), PK (exercise_id, slot) |
 | `volume_logs` | var | Logged training sets |
 
 ## API Routes
@@ -59,6 +60,7 @@ attached_assets/
 | GET | `/composite/muscles` | 26-row composite muscle profile index with JSONB payload |
 | GET | `/composite/muscles?preset=hypertrophy\|strength\|injury` | Same + preset_score and preset_rank |
 | GET | `/presets` | List preset names + weight vectors |
+| GET | `/optimizer/weekly-template?preset=...` | Weekly template optimizer with slots, redundancy, fatigue constraints |
 | POST | `/volume/ingest` | Log a training set |
 | GET | `/volume/logs` | Query volume history |
 | GET | `/reports/weekly` | Weekly report with per-muscle stimulus |

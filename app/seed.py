@@ -9,7 +9,8 @@ import os
 from sqlalchemy.orm import Session
 from app.models import (
     Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3,
-    BottleneckMatrixV4, StabilizationMatrixV5, CompositeMuscleIndex, Preset
+    BottleneckMatrixV4, StabilizationMatrixV5, CompositeMuscleIndex, Preset,
+    ExerciseTag,
 )
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "attached_assets")
@@ -39,6 +40,7 @@ def seed_from_csv(db: Session) -> bool:
         _seed_stabilization_v5(db)
         _seed_composite_muscle(db)
         _seed_presets(db)
+        _seed_exercise_tags(db)
         return False
 
     with open(ACTIVATION_CSV, newline="", encoding="utf-8") as f:
@@ -76,6 +78,7 @@ def seed_from_csv(db: Session) -> bool:
     _seed_stabilization_v5(db)
     _seed_composite_muscle(db)
     _seed_presets(db)
+    _seed_exercise_tags(db)
     return True
 
 
@@ -318,3 +321,44 @@ def _seed_presets(db: Session):
     for name, weights in PRESET_DATA.items():
         db.add(Preset(name=name, weights=weights))
     db.commit()
+
+
+_TAG_RULES = [
+    ("oly", ["Clean", "Snatch", "Jerk", "Thruster", "High Pull", "Complex"]),
+    ("carry", ["Farmer", "Suitcase", "Overhead Carry", "Zercher Carry", "Yoke", "Sandbag", "Odd-Object", "Sled", "Tire Flip"]),
+    ("squat", ["Squat", "Hack Squat", "Goblet", "Zercher Squat", "Front Squat", "Box Squat", "Pause Squat", "Overhead Squat", "Safety Bar Squat"]),
+    ("hinge", ["Deadlift", "Romanian", "Stiff-Leg", "Good Morning", "Rack Pull", "Pin Pull", "Block", "Trap-Bar", "Glute-Ham Raise", "Hip Thrust", "Glute Bridge"]),
+    ("push", ["Bench", "Press", "Push-Up", "Dip", "Handstand"]),
+    ("pull", ["Row", "Pull-Up", "Chin-Up", "Cable Row", "Inverted Row", "Meadows", "Pendlay", "Yates", "T-Bar", "Muscle-Up"]),
+    ("squat", ["Lunge", "Split Squat", "Step-Up", "Pistol"]),
+]
+
+
+def _tag_exercise(name: str) -> set:
+    tags = set()
+    for slot, patterns in _TAG_RULES:
+        for pat in patterns:
+            if pat.lower() in name.lower():
+                tags.add(slot)
+                break
+    return tags
+
+
+def _seed_exercise_tags(db: Session):
+    if db.query(ExerciseTag).count() > 0:
+        return
+    exercises = db.query(Exercise).all()
+    counts = {}
+    untagged = []
+    for ex in exercises:
+        tags = _tag_exercise(ex.name)
+        if not tags:
+            untagged.append(ex.name)
+        for slot in tags:
+            db.add(ExerciseTag(exercise_id=ex.id, slot=slot))
+            counts[slot] = counts.get(slot, 0) + 1
+    if untagged:
+        print(f"WARNING: {len(untagged)} exercises untagged: {untagged}")
+    db.commit()
+    for slot in sorted(counts):
+        print(f"  exercise_tags: {slot} = {counts[slot]}")

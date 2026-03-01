@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, SessionLocal
 from app.models import Base
 from app.seed import seed_from_csv
-from app.routers import datasets, matrix, volume, reports, optimizer, composite, presets
+from app.routers import datasets, matrix, volume, reports, optimizer, composite, presets, weekly_optimizer
 
 Base.metadata.create_all(bind=engine)
 
@@ -32,6 +32,7 @@ app.include_router(reports.router)
 app.include_router(optimizer.router)
 app.include_router(composite.router)
 app.include_router(presets.router)
+app.include_router(weekly_optimizer.router)
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
