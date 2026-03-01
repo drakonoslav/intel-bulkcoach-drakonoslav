@@ -1,3 +1,4 @@
+import math
 from collections import defaultdict
 from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Query
@@ -12,7 +13,12 @@ HANDS_GRIP_NAME = "Hands/Grip"
 FOREARMS_NAME = "Forearms"
 HANDS_GRIP_SCALE = 0.85
 MUSCLE_SCHEMA_VERSION = 27
+BALANCE_SCHEMA_VERSION = 1
 ROLLING_WINDOW_DAYS = 7
+EPS = 1e-6
+
+PUSH_MEMBERS = ["Pectorals", "Front/Anterior Delt", "Triceps"]
+PULL_MEMBERS = ["Lats", "Upper Back", "Middle Back", "Rear/Posterior Delt", "Biceps"]
 
 
 def _compute_day_doses(sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hands_grip_id):
@@ -124,14 +130,43 @@ def muscle_day(
             "tonnage": s.tonnage,
         })
 
+    name_to_id = {v: k for k, v in muscle_map.items()}
+    push_ids = [name_to_id[n] for n in PUSH_MEMBERS if n in name_to_id]
+    pull_ids = [name_to_id[n] for n in PULL_MEMBERS if n in name_to_id]
+
+    def _push_pull(dose_map, label):
+        push_sum = sum(dose_map[mid] for mid in push_ids)
+        pull_sum = sum(dose_map[mid] for mid in pull_ids)
+        ratio = push_sum / max(pull_sum, EPS)
+        log_ratio = math.log((push_sum + EPS) / (pull_sum + EPS))
+        return {
+            "mode": label,
+            "push_sum": round(push_sum, 2),
+            "pull_sum": round(pull_sum, 2),
+            "ratio": round(ratio, 4),
+            "log_ratio": round(log_ratio, 4),
+            "eps": EPS,
+            "members": {
+                "push": PUSH_MEMBERS,
+                "pull": PULL_MEMBERS,
+            },
+        }
+
+    balances = {
+        "push_pull_total": _push_pull(today_total, "total"),
+        "push_pull_direct": _push_pull(today_direct, "direct"),
+    }
+
     return {
         "date": str(date_param),
         "source": "intel",
         "muscle_schema_version": MUSCLE_SCHEMA_VERSION,
+        "balance_schema_version": BALANCE_SCHEMA_VERSION,
         "window_from": str(window_from),
         "window_to": str(window_to),
         "total_sets": len(today_sets),
         "total_tonnage": round(total_tonnage, 2),
         "exercises": exercises_used,
         "regions": regions,
+        "balances": balances,
     }
