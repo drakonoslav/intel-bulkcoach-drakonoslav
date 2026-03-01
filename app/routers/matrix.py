@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.database import get_db
-from app.models import Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3, BottleneckMatrixV4
+from app.models import Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3, BottleneckMatrixV4, StabilizationMatrixV5
 
 router = APIRouter(prefix="/matrix", tags=["matrix"])
 
@@ -157,3 +157,69 @@ def get_v4_bottleneck(
     return _build_matrix_response(
         db, BottleneckMatrixV4, "bottleneck_coeff", exercise, muscle, 0.0
     )
+
+
+@router.get("/v5", summary="Dynamic/stability matrix v5 (92x26, float 0-1, per component)")
+def get_v5(
+    component: str = Query(..., description="Component: dynamic or stability"),
+    exercise: Optional[str] = Query(None, description="Filter to a single exercise"),
+    muscle: Optional[str] = Query(None, description="Filter to a single muscle"),
+    db: Session = Depends(get_db),
+):
+    component = component.strip().lower()
+    if component not in ("dynamic", "stability"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="component must be dynamic or stability")
+
+    all_muscles = db.query(Muscle).order_by(Muscle.id).all()
+    muscle_names = [m.name for m in all_muscles]
+    muscle_id_to_idx = {m.id: i for i, m in enumerate(all_muscles)}
+
+    ex_q = db.query(Exercise).order_by(Exercise.id)
+    if exercise:
+        ex_q = ex_q.filter(Exercise.name == exercise.strip())
+    all_exercises = ex_q.all()
+    exercise_names = [e.name for e in all_exercises]
+    exercise_ids = [e.id for e in all_exercises]
+
+    q = db.query(StabilizationMatrixV5).filter(
+        StabilizationMatrixV5.exercise_id.in_(exercise_ids),
+        StabilizationMatrixV5.component == component,
+    )
+    if muscle:
+        mu = db.query(Muscle).filter(Muscle.name == muscle.strip()).first()
+        if mu:
+            q = q.filter(StabilizationMatrixV5.muscle_id == mu.id)
+
+    rows_raw = q.all()
+
+    if muscle and not exercise:
+        mu = db.query(Muscle).filter(Muscle.name == muscle.strip()).first()
+        if mu:
+            q2 = db.query(StabilizationMatrixV5).filter(
+                StabilizationMatrixV5.muscle_id == mu.id,
+                StabilizationMatrixV5.component == component,
+            ).order_by(StabilizationMatrixV5.exercise_id)
+            rows_raw = q2.all()
+            ex_ids_in = sorted(set(r.exercise_id for r in rows_raw))
+            all_exercises = db.query(Exercise).filter(Exercise.id.in_(ex_ids_in)).order_by(Exercise.id).all()
+            exercise_names = [e.name for e in all_exercises]
+            exercise_ids = [e.id for e in all_exercises]
+            muscle_names = [mu.name]
+            muscle_id_to_idx = {mu.id: 0}
+
+    ex_id_to_idx = {eid: i for i, eid in enumerate(exercise_ids)}
+    n_muscles = len(muscle_names)
+    matrix = [[0.0] * n_muscles for _ in range(len(exercise_names))]
+
+    for r in rows_raw:
+        ei = ex_id_to_idx.get(r.exercise_id)
+        mi = muscle_id_to_idx.get(r.muscle_id)
+        if ei is not None and mi is not None:
+            matrix[ei][mi] = r.value
+
+    return {
+        "exercises": exercise_names,
+        "muscles": muscle_names,
+        "matrix": matrix,
+    }

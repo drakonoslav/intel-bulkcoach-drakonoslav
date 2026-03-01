@@ -79,6 +79,22 @@ class BottleneckMatrixV4(Base):
     muscle = relationship("Muscle")
 
 
+class StabilizationMatrixV5(Base):
+    __tablename__ = "stabilization_matrix_v5"
+    __table_args__ = (
+        CheckConstraint("component IN ('dynamic','stability')", name="ck_comp_val"),
+        CheckConstraint("value BETWEEN 0 AND 1", name="ck_stab_range"),
+    )
+
+    exercise_id = Column(Integer, ForeignKey("exercises.id"), primary_key=True)
+    muscle_id = Column(Integer, ForeignKey("muscles.id"), primary_key=True)
+    component = Column(Text, primary_key=True)
+    value = Column(Float, nullable=False)
+
+    exercise = relationship("Exercise")
+    muscle = relationship("Muscle")
+
+
 class VolumeLog(Base):
     __tablename__ = "volume_logs"
 

@@ -9,7 +9,7 @@ import os
 from sqlalchemy.orm import Session
 from app.models import (
     Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3,
-    BottleneckMatrixV4
+    BottleneckMatrixV4, StabilizationMatrixV5
 )
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "attached_assets")
@@ -18,6 +18,8 @@ ACTIVATION_CSV = os.path.join(ASSETS_DIR, "Exercise_Muscle_Matrix_v2_17723291504
 ROLE_WEIGHTED_CSV = os.path.join(ASSETS_DIR, "Role_Weighted_Matrix_v2_1772329858110.csv")
 PHASE_V3_XLSX = os.path.join(ASSETS_DIR, "V3_Phase_Model_Outputs_1772330146444.xlsx")
 BOTTLENECK_CSV = os.path.join(ASSETS_DIR, "V4_Bottleneck_Coefficient_Matrix_1772330621400.csv")
+V5_DYNAMIC_CSV = os.path.join(ASSETS_DIR, "V5_Dynamic_Matrix_1772330962718.csv")
+V5_STABILITY_CSV = os.path.join(ASSETS_DIR, "V5_Stability_Matrix_1772330962718.csv")
 
 
 def _get_muscle_map(db: Session):
@@ -33,6 +35,7 @@ def seed_from_csv(db: Session) -> bool:
         _seed_role_weighted(db)
         _seed_phase_v3(db)
         _seed_bottleneck_v4(db)
+        _seed_stabilization_v5(db)
         return False
 
     with open(ACTIVATION_CSV, newline="", encoding="utf-8") as f:
@@ -67,6 +70,7 @@ def seed_from_csv(db: Session) -> bool:
     _seed_role_weighted(db)
     _seed_phase_v3(db)
     _seed_bottleneck_v4(db)
+    _seed_stabilization_v5(db)
     return True
 
 
@@ -189,5 +193,49 @@ def _seed_bottleneck_v4(db: Session):
                     muscle_id=mu_id,
                     bottleneck_coeff=val,
                 ))
+
+    db.commit()
+
+
+def _seed_stabilization_v5(db: Session):
+    if db.query(StabilizationMatrixV5).count() > 0:
+        return
+
+    muscle_map = _get_muscle_map(db)
+    exercise_map = _get_exercise_map(db)
+
+    csv_component_map = {
+        V5_DYNAMIC_CSV: "dynamic",
+        V5_STABILITY_CSV: "stability",
+    }
+
+    for csv_path, component_key in csv_component_map.items():
+        if not os.path.exists(csv_path):
+            continue
+
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            muscle_names = [h.strip() for h in header[1:]]
+
+            for row in reader:
+                exercise_name = row[0].strip()
+                if not exercise_name:
+                    continue
+                ex_id = exercise_map.get(exercise_name)
+                if ex_id is None:
+                    continue
+
+                for i, muscle_name in enumerate(muscle_names):
+                    mu_id = muscle_map.get(muscle_name)
+                    if mu_id is None:
+                        continue
+                    val = float(row[i + 1].strip())
+                    db.add(StabilizationMatrixV5(
+                        exercise_id=ex_id,
+                        muscle_id=mu_id,
+                        component=component_key,
+                        value=val,
+                    ))
 
     db.commit()
