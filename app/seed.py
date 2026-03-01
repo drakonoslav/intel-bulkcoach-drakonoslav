@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3,
     BottleneckMatrixV4, StabilizationMatrixV5, CompositeMuscleIndex, Preset,
-    ExerciseTag,
+    ExerciseTag, Equipment, ExerciseEquipment,
 )
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "attached_assets")
@@ -41,6 +41,8 @@ def seed_from_csv(db: Session) -> bool:
         _seed_composite_muscle(db)
         _seed_presets(db)
         _seed_exercise_tags(db)
+        _seed_equipment(db)
+        _seed_exercise_equipment(db)
         return False
 
     with open(ACTIVATION_CSV, newline="", encoding="utf-8") as f:
@@ -79,6 +81,8 @@ def seed_from_csv(db: Session) -> bool:
     _seed_composite_muscle(db)
     _seed_presets(db)
     _seed_exercise_tags(db)
+    _seed_equipment(db)
+    _seed_exercise_equipment(db)
     return True
 
 
@@ -399,3 +403,141 @@ def _seed_exercise_tag_overrides(db: Session):
     db.commit()
     if added:
         print(f"  exercise_tags: added {added} secondary tags via overrides")
+
+
+_EQUIPMENT_TAGS = [
+    "rack", "barbell", "plates", "bench", "landmine", "dumbbell",
+    "kettlebell", "pullup_bar", "cable", "sled", "tire", "yoke",
+    "sandbag", "trap_bar", "machine_hack", "rings", "ghr",
+]
+
+_EXERCISE_EQUIPMENT = {
+    "Back Squat (high-bar)": ["rack", "barbell", "plates"],
+    "Back Squat (low-bar)": ["rack", "barbell", "plates"],
+    "Front Squat": ["rack", "barbell", "plates"],
+    "Box Squat": ["rack", "barbell", "plates"],
+    "Pause Squat": ["rack", "barbell", "plates"],
+    "Overhead Squat": ["barbell", "plates"],
+    "Zercher Squat": ["barbell", "plates"],
+    "Goblet Squat": ["dumbbell"],
+    "Safety Bar Squat": ["rack", "barbell", "plates"],
+    "Hack Squat": ["machine_hack"],
+    "Conventional Deadlift": ["barbell", "plates"],
+    "Sumo Deadlift": ["barbell", "plates"],
+    "Romanian Deadlift": ["barbell", "plates"],
+    "Stiff-Leg Deadlift": ["barbell", "plates"],
+    "Deficit Deadlift": ["barbell", "plates"],
+    "Block/Pin Pull Deadlift": ["rack", "barbell", "plates"],
+    "Rack Pull": ["rack", "barbell", "plates"],
+    "Trap-Bar Deadlift (high-handle)": ["trap_bar", "plates"],
+    "Trap-Bar Deadlift (low-handle)": ["trap_bar", "plates"],
+    "Single-Leg Romanian Deadlift": ["dumbbell"],
+    "Good Morning (barbell)": ["rack", "barbell", "plates"],
+    "Glute-Ham Raise": ["ghr"],
+    "Walking Lunge": ["dumbbell"],
+    "Reverse Lunge": ["dumbbell"],
+    "Forward Lunge": ["dumbbell"],
+    "Bulgarian Split Squat": ["dumbbell", "bench"],
+    "Rear-Foot-Elevated Split Squat": ["dumbbell", "bench"],
+    "Step-Up (high box, loaded)": ["dumbbell"],
+    "Single-Leg Squat / Pistol Squat": [],
+    "Barbell Hip Thrust": ["barbell", "plates", "bench"],
+    "Barbell Glute Bridge": ["barbell", "plates"],
+    "Single-Leg Hip Thrust": ["bench"],
+    "Flat Barbell Bench Press": ["barbell", "plates", "bench"],
+    "Flat Dumbbell Bench Press": ["dumbbell", "bench"],
+    "Incline Barbell Bench Press": ["barbell", "plates", "bench"],
+    "Incline Dumbbell Bench Press": ["dumbbell", "bench"],
+    "Decline Bench Press": ["barbell", "plates", "bench"],
+    "Close-Grip Bench Press": ["barbell", "plates", "bench"],
+    "Floor Press": ["barbell", "plates"],
+    "Board Press / Pin Press": ["rack", "barbell", "plates", "bench"],
+    "Spoto Press": ["barbell", "plates", "bench"],
+    "Weighted Push-Up": ["plates"],
+    "Parallel Bar Dips (chest-focused)": [],
+    "Parallel Bar Dips (tricep-focused)": [],
+    "Ring Dips": ["rings"],
+    "Standing Barbell Overhead Press": ["barbell", "plates"],
+    "Standing Dumbbell Overhead Press": ["dumbbell"],
+    "Seated Barbell Overhead Press": ["barbell", "plates", "bench"],
+    "Seated Dumbbell Overhead Press": ["dumbbell", "bench"],
+    "Push Press": ["barbell", "plates"],
+    "Push Jerk": ["barbell", "plates"],
+    "Split Jerk": ["barbell", "plates"],
+    "Handstand Push-Up": [],
+    "Viking Press": ["landmine", "barbell", "plates"],
+    "Bent-Over Barbell Row (overhand)": ["barbell", "plates"],
+    "Bent-Over Barbell Row (underhand)": ["barbell", "plates"],
+    "Pendlay Row": ["barbell", "plates"],
+    "Yates Row": ["barbell", "plates"],
+    "Chest-Supported Row": ["dumbbell", "bench"],
+    "T-Bar Row": ["landmine", "barbell", "plates"],
+    "Meadows Row": ["landmine", "barbell", "plates"],
+    "Seated Cable Row": ["cable"],
+    "Dumbbell Row": ["dumbbell", "bench"],
+    "Inverted Row": ["rack"],
+    "Pull-Up (overhand grip)": ["pullup_bar"],
+    "Chin-Up (underhand grip)": ["pullup_bar"],
+    "Neutral-Grip Pull-Up": ["pullup_bar"],
+    "Weighted Pull-Up": ["pullup_bar", "plates"],
+    "Weighted Chin-Up": ["pullup_bar", "plates"],
+    "Commando Pull-Up": ["pullup_bar"],
+    "L-Sit Pull-Up": ["pullup_bar"],
+    "Muscle-Up": ["pullup_bar"],
+    "Power Clean": ["barbell", "plates"],
+    "Hang Power Clean": ["barbell", "plates"],
+    "Clean Pull": ["barbell", "plates"],
+    "Clean and Jerk": ["barbell", "plates"],
+    "Power Snatch": ["barbell", "plates"],
+    "Hang Power Snatch": ["barbell", "plates"],
+    "Snatch Pull": ["barbell", "plates"],
+    "Clean High Pull": ["barbell", "plates"],
+    "Barbell Complex": ["barbell", "plates"],
+    "Thruster": ["barbell", "plates"],
+    "Devil\u2019s Press": ["dumbbell"],
+    "Farmer\u2019s Walk": ["dumbbell"],
+    "Suitcase Carry": ["dumbbell"],
+    "Overhead Carry": ["dumbbell"],
+    "Zercher Carry": ["barbell", "plates"],
+    "Yoke Walk": ["yoke"],
+    "Sandbag Carry": ["sandbag"],
+    "Sled Push": ["sled"],
+    "Sled Pull": ["sled"],
+    "Tire Flip": ["tire"],
+}
+
+
+def _seed_equipment(db: Session):
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    existing = db.query(Equipment).count()
+    if existing >= len(_EQUIPMENT_TAGS):
+        return
+    added = 0
+    for tag in _EQUIPMENT_TAGS:
+        stmt = pg_insert(Equipment).values(tag=tag).on_conflict_do_nothing()
+        result = db.execute(stmt)
+        added += result.rowcount
+    db.commit()
+    if added:
+        print(f"  equipment: seeded {added} tags (total {len(_EQUIPMENT_TAGS)})")
+
+
+def _seed_exercise_equipment(db: Session):
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    existing = db.query(ExerciseEquipment).count()
+    if existing > 0:
+        return
+    ex_map = _get_exercise_map(db)
+    added = 0
+    for ex_name, tags in _EXERCISE_EQUIPMENT.items():
+        eid = ex_map.get(ex_name)
+        if eid is None:
+            continue
+        for tag in tags:
+            stmt = pg_insert(ExerciseEquipment).values(
+                exercise_id=eid, equipment_tag=tag, required=1
+            ).on_conflict_do_nothing()
+            result = db.execute(stmt)
+            added += result.rowcount
+    db.commit()
+    print(f"  exercise_equipment: seeded {added} required-equipment mappings across {len(_EXERCISE_EQUIPMENT)} exercises")

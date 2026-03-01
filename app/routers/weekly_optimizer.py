@@ -9,6 +9,7 @@ from app.models import (
     Exercise, Muscle, ActivationMatrixV2, BottleneckMatrixV4,
     StabilizationMatrixV5, CompositeMuscleIndex, Preset, ExerciseTag,
 )
+from app.equipment_filter import build_equipment_eligible, filter_candidates_by_equipment
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ def weekly_template(
     stabilityLambda: float = Query(0.20, description="Stability penalty coefficient"),
     bottleneckBudget: Optional[float] = Query(None, description="Hard cap on total bottleneck sum"),
     stabilityBudget: Optional[float] = Query(None, description="Hard cap on total stability sum"),
+    available: Optional[str] = Query(None, description="Comma-separated equipment tags available", examples=["barbell,plates,dumbbell,bench,pullup_bar"]),
     db: Session = Depends(get_db),
 ):
     slot_counts = _parse_slots(slots)
@@ -155,13 +157,29 @@ def weekly_template(
             stab_vec[r.exercise_id] = [0.0] * n_muscles
         stab_vec[r.exercise_id][mid_index[r.muscle_id]] = r.value
 
+    available_tags = None
+    equip_result = None
+    equipment_active = False
+    if available is not None:
+        available_tags = set(t.strip() for t in available.split(",") if t.strip())
+        if available_tags:
+            equip_result = build_equipment_eligible(db, available_tags)
+            equipment_active = True
+
     candidates_by_slot = {}
+    candidate_counts_before = {}
+    candidate_counts_after = {}
     for slot_name in slot_counts:
         eids = []
         for eid in slot_to_eids.get(slot_name, set()):
             ename = ex_name_map.get(eid, "")
             if ename not in excluded_names and eid in act_vec:
                 eids.append(eid)
+        candidate_counts_before[slot_name] = len(eids)
+        if equip_result is not None:
+            eligible_set, all_eids_with_reqs = equip_result
+            eids = filter_candidates_by_equipment(eids, eligible_set, all_eids_with_reqs)
+        candidate_counts_after[slot_name] = len(eids)
         candidates_by_slot[slot_name] = eids
 
     cand_summary = " ".join(f"{s}={len(candidates_by_slot.get(s, []))}" for s in sorted(slot_counts))
@@ -263,7 +281,7 @@ def weekly_template(
     }
     final_coverage = dict(sorted(final_coverage.items(), key=lambda x: -x[1]))
 
-    return {
+    result = {
         "preset": preset,
         "slots_requested": slot_counts,
         "slots_filled": slot_filled,
@@ -276,3 +294,13 @@ def weekly_template(
         "total_bottleneck": round(total_bn_used, 6),
         "total_stability": round(total_stab_used, 6),
     }
+
+    result["equipment_filter_applied"] = equipment_active
+    if equipment_active:
+        result["equipment_available"] = sorted(available_tags)
+        result["candidates_by_slot"] = {
+            slot: {"before": candidate_counts_before[slot], "after": candidate_counts_after[slot]}
+            for slot in slot_counts
+        }
+
+    return result

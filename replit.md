@@ -46,6 +46,8 @@ attached_assets/
 | `composite_muscle_index` | 26 | Per-muscle composite score (0–100) + JSONB payload, PK (muscle_id) |
 | `presets` | 3 | Named weight presets (hypertrophy/strength/injury), JSONB weights, PK (name) |
 | `exercise_tags` | 107 | Per-exercise slot tags (hinge/squat/push/pull/carry/oly), PK (exercise_id, slot), multi-tag supported |
+| `equipment` | 17 | Equipment tags (rack, barbell, plates, bench, etc.), PK (tag) |
+| `exercise_equipment` | 168 | Exercise-to-equipment required mappings, PK (exercise_id, equipment_tag) |
 | `lift_sets` | var | Logged lift sets with exercise_id FK, weight, reps, tonnage, notes, source |
 | `volume_logs` | var | Legacy logged training sets |
 
@@ -61,13 +63,13 @@ attached_assets/
 | GET | `/composite/muscles` | 26-row composite muscle profile index with JSONB payload |
 | GET | `/composite/muscles?preset=hypertrophy\|strength\|injury` | Same + preset_score and preset_rank |
 | GET | `/presets` | List preset names + weight vectors |
-| GET | `/optimizer/weekly-template?preset=...` | Weekly template optimizer with slots, redundancy, fatigue constraints |
+| GET | `/optimizer/weekly-template?preset=...&available=` | Weekly template optimizer with slots, redundancy, fatigue constraints, optional equipment filter |
 | POST | `/lifts/sets` | Log a single lift set (exercise_id resolved from name, tonnage computed) |
 | POST | `/lifts/sets/batch` | Batch-log multiple lift sets in one transaction (?bestEffort=true for partial) |
 | GET | `/lifts/sets?from=&to=` | Query lift sets by date range |
 | GET | `/reports/weekly-muscles?week=&lens=v2\|role\|v3\|v4\|v5` | Weekly muscle stimulus with configurable matrix lens |
 | GET | `/coach/weekly-balance?week=&lookbackWeeks=` | Per-muscle underfed/overtaxed scores with classification |
-| GET | `/coach/recommend-session?date=&mode=&slots=&bnPercentile=&stabPercentile=&ctPercentile=` | Session recommender with BN/STAB/CT triple-filter, bias boosts, fallback |
+| GET | `/coach/recommend-session?date=&mode=&slots=&bnPercentile=&stabPercentile=&ctPercentile=&available=` | Session recommender with BN/STAB/CT triple-filter, bias boosts, fallback, optional equipment filter |
 | POST | `/coach/session/start` | Snapshot a recommended plan into session_plans table |
 | POST | `/coach/session/complete` | Link executed set_ids to plan, returns compliance analysis |
 | GET | `/reports/weekly-muscle-dose?week=` | Per-muscle total vs direct dose decomposition + top contributors |

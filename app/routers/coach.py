@@ -14,6 +14,7 @@ from app.models import (
     BottleneckMatrixV4, StabilizationMatrixV5,
     ExerciseTag, SessionPlan, SessionPlanSet,
 )
+from app.equipment_filter import build_equipment_eligible, filter_candidates_by_equipment
 
 router = APIRouter(prefix="/coach", tags=["coach"])
 
@@ -263,6 +264,7 @@ def recommend_session(
     bnPercentile: int = Query(60, ge=1, le=100, description="Bottleneck percentile threshold for isolation filtering (default 60)"),
     stabPercentile: int = Query(70, ge=1, le=100, description="Stability percentile threshold for isolation filtering"),
     ctPercentile: int = Query(70, ge=1, le=100, description="Combined-tax percentile threshold for isolation filtering"),
+    available: Optional[str] = Query(None, description="Comma-separated equipment tags available", examples=["barbell,plates,dumbbell,bench,pullup_bar"]),
     db: Session = Depends(get_db),
 ):
     if mode not in ("compound", "isolation"):
@@ -360,16 +362,34 @@ def recommend_session(
         lambda_red, lambda_bn, lambda_stab = 0.35, 0.45, 0.45
         excluded_slot_types = {"oly", "carry"}
 
+    available_tags = None
+    equip_result = None
+    equipment_active = False
+    if available is not None:
+        available_tags = set(t.strip() for t in available.split(",") if t.strip())
+        if available_tags:
+            equip_result = build_equipment_eligible(db, available_tags)
+            equipment_active = True
+
     unfiltered_by_slot = {}
+    candidate_counts_before = {}
+    candidate_counts_after = {}
     for slot_name in slot_counts:
         if slot_name in excluded_slot_types:
             unfiltered_by_slot[slot_name] = []
+            candidate_counts_before[slot_name] = 0
+            candidate_counts_after[slot_name] = 0
             continue
         eids = []
         for eid in slot_to_eids.get(slot_name, set()):
             ename = ex_name_map.get(eid, "")
             if ename not in excluded_names and eid in act_vec:
                 eids.append(eid)
+        candidate_counts_before[slot_name] = len(eids)
+        if equip_result is not None:
+            eligible_set, all_eids_with_reqs = equip_result
+            eids = filter_candidates_by_equipment(eids, eligible_set, all_eids_with_reqs)
+        candidate_counts_after[slot_name] = len(eids)
         unfiltered_by_slot[slot_name] = eids
 
     isolation_filters = None
@@ -589,6 +609,14 @@ def recommend_session(
     if mode == "isolation":
         result["filter_relaxed"] = filter_relaxed
         result["isolation_filters"] = isolation_filters
+
+    result["equipment_filter_applied"] = equipment_active
+    if equipment_active:
+        result["equipment_available"] = sorted(available_tags)
+        result["candidates_by_slot"] = {
+            slot: {"before": candidate_counts_before[slot], "after": candidate_counts_after[slot]}
+            for slot in slot_counts
+        }
 
     return result
 

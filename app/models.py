@@ -148,6 +148,23 @@ class LiftSet(Base):
     exercise = relationship("Exercise")
 
 
+class Equipment(Base):
+    __tablename__ = "equipment"
+
+    tag = Column(Text, primary_key=True)
+
+
+class ExerciseEquipment(Base):
+    __tablename__ = "exercise_equipment"
+
+    exercise_id = Column(Integer, ForeignKey("exercises.id"), primary_key=True)
+    equipment_tag = Column(Text, ForeignKey("equipment.tag"), primary_key=True)
+    required = Column(Integer, nullable=False, default=1)
+
+    exercise = relationship("Exercise")
+    equipment = relationship("Equipment")
+
+
 class SessionPlan(Base):
     __tablename__ = "session_plans"
 
