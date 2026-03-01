@@ -1,6 +1,11 @@
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+import logging
+import traceback
+import uuid
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+
+logger = logging.getLogger(__name__)
 
 from app.database import engine, SessionLocal
 from app.models import Base
@@ -24,6 +29,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    error_id = uuid.uuid4().hex[:12]
+    logger.error(
+        "unhandled error_id=%s method=%s path=%s\n%s",
+        error_id,
+        request.method,
+        request.url.path,
+        traceback.format_exc(),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "internal_error",
+            "error_id": error_id,
+            "where": f"{request.method} {request.url.path}",
+            "hint": str(exc)[:200],
+        },
+    )
+
 
 app.include_router(datasets.router)
 app.include_router(matrix.router)
