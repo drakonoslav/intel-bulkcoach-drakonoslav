@@ -7,10 +7,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 logger = logging.getLogger(__name__)
 
-from app.database import engine, SessionLocal
+import os
+from urllib.parse import urlparse
+
+from app.database import engine, SessionLocal, DATABASE_URL
 from app.models import Base
 from app.seed import seed_from_csv
 from app.routers import datasets, matrix, volume, reports, optimizer, composite, presets, weekly_optimizer, lifts, weekly_muscles, muscle_dose, coach
+
+_parsed = urlparse(DATABASE_URL)
+_dialect = _parsed.scheme.split("+")[0] if "+" in _parsed.scheme else _parsed.scheme
+print(f"[startup] DB dialect={_dialect} host={_parsed.hostname} port={_parsed.port} dbname={_parsed.path.lstrip('/')}")
+if _dialect not in ("postgresql", "postgres"):
+    raise RuntimeError(f"FATAL: expected postgres, got dialect={_dialect}. No sqlite fallback allowed.")
 
 Base.metadata.create_all(bind=engine)
 
