@@ -128,6 +128,26 @@ class Preset(Base):
     weights = Column(JSONB, nullable=False)
 
 
+class LiftSet(Base):
+    __tablename__ = "lift_sets"
+    __table_args__ = (
+        CheckConstraint("weight >= 0", name="ck_lift_weight"),
+        CheckConstraint("reps >= 0", name="ck_lift_reps"),
+        CheckConstraint("tonnage >= 0", name="ck_lift_tonnage"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    performed_at = Column(Date, nullable=False, index=True)
+    exercise_id = Column(Integer, ForeignKey("exercises.id"), nullable=False, index=True)
+    weight = Column(Float, nullable=False)
+    reps = Column(Integer, nullable=False)
+    tonnage = Column(Float, nullable=False)
+    notes = Column(Text, nullable=True)
+    source = Column(Text, nullable=True)
+
+    exercise = relationship("Exercise")
+
+
 class VolumeLog(Base):
     __tablename__ = "volume_logs"
 

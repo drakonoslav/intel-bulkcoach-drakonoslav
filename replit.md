@@ -45,8 +45,9 @@ attached_assets/
 | `stabilization_matrix_v5` | 4784 | 92×26×2 float values (0–1), PK (exercise_id, muscle_id, component) |
 | `composite_muscle_index` | 26 | Per-muscle composite score (0–100) + JSONB payload, PK (muscle_id) |
 | `presets` | 3 | Named weight presets (hypertrophy/strength/injury), JSONB weights, PK (name) |
-| `exercise_tags` | 92 | Per-exercise slot tags (hinge/squat/push/pull/carry/oly), PK (exercise_id, slot) |
-| `volume_logs` | var | Logged training sets |
+| `exercise_tags` | 107 | Per-exercise slot tags (hinge/squat/push/pull/carry/oly), PK (exercise_id, slot), multi-tag supported |
+| `lift_sets` | var | Logged lift sets with exercise_id FK, weight, reps, tonnage, notes, source |
+| `volume_logs` | var | Legacy logged training sets |
 
 ## API Routes
 | Method | Path | Description |
@@ -61,9 +62,12 @@ attached_assets/
 | GET | `/composite/muscles?preset=hypertrophy\|strength\|injury` | Same + preset_score and preset_rank |
 | GET | `/presets` | List preset names + weight vectors |
 | GET | `/optimizer/weekly-template?preset=...` | Weekly template optimizer with slots, redundancy, fatigue constraints |
-| POST | `/volume/ingest` | Log a training set |
-| GET | `/volume/logs` | Query volume history |
-| GET | `/reports/weekly` | Weekly report with per-muscle stimulus |
+| POST | `/lifts/sets` | Log a lift set (exercise_id resolved from name, tonnage computed) |
+| GET | `/lifts/sets?from=&to=` | Query lift sets by date range |
+| GET | `/reports/weekly-muscles?week=&lens=v2\|role\|v3\|v4\|v5` | Weekly muscle stimulus with configurable matrix lens |
+| POST | `/volume/ingest` | Legacy: log a training set |
+| GET | `/volume/logs` | Legacy: query volume history |
+| GET | `/reports/weekly` | Legacy: weekly report with muscle stimulus |
 | GET | `/optimizer` | Greedy set-cover exercise selection |
 | GET | `/docs` | Swagger UI |
 
