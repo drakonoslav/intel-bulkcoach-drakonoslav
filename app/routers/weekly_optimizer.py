@@ -1,3 +1,4 @@
+import logging
 import math
 from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,6 +9,8 @@ from app.models import (
     Exercise, Muscle, ActivationMatrixV2, BottleneckMatrixV4,
     StabilizationMatrixV5, CompositeMuscleIndex, Preset, ExerciseTag,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/optimizer", tags=["optimizer"])
 
@@ -160,6 +163,9 @@ def weekly_template(
             if ename not in excluded_names and eid in act_vec:
                 eids.append(eid)
         candidates_by_slot[slot_name] = eids
+
+    cand_summary = " ".join(f"{s}={len(candidates_by_slot.get(s, []))}" for s in sorted(slot_counts))
+    print(f"Candidates: {cand_summary}")
 
     coverage = [0.0] * n_muscles
     selected = []
