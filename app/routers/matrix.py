@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.database import get_db
-from app.models import Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3
+from app.models import Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3, BottleneckMatrixV4
 
 router = APIRouter(prefix="/matrix", tags=["matrix"])
 
@@ -146,3 +146,14 @@ def get_v3(
         "muscles": muscle_names,
         "matrix": matrix,
     }
+
+
+@router.get("/v4/bottleneck", summary="Bottleneck coefficient matrix (92x26, float 0-1)")
+def get_v4_bottleneck(
+    exercise: Optional[str] = Query(None, description="Filter to a single exercise"),
+    muscle: Optional[str] = Query(None, description="Filter to a single muscle"),
+    db: Session = Depends(get_db),
+):
+    return _build_matrix_response(
+        db, BottleneckMatrixV4, "bottleneck_coeff", exercise, muscle, 0.0
+    )

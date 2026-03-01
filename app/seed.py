@@ -8,7 +8,8 @@ import csv
 import os
 from sqlalchemy.orm import Session
 from app.models import (
-    Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3
+    Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3,
+    BottleneckMatrixV4
 )
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "attached_assets")
@@ -16,6 +17,7 @@ ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "attached_
 ACTIVATION_CSV = os.path.join(ASSETS_DIR, "Exercise_Muscle_Matrix_v2_1772329150478.csv")
 ROLE_WEIGHTED_CSV = os.path.join(ASSETS_DIR, "Role_Weighted_Matrix_v2_1772329858110.csv")
 PHASE_V3_XLSX = os.path.join(ASSETS_DIR, "V3_Phase_Model_Outputs_1772330146444.xlsx")
+BOTTLENECK_CSV = os.path.join(ASSETS_DIR, "V4_Bottleneck_Coefficient_Matrix_1772330621400.csv")
 
 
 def _get_muscle_map(db: Session):
@@ -30,6 +32,7 @@ def seed_from_csv(db: Session) -> bool:
     if db.query(Exercise).count() > 0:
         _seed_role_weighted(db)
         _seed_phase_v3(db)
+        _seed_bottleneck_v4(db)
         return False
 
     with open(ACTIVATION_CSV, newline="", encoding="utf-8") as f:
@@ -63,6 +66,7 @@ def seed_from_csv(db: Session) -> bool:
     db.commit()
     _seed_role_weighted(db)
     _seed_phase_v3(db)
+    _seed_bottleneck_v4(db)
     return True
 
 
@@ -150,4 +154,40 @@ def _seed_phase_v3(db: Session):
                 ))
 
     wb.close()
+    db.commit()
+
+
+def _seed_bottleneck_v4(db: Session):
+    if db.query(BottleneckMatrixV4).count() > 0:
+        return
+    if not os.path.exists(BOTTLENECK_CSV):
+        return
+
+    muscle_map = _get_muscle_map(db)
+    exercise_map = _get_exercise_map(db)
+
+    with open(BOTTLENECK_CSV, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        muscle_names = [h.strip() for h in header[1:]]
+
+        for row in reader:
+            exercise_name = row[0].strip()
+            if not exercise_name:
+                continue
+            ex_id = exercise_map.get(exercise_name)
+            if ex_id is None:
+                continue
+
+            for i, muscle_name in enumerate(muscle_names):
+                mu_id = muscle_map.get(muscle_name)
+                if mu_id is None:
+                    continue
+                val = float(row[i + 1].strip())
+                db.add(BottleneckMatrixV4(
+                    exercise_id=ex_id,
+                    muscle_id=mu_id,
+                    bottleneck_coeff=val,
+                ))
+
     db.commit()

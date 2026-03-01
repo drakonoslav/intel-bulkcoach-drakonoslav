@@ -65,6 +65,20 @@ class PhaseMatrixV3(Base):
     muscle = relationship("Muscle")
 
 
+class BottleneckMatrixV4(Base):
+    __tablename__ = "bottleneck_matrix_v4"
+    __table_args__ = (
+        CheckConstraint("bottleneck_coeff BETWEEN 0 AND 1", name="ck_bn_range"),
+    )
+
+    exercise_id = Column(Integer, ForeignKey("exercises.id"), primary_key=True)
+    muscle_id = Column(Integer, ForeignKey("muscles.id"), primary_key=True)
+    bottleneck_coeff = Column(Float, nullable=False)
+
+    exercise = relationship("Exercise")
+    muscle = relationship("Muscle")
+
+
 class VolumeLog(Base):
     __tablename__ = "volume_logs"
 
