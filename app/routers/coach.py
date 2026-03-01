@@ -655,6 +655,14 @@ def session_complete(payload: SessionCompleteIn, db: Session = Depends(get_db)):
     if missing:
         raise HTTPException(status_code=404, detail=f"Set IDs not found: {missing}")
 
+    plan_date = sp.planned_for
+    window_start = plan_date - timedelta(days=1)
+    window_end = plan_date + timedelta(days=1)
+    out_of_window = []
+    for s in sets:
+        if s.performed_at < window_start or s.performed_at > window_end:
+            out_of_window.append({"set_id": s.id, "performed_at": str(s.performed_at)})
+
     existing_links = db.query(SessionPlanSet.set_id).filter(
         SessionPlanSet.plan_id == sp.id
     ).all()
@@ -668,17 +676,12 @@ def session_complete(payload: SessionCompleteIn, db: Session = Depends(get_db)):
 
     plan_data = sp.plan
     planned_exercises = set()
-    planned_bn_by_ex = {}
-    planned_stab_by_ex = {}
     if "selected" in plan_data:
         for sel in plan_data["selected"]:
             planned_exercises.add(sel["exercise"])
-            planned_bn_by_ex[sel["exercise"]] = sel.get("bn_e", 0)
-            planned_stab_by_ex[sel["exercise"]] = sel.get("stab_e", 0)
 
     all_muscles = db.query(Muscle).order_by(Muscle.id).all()
     muscle_map = {m.id: m.name for m in all_muscles}
-    muscle_by_name = {m.name: m.id for m in all_muscles}
 
     exercise_ids = list({s.exercise_id for s in sets})
     ex_objs = db.query(Exercise).filter(Exercise.id.in_(exercise_ids)).all()
@@ -724,8 +727,8 @@ def session_complete(payload: SessionCompleteIn, db: Session = Depends(get_db)):
             executed_bn_total += s.tonnage * bn_lookup.get((s.exercise_id, mid), 0)
             executed_stab_total += s.tonnage * stab_lookup.get((s.exercise_id, mid), 0)
 
-    planned_total_dose = defaultdict(float)
-    planned_direct_dose = defaultdict(float)
+    planned_coverage = defaultdict(float)
+    planned_direct_coverage = defaultdict(float)
     for ex_name in planned_exercises:
         eid = plan_eid_by_name.get(ex_name)
         if not eid:
@@ -733,27 +736,39 @@ def session_complete(payload: SessionCompleteIn, db: Session = Depends(get_db)):
         for mid in muscle_map:
             act = act_lookup.get((eid, mid), 0)
             rw = role_lookup.get((eid, mid), 0)
-            planned_total_dose[mid] += act / 5.0
-            planned_direct_dose[mid] += rw
+            planned_coverage[mid] += act / 5.0
+            planned_direct_coverage[mid] += rw
+
+    max_planned = max(planned_coverage.values()) if planned_coverage else 1.0
+    max_planned = max_planned if max_planned > 0 else 1.0
+    max_executed = max(executed_total_dose.values()) if executed_total_dose else 1.0
+    max_executed = max_executed if max_executed > 0 else 1.0
 
     exercises_hit = planned_exercises & executed_exercises
     exercise_compliance = len(exercises_hit) / len(planned_exercises) * 100 if planned_exercises else 0
 
     muscle_comparison = []
     for mid in sorted(muscle_map.keys()):
-        p_td = planned_total_dose.get(mid, 0)
-        p_dd = planned_direct_dose.get(mid, 0)
+        p_cov = planned_coverage.get(mid, 0)
+        p_dir = planned_direct_coverage.get(mid, 0)
         e_td = executed_total_dose.get(mid, 0)
         e_dd = executed_direct_dose.get(mid, 0)
+
+        p_cov_norm = p_cov / max_planned if max_planned > 0 else 0
+        e_cov_norm = e_td / max_executed if max_executed > 0 else 0
+
+        alignment = 1.0 - abs(p_cov_norm - e_cov_norm) if (p_cov_norm > 0 or e_cov_norm > 0) else 1.0
+
         muscle_comparison.append({
             "muscle": muscle_map[mid],
-            "planned_total_dose": round(p_td, 4),
-            "planned_direct_dose": round(p_dd, 4),
+            "planned_coverage": round(p_cov, 4),
+            "planned_direct_coverage": round(p_dir, 4),
             "executed_total_dose": round(e_td, 4),
             "executed_direct_dose": round(e_dd, 4),
+            "alignment": round(alignment, 4),
         })
 
-    return {
+    result = {
         "plan_id": sp.id,
         "planned_for": str(sp.planned_for),
         "planned_exercises": sorted(planned_exercises),
@@ -765,5 +780,11 @@ def session_complete(payload: SessionCompleteIn, db: Session = Depends(get_db)):
         "executed_stability_total": round(executed_stab_total, 6),
         "planned_bottleneck_total": plan_data.get("total_bottleneck", 0),
         "planned_stability_total": plan_data.get("total_stability", 0),
+        "dose_note": "planned_coverage is relative (no tonnage); executed_dose is absolute (with tonnage). alignment = normalized shape similarity 0-1.",
         "muscle_doses": muscle_comparison,
     }
+
+    if out_of_window:
+        result["date_warnings"] = out_of_window
+
+    return result
