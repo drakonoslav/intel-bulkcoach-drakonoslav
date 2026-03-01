@@ -1,11 +1,17 @@
+import logging
 import math
 import re
+import traceback
+import uuid
 from datetime import date, timedelta
 from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from typing import Optional, List
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.models import (
@@ -648,38 +654,58 @@ def session_start(payload: SessionStartIn, db: Session = Depends(get_db)):
     if avail is not None and avail.strip() == "":
         avail = None
 
-    plan_response = recommend_session(
-        date_param=payload.planned_for,
-        mode=payload.mode,
-        preset=payload.preset,
-        time=45,
-        slots=payload.slots,
-        exclude=None,
-        bnPercentile=60,
-        stabPercentile=70,
-        ctPercentile=70,
-        available=avail,
-        db=db,
-    )
+    try:
+        plan_response = recommend_session(
+            date_param=payload.planned_for,
+            mode=payload.mode,
+            preset=payload.preset,
+            time=45,
+            slots=payload.slots,
+            exclude=None,
+            bnPercentile=60,
+            stabPercentile=70,
+            ctPercentile=70,
+            available=avail,
+            db=db,
+        )
 
-    slot_counts = _parse_slots(payload.slots)
+        slot_counts = _parse_slots(payload.slots)
 
-    sp = SessionPlan(
-        planned_for=payload.planned_for,
-        mode=payload.mode,
-        preset=payload.preset,
-        slots=slot_counts,
-        plan=plan_response,
-        no_history=1 if plan_response.get("no_history") else 0,
-    )
-    db.add(sp)
-    db.commit()
-    db.refresh(sp)
+        sp = SessionPlan(
+            planned_for=payload.planned_for,
+            mode=payload.mode,
+            preset=payload.preset,
+            slots=slot_counts,
+            plan=plan_response,
+            no_history=1 if plan_response.get("no_history") else 0,
+        )
+        db.add(sp)
+        db.commit()
+        db.refresh(sp)
 
-    return {
-        "plan_id": sp.id,
-        "plan": plan_response,
-    }
+        return {
+            "plan_id": sp.id,
+            "plan": plan_response,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        error_id = uuid.uuid4().hex[:12]
+        logger.error(
+            "session_start error_id=%s payload=%s\n%s",
+            error_id,
+            payload.dict(),
+            traceback.format_exc(),
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "internal_error",
+                "error_id": error_id,
+                "where": "coach.session_start",
+                "hint": str(exc)[:200],
+            },
+        )
 
 
 @router.post("/session/complete", summary="Link executed sets to a session plan")
