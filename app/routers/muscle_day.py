@@ -14,8 +14,43 @@ FOREARMS_NAME = "Forearms"
 HANDS_GRIP_SCALE = 0.85
 MUSCLE_SCHEMA_VERSION = 27
 BALANCE_SCHEMA_VERSION = 2
+RECOVERY_SCHEMA_VERSION = 1
 ROLLING_WINDOW_DAYS = 7
+DECAY_LOOKBACK_DAYS = 30
 EPS = 1e-6
+
+DEFAULT_TAU = 3.5
+TAU_TABLE = {
+    "Quads": 4.0,
+    "Hamstrings": 4.0,
+    "Glutes": 4.0,
+    "Lower Back": 4.0,
+    "Pectorals": 3.5,
+    "Lats": 3.5,
+    "Upper Back": 3.0,
+    "Middle Back": 3.0,
+    "Deltoids": 3.0,
+    "Front/Anterior Delt": 3.0,
+    "Rear/Posterior Delt": 3.0,
+    "Side/Lateral Delt": 3.0,
+    "Traps": 3.0,
+    "Upper Traps": 3.0,
+    "Mid Traps": 3.0,
+    "Lower Traps": 3.0,
+    "Triceps": 2.5,
+    "Biceps": 2.5,
+    "Forearms": 2.5,
+    "Hands/Grip": 2.5,
+    "Abs": 2.5,
+    "Obliques": 2.5,
+    "Adductors": 3.5,
+    "Abductors": 3.5,
+    "Calves": 2.5,
+    "Shins": 2.5,
+    "Neck": 2.5,
+}
+
+FRESHNESS_K = 1000.0
 
 PUSH_MEMBERS = ["Pectorals", "Front/Anterior Delt", "Triceps"]
 PULL_MEMBERS = ["Lats", "Upper Back", "Middle Back", "Rear/Posterior Delt", "Biceps"]
@@ -42,7 +77,7 @@ def _compute_day_doses(sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hand
     return total_dose, direct_dose
 
 
-@router.get("/day", summary="Per-muscle load for a single date (all 27 regions) + 7-day rolling")
+@router.get("/day", summary="Per-muscle load for a single date (all 27 regions) + 7-day rolling + recovery")
 def muscle_day(
     date_param: date = Query(..., alias="date", examples=["2026-03-01"]),
     db: Session = Depends(get_db),
@@ -59,17 +94,16 @@ def muscle_day(
         elif m.name == HANDS_GRIP_NAME:
             hands_grip_id = m.id
 
+    decay_from = date_param - timedelta(days=DECAY_LOOKBACK_DAYS - 1)
     window_from = date_param - timedelta(days=ROLLING_WINDOW_DAYS - 1)
     window_to = date_param
 
-    window_sets = db.query(LiftSet).filter(
-        LiftSet.performed_at >= window_from,
+    all_sets = db.query(LiftSet).filter(
+        LiftSet.performed_at >= decay_from,
         LiftSet.performed_at <= window_to,
     ).all()
 
-    today_sets = [s for s in window_sets if s.performed_at == date_param]
-
-    all_ex_ids = list({s.exercise_id for s in window_sets})
+    all_ex_ids = list({s.exercise_id for s in all_sets})
 
     act_lookup = {}
     rw_lookup = {}
@@ -79,26 +113,55 @@ def muscle_day(
         for r in db.query(RoleWeightedMatrixV2).filter(RoleWeightedMatrixV2.exercise_id.in_(all_ex_ids)).all():
             rw_lookup[(r.exercise_id, r.muscle_id)] = r.role_weight
 
+    sets_by_day = defaultdict(list)
+    for s in all_sets:
+        sets_by_day[s.performed_at].append(s)
+
+    today_sets = sets_by_day.get(date_param, [])
+
     today_total, today_direct = _compute_day_doses(
         today_sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hands_grip_id
     )
 
     load_7d_total = defaultdict(float)
     load_7d_direct = defaultdict(float)
+    fatigue_total = defaultdict(float)
+    fatigue_direct = defaultdict(float)
+    last_hit = {}
 
-    sets_by_day = defaultdict(list)
-    for s in window_sets:
-        sets_by_day[s.performed_at].append(s)
+    tau_by_id = {}
+    for mid in muscle_ids:
+        tau_by_id[mid] = TAU_TABLE.get(muscle_map[mid], DEFAULT_TAU)
 
-    for day in range(ROLLING_WINDOW_DAYS):
-        d = window_from + timedelta(days=day)
+    for day_offset in range(DECAY_LOOKBACK_DAYS):
+        d = decay_from + timedelta(days=day_offset)
         day_sets = sets_by_day.get(d, [])
+        if not day_sets:
+            continue
+
         day_total, day_direct = _compute_day_doses(
             day_sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hands_grip_id
         )
+
+        days_ago = (date_param - d).days
+        in_7d_window = d >= window_from
+
         for mid in muscle_ids:
-            load_7d_total[mid] += day_total[mid]
-            load_7d_direct[mid] += day_direct[mid]
+            dt = day_total[mid]
+            dd = day_direct[mid]
+
+            if dt > 0 or dd > 0:
+                tau = tau_by_id[mid]
+                weight = math.exp(-days_ago / tau)
+                fatigue_total[mid] += dt * weight
+                fatigue_direct[mid] += dd * weight
+
+                if mid not in last_hit or d > last_hit[mid]:
+                    last_hit[mid] = d
+
+            if in_7d_window:
+                load_7d_total[mid] += dt
+                load_7d_direct[mid] += dd
 
     today_ex_ids = list({s.exercise_id for s in today_sets})
     ex_name_map = {e.id: e.name for e in db.query(Exercise).filter(Exercise.id.in_(today_ex_ids)).all()} if today_ex_ids else {}
@@ -109,6 +172,12 @@ def muscle_day(
     for mid in muscle_ids:
         derived = (mid == hands_grip_id and forearm_id is not None
                    and not any((eid, mid) in act_lookup for eid in today_ex_ids))
+
+        ft = fatigue_total[mid]
+        fd = fatigue_direct[mid]
+        fresh_t = round(1.0 / (1.0 + ft / FRESHNESS_K), 4)
+        fresh_d = round(1.0 / (1.0 + fd / FRESHNESS_K), 4)
+
         entry = {
             "muscle": muscle_map[mid],
             "muscle_id": mid,
@@ -116,6 +185,15 @@ def muscle_day(
             "direct_dose": round(today_direct[mid], 2),
             "load_7d_total": round(load_7d_total[mid], 2),
             "load_7d_direct": round(load_7d_direct[mid], 2),
+            "recovery": {
+                "model": "exp_decay_v1",
+                "tau_days": tau_by_id[mid],
+                "fatigue_total": round(ft, 2),
+                "fatigue_direct": round(fd, 2),
+                "freshness_total": fresh_t,
+                "freshness_direct": fresh_d,
+                "last_hit": str(last_hit[mid]) if mid in last_hit else None,
+            },
         }
         if mid == hands_grip_id:
             entry["derived_from"] = "forearms" if derived else None
@@ -168,6 +246,7 @@ def muscle_day(
         "source": "intel",
         "muscle_schema_version": MUSCLE_SCHEMA_VERSION,
         "balance_schema_version": BALANCE_SCHEMA_VERSION,
+        "recovery_schema_version": RECOVERY_SCHEMA_VERSION,
         "window_from": str(window_from),
         "window_to": str(window_to),
         "total_sets": len(today_sets),
