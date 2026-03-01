@@ -13,12 +13,14 @@ HANDS_GRIP_NAME = "Hands/Grip"
 FOREARMS_NAME = "Forearms"
 HANDS_GRIP_SCALE = 0.85
 MUSCLE_SCHEMA_VERSION = 27
-BALANCE_SCHEMA_VERSION = 1
+BALANCE_SCHEMA_VERSION = 2
 ROLLING_WINDOW_DAYS = 7
 EPS = 1e-6
 
 PUSH_MEMBERS = ["Pectorals", "Front/Anterior Delt", "Triceps"]
 PULL_MEMBERS = ["Lats", "Upper Back", "Middle Back", "Rear/Posterior Delt", "Biceps"]
+ANTERIOR_MEMBERS = ["Pectorals", "Quads", "Front/Anterior Delt", "Abs"]
+POSTERIOR_MEMBERS = ["Hamstrings", "Glutes", "Lower Back", "Middle Back", "Upper Back", "Rear/Posterior Delt", "Lats"]
 
 
 def _compute_day_doses(sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hands_grip_id):
@@ -133,28 +135,32 @@ def muscle_day(
     name_to_id = {v: k for k, v in muscle_map.items()}
     push_ids = [name_to_id[n] for n in PUSH_MEMBERS if n in name_to_id]
     pull_ids = [name_to_id[n] for n in PULL_MEMBERS if n in name_to_id]
+    ant_ids = [name_to_id[n] for n in ANTERIOR_MEMBERS if n in name_to_id]
+    post_ids = [name_to_id[n] for n in POSTERIOR_MEMBERS if n in name_to_id]
 
-    def _push_pull(dose_map, label):
-        push_sum = sum(dose_map[mid] for mid in push_ids)
-        pull_sum = sum(dose_map[mid] for mid in pull_ids)
-        ratio = push_sum / max(pull_sum, EPS)
-        log_ratio = math.log((push_sum + EPS) / (pull_sum + EPS))
+    def _balance(dose_map, label, a_ids, b_ids, a_key, b_key, a_members, b_members):
+        a_sum = sum(dose_map[mid] for mid in a_ids)
+        b_sum = sum(dose_map[mid] for mid in b_ids)
+        ratio = a_sum / max(b_sum, EPS)
+        log_ratio = math.log((a_sum + EPS) / (b_sum + EPS))
         return {
             "mode": label,
-            "push_sum": round(push_sum, 2),
-            "pull_sum": round(pull_sum, 2),
+            a_key: round(a_sum, 2),
+            b_key: round(b_sum, 2),
             "ratio": round(ratio, 4),
             "log_ratio": round(log_ratio, 4),
             "eps": EPS,
             "members": {
-                "push": PUSH_MEMBERS,
-                "pull": PULL_MEMBERS,
+                a_key.replace("_sum", ""): a_members,
+                b_key.replace("_sum", ""): b_members,
             },
         }
 
     balances = {
-        "push_pull_total": _push_pull(today_total, "total"),
-        "push_pull_direct": _push_pull(today_direct, "direct"),
+        "push_pull_total": _balance(today_total, "total", push_ids, pull_ids, "push_sum", "pull_sum", PUSH_MEMBERS, PULL_MEMBERS),
+        "push_pull_direct": _balance(today_direct, "direct", push_ids, pull_ids, "push_sum", "pull_sum", PUSH_MEMBERS, PULL_MEMBERS),
+        "ant_post_total": _balance(today_total, "total", ant_ids, post_ids, "anterior_sum", "posterior_sum", ANTERIOR_MEMBERS, POSTERIOR_MEMBERS),
+        "ant_post_direct": _balance(today_direct, "direct", ant_ids, post_ids, "anterior_sum", "posterior_sum", ANTERIOR_MEMBERS, POSTERIOR_MEMBERS),
     }
 
     return {
