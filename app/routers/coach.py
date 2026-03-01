@@ -259,8 +259,9 @@ def recommend_session(
     time: int = Query(45, ge=15, le=120, description="Session duration in minutes"),
     slots: Optional[str] = Query(None, description="Slot allocations", examples=["hinge:2,squat:2,push:2,pull:2"]),
     exclude: Optional[str] = Query(None, description="Comma-separated exercises to exclude"),
-    bnPercentile: int = Query(70, ge=1, le=100, description="Bottleneck percentile threshold for isolation filtering"),
+    bnPercentile: int = Query(60, ge=1, le=100, description="Bottleneck percentile threshold for isolation filtering (default 60)"),
     stabPercentile: int = Query(70, ge=1, le=100, description="Stability percentile threshold for isolation filtering"),
+    ctPercentile: int = Query(70, ge=1, le=100, description="Combined-tax percentile threshold for isolation filtering"),
     db: Session = Depends(get_db),
 ):
     if mode not in ("compound", "isolation"):
@@ -338,6 +339,19 @@ def recommend_session(
         ex_bn_scalar[eid] = sum(bn_vec.get(eid, [0.0] * n_muscles))
         ex_stab_scalar[eid] = sum(stab_vec.get(eid, [0.0] * n_muscles))
 
+    all_bn_vals_for_norm = list(ex_bn_scalar.values())
+    all_stab_vals_for_norm = list(ex_stab_scalar.values())
+    bn_min, bn_max = (min(all_bn_vals_for_norm), max(all_bn_vals_for_norm)) if all_bn_vals_for_norm else (0, 0)
+    stab_min, stab_max = (min(all_stab_vals_for_norm), max(all_stab_vals_for_norm)) if all_stab_vals_for_norm else (0, 0)
+    bn_range = bn_max - bn_min if bn_max != bn_min else 1.0
+    stab_range = stab_max - stab_min if stab_max != stab_min else 1.0
+
+    ex_ct_scalar = {}
+    for eid in act_vec:
+        n_bn = (ex_bn_scalar[eid] - bn_min) / bn_range
+        n_stab = (ex_stab_scalar[eid] - stab_min) / stab_range
+        ex_ct_scalar[eid] = n_bn + n_stab
+
     if mode == "compound":
         lambda_red, lambda_bn, lambda_stab = 0.35, 0.25, 0.20
         excluded_slot_types = set()
@@ -361,15 +375,32 @@ def recommend_session(
     filter_relaxed = False
     final_bn_pct = bnPercentile
     final_stab_pct = stabPercentile
+    final_ct_pct = ctPercentile
 
     if mode == "isolation":
         all_bn_values = list(ex_bn_scalar.values())
         all_stab_values = list(ex_stab_scalar.values())
+        all_ct_values = list(ex_ct_scalar.values())
+
+        def _build_relaxation_steps(requested):
+            steps = [requested]
+            for s in [80, 90, 100]:
+                if s > requested and s not in steps:
+                    steps.append(s)
+            if 100 not in steps:
+                steps.append(100)
+            return steps
+
+        bn_steps = _build_relaxation_steps(bnPercentile)
+        stab_steps = _build_relaxation_steps(stabPercentile)
+        ct_steps = _build_relaxation_steps(ctPercentile)
+        max_relax = max(len(bn_steps), len(stab_steps), len(ct_steps))
+        bn_steps += [bn_steps[-1]] * (max_relax - len(bn_steps))
+        stab_steps += [stab_steps[-1]] * (max_relax - len(stab_steps))
+        ct_steps += [ct_steps[-1]] * (max_relax - len(ct_steps))
 
         candidates_by_slot = {}
         iso_filter_info = {}
-        relaxation_steps = [bnPercentile, 80, 90, 100]
-        stab_relaxation_steps = [stabPercentile, 80, 90, 100]
 
         for slot_name in slot_counts:
             pool = unfiltered_by_slot.get(slot_name, [])
@@ -378,18 +409,25 @@ def recommend_session(
 
             used_bn_pct = bnPercentile
             used_stab_pct = stabPercentile
+            used_ct_pct = ctPercentile
             filtered = []
 
-            for bn_try, stab_try in zip(relaxation_steps, stab_relaxation_steps):
+            for step_i in range(max_relax):
+                bn_try = bn_steps[step_i]
+                stab_try = stab_steps[step_i]
+                ct_try = ct_steps[step_i]
                 bn_thresh = _percentile_value(all_bn_values, bn_try)
                 stab_thresh = _percentile_value(all_stab_values, stab_try)
+                ct_thresh = _percentile_value(all_ct_values, ct_try)
                 filtered = [
                     eid for eid in pool
                     if ex_bn_scalar.get(eid, 0) <= bn_thresh
                     and ex_stab_scalar.get(eid, 0) <= stab_thresh
+                    and ex_ct_scalar.get(eid, 0) <= ct_thresh
                 ]
                 used_bn_pct = bn_try
                 used_stab_pct = stab_try
+                used_ct_pct = ct_try
                 if len(filtered) >= needed:
                     break
 
@@ -397,14 +435,12 @@ def recommend_session(
                 filtered = pool
                 filter_relaxed = True
 
-            if used_bn_pct != bnPercentile or used_stab_pct != stabPercentile:
+            if used_bn_pct != bnPercentile or used_stab_pct != stabPercentile or used_ct_pct != ctPercentile:
                 filter_relaxed = True
 
             final_bn_pct = max(final_bn_pct, used_bn_pct)
             final_stab_pct = max(final_stab_pct, used_stab_pct)
-
-            bn_thresh_used = _percentile_value(all_bn_values, used_bn_pct)
-            stab_thresh_used = _percentile_value(all_stab_values, used_stab_pct)
+            final_ct_pct = max(final_ct_pct, used_ct_pct)
 
             candidates_by_slot[slot_name] = filtered
             iso_filter_info[slot_name] = {
@@ -412,18 +448,23 @@ def recommend_session(
                 "candidatesAfter": len(filtered),
                 "bnPercentileUsed": used_bn_pct,
                 "stabPercentileUsed": used_stab_pct,
+                "ctPercentileUsed": used_ct_pct,
             }
 
         bn_p_val = round(_percentile_value(all_bn_values, final_bn_pct), 6)
         stab_p_val = round(_percentile_value(all_stab_values, final_stab_pct), 6)
+        ct_p_val = round(_percentile_value(all_ct_values, final_ct_pct), 6)
 
         isolation_filters = {
             "bnPercentileRequested": bnPercentile,
             "stabPercentileRequested": stabPercentile,
+            "ctPercentileRequested": ctPercentile,
             "bnPercentileFinal": final_bn_pct,
             "stabPercentileFinal": final_stab_pct,
+            "ctPercentileFinal": final_ct_pct,
             "bn_threshold_value": bn_p_val,
             "stab_threshold_value": stab_p_val,
+            "ct_threshold_value": ct_p_val,
             "per_slot": iso_filter_info,
         }
     else:
@@ -494,6 +535,7 @@ def recommend_session(
                         "final_score": round(score, 6),
                         "bn_e": round(bn_sum, 6),
                         "stab_e": round(stab_sum, 6),
+                        "ct_e": round(ex_ct_scalar.get(eid, 0), 6),
                         "_avec": avec,
                     }
 
