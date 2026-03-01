@@ -65,6 +65,8 @@ attached_assets/
 | POST | `/lifts/sets` | Log a lift set (exercise_id resolved from name, tonnage computed) |
 | GET | `/lifts/sets?from=&to=` | Query lift sets by date range |
 | GET | `/reports/weekly-muscles?week=&lens=v2\|role\|v3\|v4\|v5` | Weekly muscle stimulus with configurable matrix lens |
+| GET | `/reports/weekly-muscle-dose?week=` | Per-muscle total vs direct dose decomposition + top contributors |
+| GET | `/reports/weekly-muscle-dose/{muscle}?week=` | Single muscle drilldown with optional set-level detail |
 | POST | `/volume/ingest` | Legacy: log a training set |
 | GET | `/volume/logs` | Legacy: query volume history |
 | GET | `/reports/weekly` | Legacy: weekly report with muscle stimulus |
