@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, SessionLocal
 from app.models import Base
 from app.seed import seed_from_csv
-from app.routers import datasets, matrix, volume, reports, optimizer, composite, presets, weekly_optimizer, lifts, weekly_muscles, muscle_dose
+from app.routers import datasets, matrix, volume, reports, optimizer, composite, presets, weekly_optimizer, lifts, weekly_muscles, muscle_dose, coach
 
 Base.metadata.create_all(bind=engine)
 
@@ -36,6 +36,7 @@ app.include_router(weekly_optimizer.router)
 app.include_router(lifts.router)
 app.include_router(weekly_muscles.router)
 app.include_router(muscle_dose.router)
+app.include_router(coach.router)
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -159,6 +160,24 @@ def root():
     <h3>Weekly Stimulus (v1)</h3>
     <p>Original weekly report using volume_logs table.</p>
     <div class="route"><span class="method get">GET</span><a href="/reports/weekly?week=2026-W09">/reports/weekly?week=2026-W09</a></div>
+  </div>
+</div>
+
+<div class="section-title">Coach</div>
+<div class="grid">
+  <div class="card">
+    <h2>Weekly Balance</h2>
+    <h3>Underfed vs Overtaxed</h3>
+    <p>Per-muscle underfed/overtaxed scores with classification. Uses direct dose, bottleneck, and stability signals.</p>
+    <div class="route"><span class="method get">GET</span><a href="/coach/weekly-balance?week=2026-W09">/coach/weekly-balance?week=2026-W09</a></div>
+    <div class="route"><span class="method get">GET</span><a href="/coach/weekly-balance?week=2026-W09&amp;lookbackWeeks=4">/coach/weekly-balance?lookbackWeeks=4</a></div>
+  </div>
+  <div class="card">
+    <h2>Session Recommender</h2>
+    <h3>Compound vs Isolation</h3>
+    <p>Recommends exercises targeting underfed muscles with redundancy, bottleneck, and stability penalties.</p>
+    <div class="route"><span class="method get">GET</span><a href="/coach/recommend-session?date=2026-02-28&amp;mode=compound&amp;slots=hinge:2,squat:2,push:2,pull:2">/coach/recommend-session?mode=compound</a></div>
+    <div class="route"><span class="method get">GET</span><a href="/coach/recommend-session?date=2026-02-28&amp;mode=isolation&amp;slots=hinge:2,squat:2,push:2,pull:2">/coach/recommend-session?mode=isolation</a></div>
   </div>
 </div>
 

@@ -1,0 +1,80 @@
+Milestone 9 — Hypertrophy coach layer: Underfed vs Overtaxed + Session Recommendation
+
+Endpoint 1: Weekly balance
+
+GET /coach/weekly-balance?week=YYYY-WW&preset=hypertrophy&lookbackWeeks=1
+
+Output (26 muscles):
+	•	total_dose (from v2)
+	•	direct_dose (from role)
+	•	underfed_score (0–100) — based on direct_dose
+	•	overtaxed_score (0–100) — based on fatigue signals
+	•	status ∈ {underfed, balanced, overtaxed}
+
+Deterministic definitions
+Let direct doses across muscles be a vector D_m for the week.
+	•	underfed_score(m) = percentile rank of (max(D) − D_m) (higher = more underfed)
+(equivalently: low direct dose → high underfed)
+
+For overtaxed, combine 3 normalized terms (0–1 across muscles):
+	•	N_total_dose(m) from total_dose
+	•	N_bottleneck(m) from weekly bottleneck pressure lens=v4 (already available in weekly-muscles)
+	•	N_stability(m) from weekly stability vector lens=v5 component=stability
+
+Then:
+overtaxed(m) = 100 * (0.45*N_{bottleneck} + 0.35*N_{stability} + 0.20*N_{totalDose})
+
+Classification thresholds (deterministic):
+	•	underfed if underfed_score ≥ 70 AND overtaxed_score < 70
+	•	overtaxed if overtaxed_score ≥ 70
+	•	else balanced
+
+Return also top 5 underfed and top 5 overtaxed lists.
+
+⸻
+
+Endpoint 2: Recommend session (compound vs isolation mode)
+
+GET /coach/recommend-session?date=YYYY-MM-DD&mode=compound|isolation&preset=hypertrophy&time=45&slots=hinge:2,squat:2,push:2,pull:2&exclude=...
+
+Logic
+	1.	Determine ISO week for date, compute weekly balance from Endpoint 1.
+	2.	Create target vector over muscles:
+	•	For hypertrophy: target muscles = top underfed (e.g., top 6) weighted by underfed_score.
+	3.	Build exercise candidates using exercise_tags pools per slot.
+	4.	Score each candidate similarly to optimizer but with “underfed gain” as objective:
+
+Let coverage be current session coverage vector (start at zeros).
+Let underfed weight vector U_m be normalized (sum to 1) from underfed_scores.
+
+For candidate exercise e:
+	•	gain(e) = Σ U_m * max(0, (activation_e,m/5) − coverage_m)
+
+Penalties:
+	•	redundancy penalty: lambda_red * max cosine similarity vs selected (activation vectors)
+	•	bottleneck penalty: lambda_bn * Σ bottleneck_e,m
+	•	stability penalty: lambda_stab * Σ stability_e,m (component=‘stability’)
+
+Mode behavior:
+	•	mode=compound: default lambdas (red=0.35, bn=0.25, stab=0.20)
+	•	mode=isolation: increase systemic penalties + restrict tags:
+	•	exclude slot candidates tagged oly and carry by default
+	•	lambdas: bn=0.45, stab=0.45 (strongly avoid systemic strain)
+
+Return:
+	•	selected exercises (8) with slot assignment + diagnostics
+	•	which underfed muscles each exercise primarily feeds (top 3 muscles by U_m * activation)
+
+Verification
+	•	Works with empty lift_sets (should still return a template, but mark “no history”)
+	•	With some history, shifts picks away from overtaxed muscles
+	•	isolation mode produces lower average bottleneck and stability sums than compound mode (show in response)
+
+⸻
+
+Implementation requirements
+	•	Add new router: /coach
+	•	Reuse existing weekly dose endpoints and weekly-muscles endpoints (don’t duplicate logic)
+	•	Add a helper to compute percentile ranks deterministically
+
+Stop after Milestone 9 passes.
