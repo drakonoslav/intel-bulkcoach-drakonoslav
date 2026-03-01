@@ -44,6 +44,7 @@ attached_assets/
 | `bottleneck_matrix_v4` | 2392 | 92×26 float bottleneck coefficients (0–1), PK (exercise_id, muscle_id) |
 | `stabilization_matrix_v5` | 4784 | 92×26×2 float values (0–1), PK (exercise_id, muscle_id, component) |
 | `composite_muscle_index` | 26 | Per-muscle composite score (0–100) + JSONB payload, PK (muscle_id) |
+| `presets` | 3 | Named weight presets (hypertrophy/strength/injury), JSONB weights, PK (name) |
 | `volume_logs` | var | Logged training sets |
 
 ## API Routes
@@ -56,6 +57,8 @@ attached_assets/
 | GET | `/matrix/v4/bottleneck` | Full 92×26 bottleneck coefficient matrix (float 0–1) |
 | GET | `/matrix/v5?component=dynamic\|stability` | Component-specific 92×26 matrix (float 0–1) |
 | GET | `/composite/muscles` | 26-row composite muscle profile index with JSONB payload |
+| GET | `/composite/muscles?preset=hypertrophy\|strength\|injury` | Same + preset_score and preset_rank |
+| GET | `/presets` | List preset names + weight vectors |
 | POST | `/volume/ingest` | Log a training set |
 | GET | `/volume/logs` | Query volume history |
 | GET | `/reports/weekly` | Weekly report with per-muscle stimulus |

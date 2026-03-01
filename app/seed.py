@@ -9,7 +9,7 @@ import os
 from sqlalchemy.orm import Session
 from app.models import (
     Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3,
-    BottleneckMatrixV4, StabilizationMatrixV5, CompositeMuscleIndex
+    BottleneckMatrixV4, StabilizationMatrixV5, CompositeMuscleIndex, Preset
 )
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "attached_assets")
@@ -38,6 +38,7 @@ def seed_from_csv(db: Session) -> bool:
         _seed_bottleneck_v4(db)
         _seed_stabilization_v5(db)
         _seed_composite_muscle(db)
+        _seed_presets(db)
         return False
 
     with open(ACTIVATION_CSV, newline="", encoding="utf-8") as f:
@@ -74,6 +75,7 @@ def seed_from_csv(db: Session) -> bool:
     _seed_bottleneck_v4(db)
     _seed_stabilization_v5(db)
     _seed_composite_muscle(db)
+    _seed_presets(db)
     return True
 
 
@@ -283,3 +285,36 @@ def _auto_type(v):
     except ValueError:
         pass
     return v
+
+
+PRESET_DATA = {
+    "hypertrophy": {
+        "Exposure": 0.35,
+        "Hierarchy": 0.25,
+        "Bottleneck": 0.10,
+        "Stability": 0.10,
+        "Phase": 0.20,
+    },
+    "strength": {
+        "Exposure": 0.20,
+        "Hierarchy": 0.30,
+        "Bottleneck": 0.30,
+        "Stability": 0.10,
+        "Phase": 0.10,
+    },
+    "injury": {
+        "Exposure": 0.15,
+        "Hierarchy": 0.15,
+        "Bottleneck": 0.30,
+        "Stability": 0.30,
+        "Phase": 0.10,
+    },
+}
+
+
+def _seed_presets(db: Session):
+    if db.query(Preset).count() > 0:
+        return
+    for name, weights in PRESET_DATA.items():
+        db.add(Preset(name=name, weights=weights))
+    db.commit()

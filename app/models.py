@@ -109,6 +109,13 @@ class CompositeMuscleIndex(Base):
     muscle = relationship("Muscle")
 
 
+class Preset(Base):
+    __tablename__ = "presets"
+
+    name = Column(Text, primary_key=True)
+    weights = Column(JSONB, nullable=False)
+
+
 class VolumeLog(Base):
     __tablename__ = "volume_logs"
 
