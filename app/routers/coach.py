@@ -218,6 +218,39 @@ def weekly_balance(
     }
 
 
+def _percentile_value(values, p):
+    if not values:
+        return 0.0
+    s = sorted(values)
+    k = (p / 100.0) * (len(s) - 1)
+    f = int(k)
+    c = f + 1
+    if c >= len(s):
+        return s[-1]
+    return s[f] + (k - f) * (s[c] - s[f])
+
+
+_ISOLATION_SQUAT_KEYWORDS = ["Lunge", "Split Squat", "Step-Up", "Bulgarian", "Pistol"]
+_ISOLATION_PULL_KEYWORDS = ["Chest-Supported", "Seated Cable Row"]
+_ISOLATION_PUSH_KEYWORDS = ["Bench", "Floor Press"]
+
+
+def _isolation_bias(slot_name, exercise_name):
+    if slot_name == "squat":
+        for kw in _ISOLATION_SQUAT_KEYWORDS:
+            if kw.lower() in exercise_name.lower():
+                return 0.05
+    elif slot_name == "pull":
+        for kw in _ISOLATION_PULL_KEYWORDS:
+            if kw.lower() in exercise_name.lower():
+                return 0.05
+    elif slot_name == "push":
+        for kw in _ISOLATION_PUSH_KEYWORDS:
+            if kw.lower() in exercise_name.lower():
+                return 0.03
+    return 0.0
+
+
 @router.get("/recommend-session", summary="Recommend a training session based on weekly balance")
 def recommend_session(
     date_param: date = Query(..., alias="date", description="Session date", examples=["2026-02-28"]),
@@ -226,6 +259,8 @@ def recommend_session(
     time: int = Query(45, ge=15, le=120, description="Session duration in minutes"),
     slots: Optional[str] = Query(None, description="Slot allocations", examples=["hinge:2,squat:2,push:2,pull:2"]),
     exclude: Optional[str] = Query(None, description="Comma-separated exercises to exclude"),
+    bnPercentile: int = Query(70, ge=1, le=100, description="Bottleneck percentile threshold for isolation filtering"),
+    stabPercentile: int = Query(70, ge=1, le=100, description="Stability percentile threshold for isolation filtering"),
     db: Session = Depends(get_db),
 ):
     if mode not in ("compound", "isolation"):
@@ -297,6 +332,12 @@ def recommend_session(
             stab_vec[r.exercise_id] = [0.0] * n_muscles
         stab_vec[r.exercise_id][mid_index[r.muscle_id]] = r.value
 
+    ex_bn_scalar = {}
+    ex_stab_scalar = {}
+    for eid in act_vec:
+        ex_bn_scalar[eid] = sum(bn_vec.get(eid, [0.0] * n_muscles))
+        ex_stab_scalar[eid] = sum(stab_vec.get(eid, [0.0] * n_muscles))
+
     if mode == "compound":
         lambda_red, lambda_bn, lambda_stab = 0.35, 0.25, 0.20
         excluded_slot_types = set()
@@ -304,17 +345,89 @@ def recommend_session(
         lambda_red, lambda_bn, lambda_stab = 0.35, 0.45, 0.45
         excluded_slot_types = {"oly", "carry"}
 
-    candidates_by_slot = {}
+    unfiltered_by_slot = {}
     for slot_name in slot_counts:
         if slot_name in excluded_slot_types:
-            candidates_by_slot[slot_name] = []
+            unfiltered_by_slot[slot_name] = []
             continue
         eids = []
         for eid in slot_to_eids.get(slot_name, set()):
             ename = ex_name_map.get(eid, "")
             if ename not in excluded_names and eid in act_vec:
                 eids.append(eid)
-        candidates_by_slot[slot_name] = eids
+        unfiltered_by_slot[slot_name] = eids
+
+    isolation_filters = None
+    filter_relaxed = False
+    final_bn_pct = bnPercentile
+    final_stab_pct = stabPercentile
+
+    if mode == "isolation":
+        all_bn_values = list(ex_bn_scalar.values())
+        all_stab_values = list(ex_stab_scalar.values())
+
+        candidates_by_slot = {}
+        iso_filter_info = {}
+        relaxation_steps = [bnPercentile, 80, 90, 100]
+        stab_relaxation_steps = [stabPercentile, 80, 90, 100]
+
+        for slot_name in slot_counts:
+            pool = unfiltered_by_slot.get(slot_name, [])
+            needed = slot_counts[slot_name]
+            before_count = len(pool)
+
+            used_bn_pct = bnPercentile
+            used_stab_pct = stabPercentile
+            filtered = []
+
+            for bn_try, stab_try in zip(relaxation_steps, stab_relaxation_steps):
+                bn_thresh = _percentile_value(all_bn_values, bn_try)
+                stab_thresh = _percentile_value(all_stab_values, stab_try)
+                filtered = [
+                    eid for eid in pool
+                    if ex_bn_scalar.get(eid, 0) <= bn_thresh
+                    and ex_stab_scalar.get(eid, 0) <= stab_thresh
+                ]
+                used_bn_pct = bn_try
+                used_stab_pct = stab_try
+                if len(filtered) >= needed:
+                    break
+
+            if len(filtered) < needed:
+                filtered = pool
+                filter_relaxed = True
+
+            if used_bn_pct != bnPercentile or used_stab_pct != stabPercentile:
+                filter_relaxed = True
+
+            final_bn_pct = max(final_bn_pct, used_bn_pct)
+            final_stab_pct = max(final_stab_pct, used_stab_pct)
+
+            bn_thresh_used = _percentile_value(all_bn_values, used_bn_pct)
+            stab_thresh_used = _percentile_value(all_stab_values, used_stab_pct)
+
+            candidates_by_slot[slot_name] = filtered
+            iso_filter_info[slot_name] = {
+                "candidatesBefore": before_count,
+                "candidatesAfter": len(filtered),
+                "bnPercentileUsed": used_bn_pct,
+                "stabPercentileUsed": used_stab_pct,
+            }
+
+        bn_p_val = round(_percentile_value(all_bn_values, final_bn_pct), 6)
+        stab_p_val = round(_percentile_value(all_stab_values, final_stab_pct), 6)
+
+        isolation_filters = {
+            "bnPercentileRequested": bnPercentile,
+            "stabPercentileRequested": stabPercentile,
+            "bnPercentileFinal": final_bn_pct,
+            "stabPercentileFinal": final_stab_pct,
+            "bn_threshold_value": bn_p_val,
+            "stab_threshold_value": stab_p_val,
+            "per_slot": iso_filter_info,
+        }
+    else:
+        candidates_by_slot = unfiltered_by_slot
 
     coverage = [0.0] * n_muscles
     selected = []
@@ -354,13 +467,18 @@ def recommend_session(
                     max_sim = max(_cosine_sim(avec, sv) for sv in selected_vecs)
                     red_penalty = lambda_red * max_sim
 
-                bn_sum = sum(bn_vec.get(eid, [0.0] * n_muscles))
-                stab_sum = sum(stab_vec.get(eid, [0.0] * n_muscles))
+                bn_sum = ex_bn_scalar.get(eid, 0)
+                stab_sum = ex_stab_scalar.get(eid, 0)
 
                 bn_penalty = lambda_bn * bn_sum
                 stab_penalty = lambda_stab * stab_sum
 
                 score = gain - red_penalty - bn_penalty - stab_penalty
+
+                if mode == "isolation":
+                    bias = _isolation_bias(slot_name, ex_name_map.get(eid, ""))
+                    if bias > 0:
+                        score = score + abs(score) * bias
 
                 if score > best_score:
                     best_score = score
@@ -374,9 +492,9 @@ def recommend_session(
                         "bottleneck_penalty": round(bn_penalty, 6),
                         "stability_penalty": round(stab_penalty, 6),
                         "final_score": round(score, 6),
+                        "bn_e": round(bn_sum, 6),
+                        "stab_e": round(stab_sum, 6),
                         "_avec": avec,
-                        "_bn_sum": bn_sum,
-                        "_stab_sum": stab_sum,
                     }
 
         if best_result is None:
@@ -384,8 +502,6 @@ def recommend_session(
 
         eid = best_result["exercise_id"]
         avec = best_result.pop("_avec")
-        bn_sum = best_result.pop("_bn_sum")
-        stab_sum = best_result.pop("_stab_sum")
 
         top_muscles_for_ex = []
         for j in range(n_muscles):
@@ -402,15 +518,15 @@ def recommend_session(
 
         selected.append(best_result)
         selected_vecs.append(avec)
-        total_bn_used += bn_sum
-        total_stab_used += stab_sum
+        total_bn_used += best_result["bn_e"]
+        total_stab_used += best_result["stab_e"]
         slot_filled[best_result["slot"]] += 1
         remaining_slots.pop(best_slot_idx)
 
     for s in selected:
         del s["exercise_id"]
 
-    return {
+    result = {
         "date": str(date_param),
         "week": week_str,
         "mode": mode,
@@ -426,3 +542,9 @@ def recommend_session(
         "total_bottleneck": round(total_bn_used, 6),
         "total_stability": round(total_stab_used, 6),
     }
+
+    if mode == "isolation":
+        result["filter_relaxed"] = filter_relaxed
+        result["isolation_filters"] = isolation_filters
+
+    return result

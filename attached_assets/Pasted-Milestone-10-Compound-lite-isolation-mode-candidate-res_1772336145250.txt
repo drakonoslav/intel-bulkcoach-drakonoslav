@@ -1,0 +1,75 @@
+Milestone 10 — Compound-lite isolation mode (candidate restrictions)
+
+Goal
+
+Make mode=isolation in /coach/recommend-session produce meaningfully different exercise selections by pre-filtering candidates to low-systemic-tax compounds.
+
+Where
+
+Modify existing endpoint:
+GET /coach/recommend-session?date=YYYY-MM-DD&mode=compound|isolation...
+
+New isolation-mode filter (deterministic)
+
+For every exercise e, compute two scalars:
+	1.	sum_bottleneck(e)
+BN_e = \sum_m bottleneck\_coeff(e,m)
+Use bottleneck_matrix_v4.
+	2.	sum_stability(e)
+STAB_e = \sum_m value(e,m) \quad \text{where component='stability'}
+Use stabilization_matrix_v5.
+
+Compute percentiles across all exercises (92):
+	•	BN_p70 = 70th percentile of BN_e
+	•	STAB_p70 = 70th percentile of STAB_e
+
+Isolation candidate eligibility:
+	•	keep exercise e only if:
+	•	BN_e <= BN_p70 AND
+	•	STAB_e <= STAB_p70
+
+(Use AND, not OR, to ensure low-tax set.)
+
+Add query params (optional overrides)
+
+Allow tuning thresholds:
+	•	bnPercentile=70 (default)
+	•	stabPercentile=70 (default)
+
+Slot-specific bias (optional, deterministic)
+
+After filtering, apply mild preferences in isolation mode:
+	•	Prefer unilateral squat family within squat slot:
+boost score by +5% if exercise name contains any of:
+"Lunge", "Split Squat", "Step-Up", "Bulgarian", "Pistol"
+	•	Prefer supported rows within pull slot:
+boost by +5% if name contains "Chest-Supported" or "Seated Cable Row"
+	•	Prefer bench variants within push slot:
+boost by +3% if name contains "Bench" or "Floor Press"
+
+This is a bias, not a hard restriction.
+
+Safety fallback
+
+If filtering leaves too few candidates to fill a slot quota:
+	•	Relax thresholds stepwise: 70 → 80 → 90
+	•	If still insufficient, fall back to unfiltered pool but keep higher lambda penalties.
+Return in response:
+	•	filter_relaxed: true/false
+	•	final percentiles used
+
+Output additions
+
+In recommend-session response, add:
+	•	isolation_filters: {bnPercentileUsed, stabPercentileUsed, bn_pX_value, stab_pX_value, candidatesBefore, candidatesAfter per slot}
+	•	per selected exercise: include BN_e and STAB_e scalars (so it’s auditable)
+
+Verification tests
+	1.	With mode=compound vs mode=isolation on same date and same history:
+
+	•	selected exercises should differ in at least 2 slots (unless history empty and constraints extreme)
+
+	2.	Isolation mode should show lower average BN_e and STAB_e across the selected set than compound mode.
+	3.	Ensure fallback works: artificially set bnPercentile=20 stabPercentile=20 and still fills slots via relaxation.
+
+Stop after Milestone 10 passes.

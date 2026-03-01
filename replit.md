@@ -66,7 +66,7 @@ attached_assets/
 | GET | `/lifts/sets?from=&to=` | Query lift sets by date range |
 | GET | `/reports/weekly-muscles?week=&lens=v2\|role\|v3\|v4\|v5` | Weekly muscle stimulus with configurable matrix lens |
 | GET | `/coach/weekly-balance?week=&lookbackWeeks=` | Per-muscle underfed/overtaxed scores with classification |
-| GET | `/coach/recommend-session?date=&mode=&slots=` | Session recommender targeting underfed muscles (compound/isolation) |
+| GET | `/coach/recommend-session?date=&mode=&slots=&bnPercentile=&stabPercentile=` | Session recommender with isolation candidate filtering, bias boosts, fallback |
 | GET | `/reports/weekly-muscle-dose?week=` | Per-muscle total vs direct dose decomposition + top contributors |
 | GET | `/reports/weekly-muscle-dose/{muscle}?week=` | Single muscle drilldown with optional set-level detail |
 | POST | `/volume/ingest` | Legacy: log a training set |
