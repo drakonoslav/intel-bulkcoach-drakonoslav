@@ -1,83 +1,65 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import Optional
-
+from typing import Optional, Dict, List
 from app.database import get_db
-from app.models import VolumeLog
-from app.schemas import WeeklyReport
+from app.models import (
+    VolumeLog, Exercise, Muscle,
+    ActivationMatrixV2, CompositeIndex,
+)
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
-PRESET_CONFIG = {
-    "strength": {
-        "min_intensity_pct": 80,
-        "target_sets_range": (3, 6),
-        "target_reps_range": (1, 6),
-        "volume_unit": "relative",
-        "recommendations": [
-            "Keep intensity ≥ 80% 1RM for primary lifts.",
-            "Limit total weekly sets per movement to 10–20.",
-            "Prioritise rest 3–5 min between heavy sets.",
-        ],
-    },
-    "hypertrophy": {
-        "min_intensity_pct": 60,
-        "target_sets_range": (3, 5),
-        "target_reps_range": (6, 15),
-        "volume_unit": "absolute",
-        "recommendations": [
-            "Target 10–20 working sets per muscle group per week.",
-            "Keep rest 60–90 seconds for accessory work.",
-            "Use progressive overload on weight or reps each session.",
-        ],
-    },
-    "injury": {
-        "min_intensity_pct": 40,
-        "target_sets_range": (2, 4),
-        "target_reps_range": (10, 20),
-        "volume_unit": "absolute",
-        "recommendations": [
-            "Reduce load to RPE ≤ 6 until pain-free range of motion is restored.",
-            "Prioritise unilateral and isolation movements.",
-            "Increase frequency but reduce per-session volume.",
-            "Consult a physiotherapist for persistent issues.",
-        ],
-    },
-}
+
+def _compute_muscle_stimulus(db: Session, logs: list) -> Dict[str, float]:
+    stimulus: Dict[str, float] = {}
+    exercise_names = set(l.exercise for l in logs)
+
+    exercises = db.query(Exercise).filter(Exercise.name.in_(exercise_names)).all()
+    ex_id_map = {e.name: e.id for e in exercises}
+
+    for log in logs:
+        ex_id = ex_id_map.get(log.exercise)
+        if not ex_id:
+            continue
+        activations = (
+            db.query(ActivationMatrixV2, Muscle)
+            .join(Muscle, ActivationMatrixV2.muscle_id == Muscle.id)
+            .filter(ActivationMatrixV2.exercise_id == ex_id)
+            .all()
+        )
+        tonnage = log.tonnage
+        for act_row, mu in activations:
+            stim = tonnage * act_row.activation
+            stimulus[mu.name] = stimulus.get(mu.name, 0.0) + stim
+
+    return {k: round(v, 2) for k, v in sorted(stimulus.items(), key=lambda x: -x[1])}
 
 
-@router.get("/weekly", response_model=WeeklyReport, summary="Weekly training report")
+@router.get("/weekly", summary="Weekly training report with muscle stimulus analysis")
 def weekly_report(
-    week: str = Query(..., description="ISO week string, e.g. 2026-W09"),
-    preset: str = Query("strength", description="strength | hypertrophy | injury"),
+    week: str = Query(..., description="ISO week, e.g. 2026-W09"),
     db: Session = Depends(get_db),
 ):
-    if preset not in PRESET_CONFIG:
-        raise HTTPException(status_code=400, detail=f"Unknown preset '{preset}'. Use: {list(PRESET_CONFIG)}")
-
     logs = db.query(VolumeLog).filter(VolumeLog.week == week).all()
 
     if not logs:
-        return WeeklyReport(
-            week=week,
-            preset=preset,
-            exercises=[],
-            total_sets=0,
-            total_reps=0,
-            total_tonnage_kg=0.0,
-            avg_intensity_pct=None,
-            breakdown=[],
-            recommendations=PRESET_CONFIG[preset]["recommendations"],
-        )
+        return {
+            "week": week,
+            "exercises": [],
+            "total_sets": 0,
+            "total_reps": 0,
+            "total_tonnage_kg": 0.0,
+            "muscle_stimulus": {},
+            "breakdown": [],
+        }
 
     exercises = sorted(set(l.exercise for l in logs))
     total_sets = sum(l.sets for l in logs)
     total_reps = sum(l.reps * l.sets for l in logs)
     total_tonnage = sum(l.tonnage for l in logs)
 
-    e1rms = [l.estimated_1rm for l in logs]
-    avg_1rm = sum(e1rms) / len(e1rms) if e1rms else None
+    muscle_stimulus = _compute_muscle_stimulus(db, logs)
 
     breakdown = []
     for ex in exercises:
@@ -95,14 +77,12 @@ def weekly_report(
             "entries": len(ex_logs),
         })
 
-    return WeeklyReport(
-        week=week,
-        preset=preset,
-        exercises=exercises,
-        total_sets=total_sets,
-        total_reps=total_reps,
-        total_tonnage_kg=round(total_tonnage, 2),
-        avg_intensity_pct=round(avg_1rm, 2) if avg_1rm else None,
-        breakdown=breakdown,
-        recommendations=PRESET_CONFIG[preset]["recommendations"],
-    )
+    return {
+        "week": week,
+        "exercises": exercises,
+        "total_sets": total_sets,
+        "total_reps": total_reps,
+        "total_tonnage_kg": round(total_tonnage, 2),
+        "muscle_stimulus": muscle_stimulus,
+        "breakdown": breakdown,
+    }

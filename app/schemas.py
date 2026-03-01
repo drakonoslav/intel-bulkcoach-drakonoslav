@@ -3,18 +3,88 @@ from typing import Optional, List, Dict, Any
 from datetime import date as DateType
 
 
+class ExerciseOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    category: str
+    movement_pattern: str
+    equipment: Optional[str]
+    bilateral: int
+
+
+class MuscleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    group_name: str
+    region: str
+
+
+class ActivationEntry(BaseModel):
+    exercise: str
+    muscle: str
+    activation: float
+    role: Optional[str] = None
+    weight: Optional[float] = None
+    weighted_activation: Optional[float] = None
+
+
+class PhaseEntry(BaseModel):
+    exercise: str
+    muscle: str
+    phase: str
+    activation: float
+
+
+class BottleneckEntry(BaseModel):
+    exercise: str
+    muscle: str
+    bottleneck_coefficient: float
+    is_limiting: bool
+
+
+class StabilizationEntry(BaseModel):
+    exercise: str
+    muscle: str
+    stabilization_score: float
+    dynamic_score: float
+
+
+class CompositeEntry(BaseModel):
+    exercise: str
+    muscle: str
+    composite_score: float
+    activation_component: float
+    phase_component: float
+    bottleneck_component: float
+    stabilization_component: float
+
+
+class DatasetInfo(BaseModel):
+    version: str
+    name: str
+    description: str
+    dimensions: Dict[str, int]
+
+
+class MatrixResponse(BaseModel):
+    version: str
+    dimensions: Dict[str, int]
+    data: List[Dict[str, Any]]
+
+
 class VolumeIngest(BaseModel):
-    exercise: str = Field(..., description="Exercise name, e.g. 'squat'")
-    weight_kg: float = Field(..., gt=0, description="Load in kilograms")
+    exercise: str = Field(..., description="Exercise name")
+    weight_kg: float = Field(..., gt=0)
     reps: int = Field(..., gt=0, le=100)
-    sets: int = Field(1, gt=0, le=20)
-    date: DateType = Field(..., description="Training date YYYY-MM-DD")
+    sets: int = Field(1, gt=0, le=50)
+    date: DateType = Field(...)
     notes: Optional[str] = None
 
 
 class VolumeLogOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     id: int
     exercise: str
     weight_kg: float
@@ -29,19 +99,17 @@ class VolumeLogOut(BaseModel):
 
 class WeeklyReport(BaseModel):
     week: str
-    preset: str
     exercises: List[str]
     total_sets: int
     total_reps: int
     total_tonnage_kg: float
-    avg_intensity_pct: Optional[float]
+    muscle_stimulus: Dict[str, float]
     breakdown: List[Dict[str, Any]]
-    recommendations: List[str]
 
 
 class OptimizerResult(BaseModel):
     goal: str
     n_slots: int
-    selected_exercises: List[Dict[str, Any]]
-    weekly_volume: Dict[str, Any]
+    selected: List[Dict[str, Any]]
+    coverage: Dict[str, float]
     notes: List[str]

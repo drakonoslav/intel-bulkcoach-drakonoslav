@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
-from typing import List, Optional
+from typing import Optional
 from datetime import date
 import isoweek
 
@@ -17,7 +16,7 @@ def _week_label(d: date) -> str:
     return f"{w.year}-W{str(w.week).zfill(2)}"
 
 
-@router.post("/ingest", response_model=VolumeLogOut, summary="Log a set of work")
+@router.post("/ingest", summary="Log a set of work")
 def ingest_volume(payload: VolumeIngest, db: Session = Depends(get_db)):
     week = _week_label(payload.date)
     log = VolumeLog(
@@ -38,7 +37,7 @@ def ingest_volume(payload: VolumeIngest, db: Session = Depends(get_db)):
         "weight_kg": log.weight_kg,
         "reps": log.reps,
         "sets": log.sets,
-        "date": log.date,
+        "date": str(log.date),
         "week": log.week,
         "tonnage": log.tonnage,
         "estimated_1rm": round(log.estimated_1rm, 2),
@@ -49,7 +48,7 @@ def ingest_volume(payload: VolumeIngest, db: Session = Depends(get_db)):
 @router.get("/logs", summary="Query logged volume entries")
 def get_logs(
     exercise: Optional[str] = Query(None),
-    week: Optional[str] = Query(None, description="YYYY-WW"),
+    week: Optional[str] = Query(None),
     since: Optional[date] = Query(None),
     until: Optional[date] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
