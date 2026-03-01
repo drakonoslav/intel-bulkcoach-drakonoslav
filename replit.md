@@ -62,11 +62,14 @@ attached_assets/
 | GET | `/composite/muscles?preset=hypertrophy\|strength\|injury` | Same + preset_score and preset_rank |
 | GET | `/presets` | List preset names + weight vectors |
 | GET | `/optimizer/weekly-template?preset=...` | Weekly template optimizer with slots, redundancy, fatigue constraints |
-| POST | `/lifts/sets` | Log a lift set (exercise_id resolved from name, tonnage computed) |
+| POST | `/lifts/sets` | Log a single lift set (exercise_id resolved from name, tonnage computed) |
+| POST | `/lifts/sets/batch` | Batch-log multiple lift sets in one transaction (?bestEffort=true for partial) |
 | GET | `/lifts/sets?from=&to=` | Query lift sets by date range |
 | GET | `/reports/weekly-muscles?week=&lens=v2\|role\|v3\|v4\|v5` | Weekly muscle stimulus with configurable matrix lens |
 | GET | `/coach/weekly-balance?week=&lookbackWeeks=` | Per-muscle underfed/overtaxed scores with classification |
 | GET | `/coach/recommend-session?date=&mode=&slots=&bnPercentile=&stabPercentile=&ctPercentile=` | Session recommender with BN/STAB/CT triple-filter, bias boosts, fallback |
+| POST | `/coach/session/start` | Snapshot a recommended plan into session_plans table |
+| POST | `/coach/session/complete` | Link executed set_ids to plan, returns compliance analysis |
 | GET | `/reports/weekly-muscle-dose?week=` | Per-muscle total vs direct dose decomposition + top contributors |
 | GET | `/reports/weekly-muscle-dose/{muscle}?week=` | Single muscle drilldown with optional set-level detail |
 | POST | `/volume/ingest` | Legacy: log a training set |

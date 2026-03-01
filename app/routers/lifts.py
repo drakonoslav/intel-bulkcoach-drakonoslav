@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 from datetime import date
 
 from app.database import get_db
@@ -17,6 +17,10 @@ class LiftSetIn(BaseModel):
     reps: int = Field(..., ge=0, examples=[5])
     notes: Optional[str] = Field(None, examples=["felt strong"])
     source: Optional[str] = Field(None, examples=["expo"])
+
+
+class BatchIn(BaseModel):
+    sets: List[LiftSetIn] = Field(..., min_length=1)
 
 
 @router.post("/sets", summary="Log a lift set")
@@ -50,6 +54,59 @@ def create_lift_set(payload: LiftSetIn, db: Session = Depends(get_db)):
         "notes": row.notes,
         "source": row.source,
     }
+
+
+@router.post("/sets/batch", summary="Batch-log multiple lift sets")
+def create_lift_sets_batch(
+    payload: BatchIn,
+    bestEffort: bool = Query(False, description="If true, insert valid sets and return errors for invalid ones"),
+    db: Session = Depends(get_db),
+):
+    ex_cache = {}
+    all_exercises = db.query(Exercise).all()
+    for e in all_exercises:
+        ex_cache[e.name] = e
+
+    if not bestEffort:
+        errors = []
+        for i, s in enumerate(payload.sets):
+            if s.exercise not in ex_cache:
+                errors.append({"index": i, "exercise": s.exercise, "error": "Unknown exercise"})
+        if errors:
+            raise HTTPException(status_code=400, detail={"message": "Batch rejected: unknown exercises", "errors": errors})
+
+    rows = []
+    inserted_errors = []
+    for i, s in enumerate(payload.sets):
+        ex = ex_cache.get(s.exercise)
+        if not ex:
+            if bestEffort:
+                inserted_errors.append({"index": i, "exercise": s.exercise, "error": "Unknown exercise"})
+                continue
+        tonnage = s.weight * s.reps
+        row = LiftSet(
+            performed_at=s.performed_at,
+            exercise_id=ex.id,
+            weight=s.weight,
+            reps=s.reps,
+            tonnage=tonnage,
+            notes=s.notes,
+            source=s.source,
+        )
+        db.add(row)
+        rows.append(row)
+
+    db.commit()
+    for row in rows:
+        db.refresh(row)
+
+    result = {
+        "inserted": len(rows),
+        "rows": [{"id": r.id, "tonnage": r.tonnage} for r in rows],
+    }
+    if bestEffort and inserted_errors:
+        result["errors"] = inserted_errors
+    return result
 
 
 @router.get("/sets", summary="Query lift sets by date range")

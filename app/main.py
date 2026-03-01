@@ -139,6 +139,7 @@ def root():
     <h3>Set Logging</h3>
     <p>Log lift sets with exercise resolution, auto-computed tonnage.</p>
     <div class="route"><span class="method post">POST</span>/lifts/sets</div>
+    <div class="route"><span class="method post">POST</span>/lifts/sets/batch</div>
     <div class="route"><span class="method get">GET</span><a href="/lifts/sets?from=2026-02-01&amp;to=2026-03-01">/lifts/sets?from=2026-02-01&amp;to=2026-03-01</a></div>
   </div>
 </div>
@@ -178,6 +179,13 @@ def root():
     <p>Recommends exercises targeting underfed muscles with redundancy, bottleneck, and stability penalties.</p>
     <div class="route"><span class="method get">GET</span><a href="/coach/recommend-session?date=2026-02-28&amp;mode=compound&amp;slots=hinge:2,squat:2,push:2,pull:2">/coach/recommend-session?mode=compound</a></div>
     <div class="route"><span class="method get">GET</span><a href="/coach/recommend-session?date=2026-02-28&amp;mode=isolation&amp;slots=hinge:2,squat:2,push:2,pull:2">/coach/recommend-session?mode=isolation</a></div>
+  </div>
+  <div class="card">
+    <h2>Session Plans</h2>
+    <h3>Plan &amp; Execute Loop</h3>
+    <p>Snapshot a recommended plan, log sets, then link them for compliance analysis.</p>
+    <div class="route"><span class="method post">POST</span>/coach/session/start</div>
+    <div class="route"><span class="method post">POST</span>/coach/session/complete</div>
   </div>
 </div>
 

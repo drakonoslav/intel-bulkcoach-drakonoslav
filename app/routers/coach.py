@@ -3,15 +3,16 @@ import re
 from datetime import date, timedelta
 from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 
 from app.database import get_db
 from app.models import (
     LiftSet, Exercise, Muscle,
     ActivationMatrixV2, RoleWeightedMatrixV2,
     BottleneckMatrixV4, StabilizationMatrixV5,
-    ExerciseTag,
+    ExerciseTag, SessionPlan, SessionPlanSet,
 )
 
 router = APIRouter(prefix="/coach", tags=["coach"])
@@ -590,3 +591,179 @@ def recommend_session(
         result["isolation_filters"] = isolation_filters
 
     return result
+
+
+class SessionStartIn(BaseModel):
+    planned_for: date = Field(..., examples=["2026-02-28"])
+    mode: str = Field("compound", examples=["compound", "isolation"])
+    preset: str = Field("hypertrophy", examples=["hypertrophy"])
+    slots: Optional[str] = Field(None, examples=["hinge:2,squat:2,push:2,pull:2"])
+
+
+class SessionCompleteIn(BaseModel):
+    plan_id: int = Field(..., examples=[1])
+    set_ids: List[int] = Field(..., min_length=1)
+
+
+@router.post("/session/start", summary="Create a session plan snapshot")
+def session_start(payload: SessionStartIn, db: Session = Depends(get_db)):
+    if payload.mode not in ("compound", "isolation"):
+        raise HTTPException(status_code=400, detail="mode must be 'compound' or 'isolation'")
+
+    plan_response = recommend_session(
+        date_param=payload.planned_for,
+        mode=payload.mode,
+        preset=payload.preset,
+        time=45,
+        slots=payload.slots,
+        exclude=None,
+        bnPercentile=60,
+        stabPercentile=70,
+        ctPercentile=70,
+        db=db,
+    )
+
+    slot_counts = _parse_slots(payload.slots)
+
+    sp = SessionPlan(
+        planned_for=payload.planned_for,
+        mode=payload.mode,
+        preset=payload.preset,
+        slots=slot_counts,
+        plan=plan_response,
+        no_history=1 if plan_response.get("no_history") else 0,
+    )
+    db.add(sp)
+    db.commit()
+    db.refresh(sp)
+
+    return {
+        "plan_id": sp.id,
+        "plan": plan_response,
+    }
+
+
+@router.post("/session/complete", summary="Link executed sets to a session plan")
+def session_complete(payload: SessionCompleteIn, db: Session = Depends(get_db)):
+    sp = db.query(SessionPlan).filter(SessionPlan.id == payload.plan_id).first()
+    if not sp:
+        raise HTTPException(status_code=404, detail=f"Session plan {payload.plan_id} not found")
+
+    sets = db.query(LiftSet).filter(LiftSet.id.in_(payload.set_ids)).all()
+    found_ids = {s.id for s in sets}
+    missing = [sid for sid in payload.set_ids if sid not in found_ids]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Set IDs not found: {missing}")
+
+    existing_links = db.query(SessionPlanSet.set_id).filter(
+        SessionPlanSet.plan_id == sp.id
+    ).all()
+    existing_set_ids = {r[0] for r in existing_links}
+
+    for s in sets:
+        if s.id not in existing_set_ids:
+            link = SessionPlanSet(plan_id=sp.id, set_id=s.id)
+            db.add(link)
+    db.commit()
+
+    plan_data = sp.plan
+    planned_exercises = set()
+    planned_bn_by_ex = {}
+    planned_stab_by_ex = {}
+    if "selected" in plan_data:
+        for sel in plan_data["selected"]:
+            planned_exercises.add(sel["exercise"])
+            planned_bn_by_ex[sel["exercise"]] = sel.get("bn_e", 0)
+            planned_stab_by_ex[sel["exercise"]] = sel.get("stab_e", 0)
+
+    all_muscles = db.query(Muscle).order_by(Muscle.id).all()
+    muscle_map = {m.id: m.name for m in all_muscles}
+    muscle_by_name = {m.name: m.id for m in all_muscles}
+
+    exercise_ids = list({s.exercise_id for s in sets})
+    ex_objs = db.query(Exercise).filter(Exercise.id.in_(exercise_ids)).all()
+    ex_name_map = {e.id: e.name for e in ex_objs}
+
+    executed_exercises = set(ex_name_map.values())
+
+    all_plan_ex_names = list(planned_exercises | executed_exercises)
+    all_plan_ex_objs = db.query(Exercise).filter(Exercise.name.in_(all_plan_ex_names)).all()
+    all_plan_eids = [e.id for e in all_plan_ex_objs]
+    plan_eid_by_name = {e.name: e.id for e in all_plan_ex_objs}
+
+    act_lookup = {}
+    role_lookup = {}
+    bn_lookup = {}
+    stab_lookup = {}
+    if all_plan_eids:
+        for a in db.query(ActivationMatrixV2).filter(ActivationMatrixV2.exercise_id.in_(all_plan_eids)).all():
+            act_lookup[(a.exercise_id, a.muscle_id)] = a.activation_value
+        for r in db.query(RoleWeightedMatrixV2).filter(RoleWeightedMatrixV2.exercise_id.in_(all_plan_eids)).all():
+            role_lookup[(r.exercise_id, r.muscle_id)] = r.role_weight
+        for b in db.query(BottleneckMatrixV4).filter(BottleneckMatrixV4.exercise_id.in_(all_plan_eids)).all():
+            bn_lookup[(b.exercise_id, b.muscle_id)] = b.bottleneck_coeff
+        for sv in db.query(StabilizationMatrixV5).filter(
+            StabilizationMatrixV5.exercise_id.in_(all_plan_eids),
+            StabilizationMatrixV5.component == "stability",
+        ).all():
+            stab_lookup[(sv.exercise_id, sv.muscle_id)] = sv.value
+
+    executed_total_dose = defaultdict(float)
+    executed_direct_dose = defaultdict(float)
+    executed_tonnage = 0.0
+    executed_bn_total = 0.0
+    executed_stab_total = 0.0
+
+    for s in sets:
+        executed_tonnage += s.tonnage
+        for mid in muscle_map:
+            act = act_lookup.get((s.exercise_id, mid), 0)
+            rw = role_lookup.get((s.exercise_id, mid), 0)
+            executed_total_dose[mid] += s.tonnage * (act / 5.0)
+            executed_direct_dose[mid] += s.tonnage * rw
+            executed_bn_total += s.tonnage * bn_lookup.get((s.exercise_id, mid), 0)
+            executed_stab_total += s.tonnage * stab_lookup.get((s.exercise_id, mid), 0)
+
+    planned_total_dose = defaultdict(float)
+    planned_direct_dose = defaultdict(float)
+    for ex_name in planned_exercises:
+        eid = plan_eid_by_name.get(ex_name)
+        if not eid:
+            continue
+        for mid in muscle_map:
+            act = act_lookup.get((eid, mid), 0)
+            rw = role_lookup.get((eid, mid), 0)
+            planned_total_dose[mid] += act / 5.0
+            planned_direct_dose[mid] += rw
+
+    exercises_hit = planned_exercises & executed_exercises
+    exercise_compliance = len(exercises_hit) / len(planned_exercises) * 100 if planned_exercises else 0
+
+    muscle_comparison = []
+    for mid in sorted(muscle_map.keys()):
+        p_td = planned_total_dose.get(mid, 0)
+        p_dd = planned_direct_dose.get(mid, 0)
+        e_td = executed_total_dose.get(mid, 0)
+        e_dd = executed_direct_dose.get(mid, 0)
+        muscle_comparison.append({
+            "muscle": muscle_map[mid],
+            "planned_total_dose": round(p_td, 4),
+            "planned_direct_dose": round(p_dd, 4),
+            "executed_total_dose": round(e_td, 4),
+            "executed_direct_dose": round(e_dd, 4),
+        })
+
+    return {
+        "plan_id": sp.id,
+        "planned_for": str(sp.planned_for),
+        "planned_exercises": sorted(planned_exercises),
+        "executed_exercises": sorted(executed_exercises),
+        "exercises_hit": sorted(exercises_hit),
+        "exercise_compliance_pct": round(exercise_compliance, 1),
+        "executed_tonnage": round(executed_tonnage, 2),
+        "executed_bottleneck_total": round(executed_bn_total, 6),
+        "executed_stability_total": round(executed_stab_total, 6),
+        "planned_bottleneck_total": plan_data.get("total_bottleneck", 0),
+        "planned_stability_total": plan_data.get("total_stability", 0),
+        "muscle_doses": muscle_comparison,
+    }

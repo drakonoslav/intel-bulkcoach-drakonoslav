@@ -148,6 +148,33 @@ class LiftSet(Base):
     exercise = relationship("Exercise")
 
 
+class SessionPlan(Base):
+    __tablename__ = "session_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    planned_for = Column(Date, nullable=False, index=True)
+    mode = Column(Text, nullable=False)
+    preset = Column(Text, nullable=False)
+    slots = Column(JSONB, nullable=False)
+    plan = Column(JSONB, nullable=False)
+    no_history = Column("no_history", Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        CheckConstraint("mode IN ('compound','isolation')", name="ck_sp_mode"),
+    )
+
+
+class SessionPlanSet(Base):
+    __tablename__ = "session_plan_sets"
+
+    plan_id = Column(Integer, ForeignKey("session_plans.id"), primary_key=True)
+    set_id = Column(Integer, ForeignKey("lift_sets.id"), primary_key=True)
+
+    plan = relationship("SessionPlan")
+    lift_set = relationship("LiftSet")
+
+
 class VolumeLog(Base):
     __tablename__ = "volume_logs"
 
