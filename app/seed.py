@@ -9,7 +9,7 @@ import os
 from sqlalchemy.orm import Session
 from app.models import (
     Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3,
-    BottleneckMatrixV4, StabilizationMatrixV5
+    BottleneckMatrixV4, StabilizationMatrixV5, CompositeMuscleIndex
 )
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "attached_assets")
@@ -20,6 +20,7 @@ PHASE_V3_XLSX = os.path.join(ASSETS_DIR, "V3_Phase_Model_Outputs_1772330146444.x
 BOTTLENECK_CSV = os.path.join(ASSETS_DIR, "V4_Bottleneck_Coefficient_Matrix_1772330621400.csv")
 V5_DYNAMIC_CSV = os.path.join(ASSETS_DIR, "V5_Dynamic_Matrix_1772330962718.csv")
 V5_STABILITY_CSV = os.path.join(ASSETS_DIR, "V5_Stability_Matrix_1772330962718.csv")
+COMPOSITE_MUSCLE_CSV = os.path.join(ASSETS_DIR, "Composite_Muscle_Profile_Index_1772331293343.csv")
 
 
 def _get_muscle_map(db: Session):
@@ -36,6 +37,7 @@ def seed_from_csv(db: Session) -> bool:
         _seed_phase_v3(db)
         _seed_bottleneck_v4(db)
         _seed_stabilization_v5(db)
+        _seed_composite_muscle(db)
         return False
 
     with open(ACTIVATION_CSV, newline="", encoding="utf-8") as f:
@@ -71,6 +73,7 @@ def seed_from_csv(db: Session) -> bool:
     _seed_phase_v3(db)
     _seed_bottleneck_v4(db)
     _seed_stabilization_v5(db)
+    _seed_composite_muscle(db)
     return True
 
 
@@ -239,3 +242,44 @@ def _seed_stabilization_v5(db: Session):
                     ))
 
     db.commit()
+
+
+def _seed_composite_muscle(db: Session):
+    if db.query(CompositeMuscleIndex).count() > 0:
+        return
+    if not os.path.exists(COMPOSITE_MUSCLE_CSV):
+        return
+
+    import json
+    muscle_map = _get_muscle_map(db)
+
+    with open(COMPOSITE_MUSCLE_CSV, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            muscle_name = row["Muscle"].strip()
+            mu_id = muscle_map.get(muscle_name)
+            if mu_id is None:
+                continue
+            score = float(row["Composite_Index_0to100"])
+            payload = {k: _auto_type(v) for k, v in row.items()
+                       if k not in ("Muscle", "Composite_Index_0to100")}
+            db.add(CompositeMuscleIndex(
+                muscle_id=mu_id,
+                composite_score=score,
+                payload=payload,
+            ))
+
+    db.commit()
+
+
+def _auto_type(v):
+    v = v.strip()
+    try:
+        return int(v)
+    except ValueError:
+        pass
+    try:
+        return float(v)
+    except ValueError:
+        pass
+    return v

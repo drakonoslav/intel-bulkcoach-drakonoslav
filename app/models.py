@@ -2,6 +2,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, Date, DateTime, Text,
     ForeignKey, CheckConstraint
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -92,6 +93,19 @@ class StabilizationMatrixV5(Base):
     value = Column(Float, nullable=False)
 
     exercise = relationship("Exercise")
+    muscle = relationship("Muscle")
+
+
+class CompositeMuscleIndex(Base):
+    __tablename__ = "composite_muscle_index"
+    __table_args__ = (
+        CheckConstraint("composite_score BETWEEN 0 AND 100", name="ck_cmi_range"),
+    )
+
+    muscle_id = Column(Integer, ForeignKey("muscles.id"), primary_key=True)
+    composite_score = Column(Float, nullable=False)
+    payload = Column(JSONB, nullable=False)
+
     muscle = relationship("Muscle")
 
 
