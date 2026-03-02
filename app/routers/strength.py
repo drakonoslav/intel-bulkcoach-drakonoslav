@@ -108,6 +108,14 @@ def strength_trend(
         else:
             velocity_series[d] = 0.0
 
+    all_sets_by_day = defaultdict(list)
+    all_sets = db.query(LiftSet).filter(
+        LiftSet.performed_at >= from_date - timedelta(days=VELOCITY_WINDOW),
+        LiftSet.performed_at <= to_date,
+    ).all()
+    for s in all_sets:
+        all_sets_by_day[s.performed_at].append(s)
+
     days = []
     d = from_date
     while d <= to_date:
@@ -133,14 +141,34 @@ def strength_trend(
         if prev_phase and prev_phase != phase and phase != "rest":
             phase_transition = f"{prev_phase}->{phase}"
 
+        sessions_14d = 0
+        exercises_14d = set()
+        for i in range(VELOCITY_WINDOW):
+            wd = d - timedelta(days=i)
+            wd_stats = daily_stats.get(wd)
+            if wd_stats and wd_stats["tonnage"] > 0:
+                sessions_14d += 1
+            for s in all_sets_by_day.get(wd, []):
+                exercises_14d.add(s.exercise_id)
+
+        unique_exercises_14d = len(exercises_14d)
+        if sessions_14d >= 2 and unique_exercises_14d > 0:
+            swap_penalty = min(1.0, (unique_exercises_14d / sessions_14d - 1.0) * 0.25)
+            swap_penalty = max(0.0, swap_penalty)
+        else:
+            swap_penalty = 0.0
+
         days.append({
             "date": str(d),
             "day_strength_index": si,
             "rolling_avg_7d": ra,
             "velocity_14d": vel,
+            "velocity_14d_unit": "index_delta_per_day",
             "trend_score": trend_score,
             "phase": phase,
             "phase_transition": phase_transition,
+            "sessions_in_14d": sessions_14d,
+            "swap_penalty_14d": round(swap_penalty, 4),
             "tonnage": round(stats["tonnage"], 2) if stats else 0.0,
             "sets": stats["total_sets"] if stats else 0,
             "avg_weight": round(stats["avg_weight"], 2) if stats else 0.0,
