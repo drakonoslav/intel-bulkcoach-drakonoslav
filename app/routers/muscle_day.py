@@ -59,7 +59,7 @@ PUSH_MEMBERS = [
 PULL_MEMBERS = [
     "Lats", "Upper Back", "Middle Back", "Rear/Posterior Delt", "Biceps",
     "Forearms", "Hands/Grip", "Traps", "Upper Traps", "Mid Traps", "Lower Traps",
-    "Hamstrings", "Lower Back", "Glutes",
+    "Hamstrings", "Lower Back",
 ]
 ANTERIOR_MEMBERS = ["Pectorals", "Quads", "Front/Anterior Delt", "Abs"]
 POSTERIOR_MEMBERS = [
