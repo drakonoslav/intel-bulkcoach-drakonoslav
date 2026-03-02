@@ -13,7 +13,7 @@ HANDS_GRIP_NAME = "Hands/Grip"
 FOREARMS_NAME = "Forearms"
 HANDS_GRIP_SCALE = 0.85
 MUSCLE_SCHEMA_VERSION = 27
-BALANCE_SCHEMA_VERSION = 2
+BALANCE_SCHEMA_VERSION = 3
 RECOVERY_SCHEMA_VERSION = 1
 ROLLING_WINDOW_DAYS = 7
 DECAY_LOOKBACK_DAYS = 30
@@ -52,10 +52,42 @@ TAU_TABLE = {
 
 FRESHNESS_K = 1000.0
 
-PUSH_MEMBERS = ["Pectorals", "Front/Anterior Delt", "Triceps"]
-PULL_MEMBERS = ["Lats", "Upper Back", "Middle Back", "Rear/Posterior Delt", "Biceps"]
+PUSH_MEMBERS = [
+    "Pectorals", "Front/Anterior Delt", "Side/Lateral Delt", "Triceps",
+    "Quads", "Calves", "Shins",
+]
+PULL_MEMBERS = [
+    "Lats", "Upper Back", "Middle Back", "Rear/Posterior Delt", "Biceps",
+    "Forearms", "Hands/Grip", "Traps", "Upper Traps", "Mid Traps", "Lower Traps",
+    "Hamstrings", "Lower Back", "Glutes",
+]
 ANTERIOR_MEMBERS = ["Pectorals", "Quads", "Front/Anterior Delt", "Abs"]
-POSTERIOR_MEMBERS = ["Hamstrings", "Glutes", "Lower Back", "Middle Back", "Upper Back", "Rear/Posterior Delt", "Lats"]
+POSTERIOR_MEMBERS = [
+    "Hamstrings", "Glutes", "Lower Back", "Middle Back", "Upper Back",
+    "Rear/Posterior Delt", "Lats",
+]
+UPPER_MEMBERS = [
+    "Pectorals", "Lats", "Upper Back", "Middle Back",
+    "Deltoids", "Front/Anterior Delt", "Rear/Posterior Delt", "Side/Lateral Delt",
+    "Traps", "Upper Traps", "Mid Traps", "Lower Traps",
+    "Triceps", "Biceps", "Forearms", "Hands/Grip", "Neck",
+]
+LOWER_MEMBERS = [
+    "Glutes", "Quads", "Hamstrings", "Calves", "Shins",
+    "Adductors", "Abductors",
+]
+AXIAL_MEMBERS = [
+    "Neck", "Abs", "Obliques", "Lower Back",
+    "Upper Back", "Middle Back", "Lats",
+    "Traps", "Upper Traps", "Mid Traps", "Lower Traps",
+    "Pectorals",
+]
+APPENDICULAR_MEMBERS = [
+    "Deltoids", "Front/Anterior Delt", "Rear/Posterior Delt", "Side/Lateral Delt",
+    "Triceps", "Biceps", "Forearms", "Hands/Grip",
+    "Glutes", "Quads", "Hamstrings", "Calves", "Shins",
+    "Adductors", "Abductors",
+]
 
 
 def _compute_day_doses(sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hands_grip_id):
@@ -75,6 +107,25 @@ def _compute_day_doses(sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hand
             direct_dose[hands_grip_id] = direct_dose[forearm_id] * HANDS_GRIP_SCALE
 
     return total_dose, direct_dose
+
+
+def _balance(dose_map, label, a_ids, b_ids, a_key, b_key):
+    a_sum = sum(dose_map[mid] for mid in a_ids)
+    b_sum = sum(dose_map[mid] for mid in b_ids)
+    if a_sum == 0 and b_sum == 0:
+        ratio = None
+        log_ratio = None
+    else:
+        ratio = round(a_sum / max(b_sum, EPS), 4)
+        log_ratio = round(math.log((a_sum + EPS) / (b_sum + EPS)), 4)
+    return {
+        "mode": label,
+        a_key: round(a_sum, 2),
+        b_key: round(b_sum, 2),
+        "ratio": ratio,
+        "log_ratio": log_ratio,
+        "eps": EPS,
+    }
 
 
 @router.get("/day", summary="Per-muscle load for a single date (all 27 regions) + 7-day rolling + recovery")
@@ -211,34 +262,62 @@ def muscle_day(
         })
 
     name_to_id = {v: k for k, v in muscle_map.items()}
-    push_ids = [name_to_id[n] for n in PUSH_MEMBERS if n in name_to_id]
-    pull_ids = [name_to_id[n] for n in PULL_MEMBERS if n in name_to_id]
-    ant_ids = [name_to_id[n] for n in ANTERIOR_MEMBERS if n in name_to_id]
-    post_ids = [name_to_id[n] for n in POSTERIOR_MEMBERS if n in name_to_id]
 
-    def _balance(dose_map, label, a_ids, b_ids, a_key, b_key, a_members, b_members):
-        a_sum = sum(dose_map[mid] for mid in a_ids)
-        b_sum = sum(dose_map[mid] for mid in b_ids)
-        ratio = a_sum / max(b_sum, EPS)
-        log_ratio = math.log((a_sum + EPS) / (b_sum + EPS))
-        return {
-            "mode": label,
-            a_key: round(a_sum, 2),
-            b_key: round(b_sum, 2),
-            "ratio": round(ratio, 4),
-            "log_ratio": round(log_ratio, 4),
-            "eps": EPS,
-            "members": {
-                a_key.replace("_sum", ""): a_members,
-                b_key.replace("_sum", ""): b_members,
-            },
-        }
+    def _resolve_ids(members):
+        return [name_to_id[n] for n in members if n in name_to_id]
+
+    push_ids = _resolve_ids(PUSH_MEMBERS)
+    pull_ids = _resolve_ids(PULL_MEMBERS)
+    ant_ids = _resolve_ids(ANTERIOR_MEMBERS)
+    post_ids = _resolve_ids(POSTERIOR_MEMBERS)
+    upper_ids = _resolve_ids(UPPER_MEMBERS)
+    lower_ids = _resolve_ids(LOWER_MEMBERS)
+    axial_ids = _resolve_ids(AXIAL_MEMBERS)
+    append_ids = _resolve_ids(APPENDICULAR_MEMBERS)
 
     balances = {
-        "push_pull_total": _balance(today_total, "total", push_ids, pull_ids, "push_sum", "pull_sum", PUSH_MEMBERS, PULL_MEMBERS),
-        "push_pull_direct": _balance(today_direct, "direct", push_ids, pull_ids, "push_sum", "pull_sum", PUSH_MEMBERS, PULL_MEMBERS),
-        "ant_post_total": _balance(today_total, "total", ant_ids, post_ids, "anterior_sum", "posterior_sum", ANTERIOR_MEMBERS, POSTERIOR_MEMBERS),
-        "ant_post_direct": _balance(today_direct, "direct", ant_ids, post_ids, "anterior_sum", "posterior_sum", ANTERIOR_MEMBERS, POSTERIOR_MEMBERS),
+        "push_pull_total": _balance(today_total, "total", push_ids, pull_ids, "push_sum", "pull_sum"),
+        "push_pull_direct": _balance(today_direct, "direct", push_ids, pull_ids, "push_sum", "pull_sum"),
+        "ant_post_total": _balance(today_total, "total", ant_ids, post_ids, "anterior_sum", "posterior_sum"),
+        "ant_post_direct": _balance(today_direct, "direct", ant_ids, post_ids, "anterior_sum", "posterior_sum"),
+        "upper_lower_total": _balance(today_total, "total", upper_ids, lower_ids, "upper_sum", "lower_sum"),
+        "upper_lower_direct": _balance(today_direct, "direct", upper_ids, lower_ids, "upper_sum", "lower_sum"),
+        "axial_appendicular_total": _balance(today_total, "total", axial_ids, append_ids, "axial_sum", "appendicular_sum"),
+        "axial_appendicular_direct": _balance(today_direct, "direct", axial_ids, append_ids, "axial_sum", "appendicular_sum"),
+    }
+
+    balances_scope = {
+        "push_pull": "full_body",
+        "ant_post": "full_body",
+        "upper_lower": "full_body",
+        "axial_appendicular": "full_body",
+    }
+
+    balances_definitions = {
+        "push_pull": {
+            "push_muscle_ids": push_ids,
+            "push_muscles": PUSH_MEMBERS,
+            "pull_muscle_ids": pull_ids,
+            "pull_muscles": PULL_MEMBERS,
+        },
+        "ant_post": {
+            "anterior_muscle_ids": ant_ids,
+            "anterior_muscles": ANTERIOR_MEMBERS,
+            "posterior_muscle_ids": post_ids,
+            "posterior_muscles": POSTERIOR_MEMBERS,
+        },
+        "upper_lower": {
+            "upper_muscle_ids": upper_ids,
+            "upper_muscles": UPPER_MEMBERS,
+            "lower_muscle_ids": lower_ids,
+            "lower_muscles": LOWER_MEMBERS,
+        },
+        "axial_appendicular": {
+            "axial_muscle_ids": axial_ids,
+            "axial_muscles": AXIAL_MEMBERS,
+            "appendicular_muscle_ids": append_ids,
+            "appendicular_muscles": APPENDICULAR_MEMBERS,
+        },
     }
 
     return {
@@ -254,4 +333,6 @@ def muscle_day(
         "exercises": exercises_used,
         "regions": regions,
         "balances": balances,
+        "balances_scope": balances_scope,
+        "balances_definitions": balances_definitions,
     }

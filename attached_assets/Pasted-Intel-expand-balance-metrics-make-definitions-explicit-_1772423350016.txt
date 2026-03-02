@@ -1,0 +1,63 @@
+Intel: expand balance metrics + make definitions explicit (no Expo mapping)
+
+Goal
+Keep Expo dumb: it renders whatever Intel returns. Intel becomes authoritative for balance buckets and exposes stable, auditable definitions.
+
+1) Keep existing balances, but formalize scope + version
+
+Current fields must remain:
+	•	balances.push_pull_total, balances.push_pull_direct
+	•	balances.ant_post_total, balances.ant_post_direct
+	•	and log_ratio for each
+
+Add:
+	•	balances_schema_version: 1
+	•	balances_scope.push_pull: "upper_only" | "full_body"
+	•	balances_scope.ant_post: "full_body"
+
+2) Make push/pull explicitly full-body (update computation)
+
+Update push/pull to include lower body by default (unless you want a flag):
+	•	Push bucket (default): Chest, Front Delt, Side Delt (optional), Triceps, Quads (+ optional Calves/Shins)
+	•	Pull bucket (default): Lats, Upper/Mid Back, Traps, Rear Delt, Biceps, Forearms, Hands/Grip, Hamstrings, Lower Back (+ optional Glutes-on-hinge)
+
+Return (for both total & direct):
+	•	push_total, pull_total, ratio, log_ratio
+	•	push_direct, pull_direct, ratio, log_ratio
+
+3) Add NEW balance family: Upper vs Lower
+
+Add:
+	•	balances.upper_lower_total: { upper, lower, ratio, log_ratio }
+	•	balances.upper_lower_direct: { upper, lower, ratio, log_ratio }
+
+Define buckets:
+	•	Upper: delts/arms/chest/back/traps/forearms/hands/neck
+	•	Lower: glutes/quads/hams/calves/shins/adductors/abductors
+
+4) Add NEW balance family: Axial vs Appendicular (your “limb vs trunk”)
+
+Name it cleanly:
+	•	appendicular = limbs (arms + legs)
+	•	axial = trunk/spine (neck + abs/obliques + back/traps/lats + chest)
+
+Add:
+	•	balances.axial_appendicular_total: { axial, appendicular, ratio, log_ratio }
+	•	balances.axial_appendicular_direct: { axial, appendicular, ratio, log_ratio }
+
+5) Make definitions auditable in every response (so Expo never guesses)
+
+In /muscle/day?date=... include:
+	•	balances_definitions: an object listing each metric and the muscle_ids in each bucket, e.g.
+	•	push_pull.push_muscle_ids: number[]
+	•	push_pull.pull_muscle_ids: number[]
+	•	etc.
+
+6) Ratio math (preferred)
+
+For each metric return BOTH:
+	•	ratio = A / max(B, eps)
+	•	log_ratio = ln( (A+eps) / (B+eps) )
+Use eps = 1e-6 and set ratio = null only if both are zero (optional).
+
+Stop after: /muscle/day returns the expanded balances object + balances_definitions and push/pull clearly moves on a leg-only day.
