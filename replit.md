@@ -74,7 +74,9 @@ attached_assets/
 | POST | `/coach/session/complete` | Link executed set_ids to plan, returns compliance analysis |
 | GET | `/reports/weekly-muscle-dose?week=` | Per-muscle total vs direct dose decomposition + top contributors |
 | GET | `/reports/weekly-muscle-dose/{muscle}?week=` | Single muscle drilldown with optional set-level detail |
-| GET | `/muscle/day?date=` | Per-muscle load for a single date — all 26 regions, total_dose + direct_dose, source="intel" |
+| GET | `/muscle/day?date=` | Per-muscle load for a single date — all 27 regions, 7d rolling, recovery, balances |
+| GET | `/strength/trend?from=&to=` | Dense per-day strength index, rolling avg, velocity, phase detection |
+| GET | `/strength/day?date=` | Single-day strength breakdown with per-exercise contributors |
 | POST | `/volume/ingest` | Legacy: log a training set |
 | GET | `/volume/logs` | Legacy: query volume history |
 | GET | `/reports/weekly` | Legacy: weekly report with muscle stimulus |
