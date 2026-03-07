@@ -85,6 +85,8 @@ attached_assets/
 | GET | `/game/muscle-priority?mode=&date=&top_n=` | Ranked muscle training queue by mode |
 | POST | `/game/log-set` | Log workout action (exercise-level or bridge mode) |
 | POST | `/game/session-close` | Finalize session, return summary |
+| GET | `/game/muscle-schema` | Canonical 27-muscle schema with IDs, hierarchy, balance groups |
+| GET | `/health` | Service health check for Expo client connectivity |
 | GET | `/docs` | Swagger UI |
 
 ## Data Integrity

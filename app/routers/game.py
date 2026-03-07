@@ -15,7 +15,9 @@ from app.models import (
 from app.game_state import (
     MUSCLE_SCHEMA_VERSION, FRESHNESS_K, READINESS_THRESHOLD,
     W_DEFICIT, W_FRESHNESS, W_RECENCY, W_MODE,
-    BRIDGE_DEFAULT_TONNAGE,
+    BRIDGE_DEFAULT_TONNAGE, TAU_TABLE, DEFAULT_TAU,
+    PUSH_MEMBERS, PULL_MEMBERS, UPPER_MEMBERS, LOWER_MEMBERS,
+    ANTERIOR_MEMBERS, POSTERIOR_MEMBERS,
     compute_blended_muscle_state, compute_recommended_slots,
     compute_balance_ratios, _recency_norm, _compute_queue_priority,
 )
@@ -410,7 +412,6 @@ def session_close(payload: SessionCloseRequest, db: Session = Depends(get_db)):
             pass
 
     name_to_id = {v: k for k, v in all_muscles.items()}
-    from app.game_state import PUSH_MEMBERS, PULL_MEMBERS, UPPER_MEMBERS, LOWER_MEMBERS
 
     combined_dose = defaultdict(float)
     for mid in all_muscle_ids:
@@ -448,4 +449,59 @@ def session_close(payload: SessionCloseRequest, db: Session = Depends(get_db)):
             )),
             "session_close_semantics": "finalizer_only",
         },
+    }
+
+
+@router.get("/muscle-schema", summary="Canonical 27-muscle schema with IDs, names, and metadata")
+def muscle_schema(db: Session = Depends(get_db)):
+    from app.hierarchy import build_derived_groups
+
+    muscles = db.query(Muscle).order_by(Muscle.id).all()
+    groups = build_derived_groups(db)
+    parent_map = {}
+    for parent_id, child_ids in groups.items():
+        for cid in child_ids:
+            parent_map[cid] = parent_id
+
+    muscle_name_map = {m.id: m.name for m in muscles}
+
+    result = []
+    for m in muscles:
+        tau = TAU_TABLE.get(m.name, DEFAULT_TAU)
+
+        entry = {
+            "muscle_id": m.id,
+            "muscle": m.name,
+            "tau_days": tau,
+            "is_derived_group": m.id in groups,
+        }
+
+        if m.id in groups:
+            entry["children"] = [
+                {"muscle_id": cid, "muscle": muscle_name_map.get(cid, f"id:{cid}")}
+                for cid in sorted(groups[m.id])
+            ]
+
+        if m.id in parent_map:
+            pid = parent_map[m.id]
+            entry["parent"] = {
+                "muscle_id": pid,
+                "muscle": muscle_name_map.get(pid, f"id:{pid}"),
+            }
+
+        result.append(entry)
+
+    return {
+        "muscle_schema_version": MUSCLE_SCHEMA_VERSION,
+        "total_muscles": len(result),
+        "muscles": result,
+        "balance_groups": {
+            "push": PUSH_MEMBERS,
+            "pull": PULL_MEMBERS,
+            "upper": UPPER_MEMBERS,
+            "lower": LOWER_MEMBERS,
+            "anterior": ANTERIOR_MEMBERS,
+            "posterior": POSTERIOR_MEMBERS,
+        },
+        "bridge_defaults": BRIDGE_DEFAULT_TONNAGE,
     }

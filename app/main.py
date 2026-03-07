@@ -79,6 +79,37 @@ app.include_router(pec_zones.router)
 app.include_router(game.router)
 
 
+@app.get("/health", tags=["system"], summary="Service health check")
+def health_check():
+    from sqlalchemy import text as sa_text
+
+    db_ok = False
+    muscle_count = None
+    try:
+        with SessionLocal() as db:
+            db.execute(sa_text("SELECT 1"))
+            db_ok = True
+            from app.models import Muscle
+            muscle_count = db.query(Muscle).count()
+    except Exception:
+        pass
+
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "service": "lifting-intel",
+        "database": "connected" if db_ok else "unreachable",
+        "muscle_schema_version": 27,
+        "muscles_loaded": muscle_count,
+        "endpoints": {
+            "muscle_state": "/game/muscle-state",
+            "muscle_priority": "/game/muscle-priority",
+            "log_set": "/game/log-set",
+            "session_close": "/game/session-close",
+            "muscle_schema": "/game/muscle-schema",
+        },
+    }
+
+
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def root():
     return """<!DOCTYPE html>
