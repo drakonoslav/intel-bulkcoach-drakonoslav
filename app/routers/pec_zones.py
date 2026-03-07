@@ -22,7 +22,7 @@ router = APIRouter(prefix="/reports/pec-zones", tags=["pec-zones"])
 _WEEK_RE = re.compile(r"^(\d{4})-W(\d{2})$")
 
 ZONE_LABELS = {"upper": "Upper Pec", "mid": "Mid Pec", "lower": "Lower Pec"}
-METHOD_TAG = "v2_geometry_phase_proxy_grip"
+METHOD_TAG = "v2.5_overlay_geometry_phase_proxy_grip"
 
 PECTORALS_NAME = "Pectorals"
 FRONT_DELT_NAME = "Front/Anterior Delt"
@@ -147,9 +147,11 @@ def _format_zone_response(agg, pec_total, pec_direct):
             "total_dose": round(pec_total, 4),
             "direct_dose": round(pec_direct, 4),
         },
+        "confidence": agg.get("confidence", 0.30),
         "meta": {
             "method": METHOD_TAG,
             "canonical_muscle_unchanged": True,
+            "data_provenance": "authored_biomechanics_priors",
         },
     }
 
@@ -163,12 +165,15 @@ def pec_zones_day(
 
     sets = db.query(LiftSet).filter(LiftSet.performed_at == date_param).all()
 
+    _empty_meta = {"method": METHOD_TAG, "canonical_muscle_unchanged": True, "data_provenance": "authored_biomechanics_priors"}
+
     if not sets:
         return {
             "date": str(date_param),
             "zones": _empty_zone_response(),
             "pectorals": {"total_dose": 0, "direct_dose": 0},
-            "meta": {"method": METHOD_TAG, "canonical_muscle_unchanged": True},
+            "confidence": None,
+            "meta": _empty_meta,
         }
 
     exercise_ids = list({s.exercise_id for s in sets})
@@ -186,7 +191,8 @@ def pec_zones_day(
             "date": str(date_param),
             "zones": _empty_zone_response(),
             "pectorals": {"total_dose": 0, "direct_dose": 0},
-            "meta": {"method": METHOD_TAG, "canonical_muscle_unchanged": True},
+            "confidence": None,
+            "meta": _empty_meta,
         }
 
     agg = aggregate_pec_zones(records)
@@ -210,13 +216,16 @@ def pec_zones_week(
         LiftSet.performed_at >= monday, LiftSet.performed_at <= sunday
     ).all()
 
+    _empty_meta = {"method": METHOD_TAG, "canonical_muscle_unchanged": True, "data_provenance": "authored_biomechanics_priors"}
+
     if not sets:
         return {
             "week": week,
             "window": {"start_date": str(monday), "end_date": str(sunday), "days": 7},
             "zones": _empty_zone_response(),
             "pectorals": {"total_dose": 0, "direct_dose": 0},
-            "meta": {"method": METHOD_TAG, "canonical_muscle_unchanged": True},
+            "confidence": None,
+            "meta": _empty_meta,
         }
 
     exercise_ids = list({s.exercise_id for s in sets})
@@ -235,7 +244,8 @@ def pec_zones_week(
             "window": {"start_date": str(monday), "end_date": str(sunday), "days": 7},
             "zones": _empty_zone_response(),
             "pectorals": {"total_dose": 0, "direct_dose": 0},
-            "meta": {"method": METHOD_TAG, "canonical_muscle_unchanged": True},
+            "confidence": None,
+            "meta": _empty_meta,
         }
 
     agg = aggregate_pec_zones(records)
@@ -291,8 +301,8 @@ def pec_zones_explain(
     pec_mid = phase_lookup.get("midrange", 0)
     pec_lock = phase_lookup.get("lockout", 0)
 
-    base, source = get_base_pec_zone_shares(exercise_name)
-    final, _, adjustments = compute_v2_shares(
+    base, source, overlay_features, confidence, drivers = get_base_pec_zone_shares(exercise_name)
+    final, _, adjustments, _, _ = compute_v2_shares(
         exercise_name, fd_signal, tri_signal,
         pec_init, pec_mid, pec_lock,
     )
@@ -302,15 +312,18 @@ def pec_zones_explain(
         "pectorals_activation": pec_act,
         "base_shares": {k: round(v, 4) for k, v in base.items()},
         "adjusted_shares": {k: round(v, 4) for k, v in final.items()},
+        "confidence": round(confidence, 4),
+        "drivers": drivers,
         "adjustments": adjustments,
         "meta": {
             "method": METHOD_TAG,
             "base_profile_source": source,
+            "data_provenance": "authored_biomechanics_priors",
         },
     }
 
 
-@router.get("/analysis", summary="Full v2 pipeline analysis for an exercise")
+@router.get("/analysis", summary="Full v2.5 pipeline analysis for an exercise")
 def pec_zones_analysis(
     exercise_name: str = Query(..., alias="exercise", description="Canonical exercise name"),
     db: Session = Depends(get_db),
@@ -353,8 +366,8 @@ def pec_zones_analysis(
     pec_mid = phase_lookup.get("midrange", 0)
     pec_lock = phase_lookup.get("lockout", 0)
 
-    base, source = get_base_pec_zone_shares(exercise_name)
-    final, _, adjustments = compute_v2_shares(
+    base, source, overlay_features, confidence, drivers = get_base_pec_zone_shares(exercise_name)
+    final, _, adjustments, _, _ = compute_v2_shares(
         exercise_name, fd_signal, tri_signal,
         pec_init, pec_mid, pec_lock,
     )
@@ -364,6 +377,13 @@ def pec_zones_analysis(
         "pectorals_activation": pec_act,
         "base_profile": {k: round(v, 4) for k, v in base.items()},
         "base_profile_source": source,
+        "overlay": {
+            "source": source,
+            "features": {k: round(v, 4) for k, v in overlay_features.items()},
+            "computed_base_shares": {k: round(v, 4) for k, v in base.items()},
+        },
+        "confidence": round(confidence, 4),
+        "drivers": drivers,
         "geometry_adjustment": adjustments["geometry"],
         "phase_adjustment": adjustments["phase"],
         "proxy_adjustment": adjustments["proxy"],
@@ -381,5 +401,6 @@ def pec_zones_analysis(
         "meta": {
             "method": METHOD_TAG,
             "canonical_muscle_unchanged": True,
+            "data_provenance": "authored_biomechanics_priors",
         },
     }

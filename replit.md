@@ -91,18 +91,26 @@ attached_assets/
 - phase_matrix_v3 uses 3-part PK (exercise_id, muscle_id, phase)
 - stabilization_matrix_v5 uses 3-part PK (exercise_id, muscle_id, component)
 
-## Pec Zone Proxy Layer (v2)
+## Pec Zone Proxy Layer (v2.5 — overlay)
 - **Non-breaking sidecar analytics**: partitions existing Pectorals dose into Upper/Mid/Lower Pec zones
 - Does NOT modify muscles table, seed CSVs, balance buckets, recovery schema, optimizer vectors, or existing response shapes
-- Files: `app/exercise_geometry.py` (geometry classifier + grip inference), `app/pec_zone_profiles.py` (exercise profiles + archetype defaults), `app/pec_zones.py` (v2 pipeline allocator), `app/routers/pec_zones.py` (endpoints)
-- **v2 pipeline** (applied in order): base profile → geometry blend → V3 phase adjustment → proxy adjustment (fd/tri + stab) → grip-width adjustment → floor + renormalize
+- Files:
+  - `app/pec_zone_overlay.py` — per-exercise biomechanical feature table (9 coefficients) + weighted formula + confidence scoring
+  - `app/exercise_geometry.py` — geometry classifier + grip inference (kept as pipeline stage)
+  - `app/pec_zones.py` — v2.5 pipeline allocator
+  - `app/routers/pec_zones.py` — endpoints
+  - `app/pec_zone_profiles.py` — legacy (archetype defaults; superseded by overlay but kept for reference)
+- **v2.5 pipeline** (applied in order): overlay feature formula → geometry blend → V3 phase adjustment → proxy adjustment (fd/tri + stab) → grip-width adjustment → floor + renormalize
+- **Overlay coefficients**: upper_bias, mid_bias, lower_bias, stretch_bias, front_delt_coupling, triceps_coupling, adduction_bias, decline_vector_bias, convergence_bias — all 0.0–1.0
+- **Data provenance**: overlay coefficients are authored biomechanics priors, NOT newly measured differentiation from canonical matrices. This is a structural/explainability upgrade.
 - Conservation rule: zone shares sum to 1.0, zone doses sum to canonical Pectorals dose
-- Current matrix data note: fd/tri activation uniform across all pec exercises, V3 phase near-uniform (5/5/4). Geometry classification and grip inference are the primary differentiators; phase/proxy stages activate automatically with future matrix differentiation.
+- Confidence scoring: per-exercise (0.75–0.92), dose-weighted aggregate for day/week; null when no chest data
+- Driver metadata: dominant_zone, top_modifier, archetype — for future Expo visualization
 - Endpoints:
-  - `GET /reports/pec-zones/day?date=` — daily pec zone breakdown
-  - `GET /reports/pec-zones/week?week=` — weekly pec zone breakdown
-  - `GET /reports/pec-zones/explain?exercise=` — per-exercise profile + adjustments
-  - `GET /reports/pec-zones/analysis?exercise=` — full v2 pipeline debug with all stage outputs
+  - `GET /reports/pec-zones/day?date=` — daily pec zone breakdown + confidence
+  - `GET /reports/pec-zones/week?week=` — weekly pec zone breakdown + confidence
+  - `GET /reports/pec-zones/explain?exercise=` — per-exercise overlay features + adjustments + confidence + drivers
+  - `GET /reports/pec-zones/analysis?exercise=` — full v2.5 pipeline debug with overlay stage, all pipeline outputs, raw inputs
 
 ## Hierarchy Patch (Deltoids/Traps)
 - Patched source files (suffix `_2_1772898930398`) have Deltoids and Traps columns zeroed in all 5 CSV matrices + all 3 V3 xlsx sheets

@@ -1,31 +1,33 @@
 """
-Pec Zone Proxy Allocator — v2
+Pec Zone Proxy Allocator — v2.5 (overlay)
 
 Partitions canonical Pectorals dose into Upper/Mid/Lower Pec proxy zones.
 This is a sidecar analytics layer; it does NOT alter the canonical 27-region
 muscle schema, balance logic, recovery maps, or optimizer vectors.
 
-v2 pipeline (applied in order):
-    1. Base profile — exercise-specific or archetype-inferred shares
-    2. Geometry adjustment — movement geometry classification
+v2.5 pipeline (applied in order):
+    1. Overlay — per-exercise biomechanical feature coefficients converted to
+       shares via weighted formula.  Replaces the hardcoded profile dict from v2.
+    2. Geometry adjustment — movement geometry classification (small blend)
     3. Phase adjustment — V3 phase activation ratios (init/mid/lock)
     4. Proxy adjustment — front-delt vs triceps stabilizer ratio
     5. Grip adjustment — grip-width inference from exercise name
     6. Floor + renormalize — ensure minimum 0.10 per zone, sum to 1.0
 
-v2 data note:
-    The current activation matrix gives identical front-delt and triceps values
-    for all pec exercises, and V3 phase data is near-uniform (5/5/4). This means
-    geometry and grip adjustments are the primary differentiators in v2. The
-    phase and proxy stages are structurally in place and will produce meaningful
-    differentiation when future matrix revisions introduce varied signals.
+Data provenance note:
+    The overlay coefficients are authored biomechanics priors, not newly measured
+    differentiation from the canonical matrices.  With current exercise data, the
+    canonical activation matrices give uniform fd/tri signals and near-uniform
+    phase data (5/5/4).  This is primarily a structural and explainability
+    upgrade that encodes *why* an exercise biases toward a pec zone, enabling
+    future refinement and personalization.
 
 Conservation invariant (enforced at every level):
     upper_share + mid_share + lower_share = 1.0
     upper_dose + mid_dose + lower_dose = pectorals_dose
 """
 
-from app.pec_zone_profiles import EXERCISE_PROFILES, ARCHETYPE_DEFAULTS, NEUTRAL_DEFAULT
+from app.pec_zone_overlay import get_overlay_result
 from app.exercise_geometry import (
     classify_geometry,
     infer_grip_class,
@@ -85,19 +87,11 @@ def _infer_archetype(exercise_name):
 
 
 def get_base_pec_zone_shares(exercise_name):
-    profile = EXERCISE_PROFILES.get(exercise_name)
-    if profile:
-        return {
-            "upper": profile["upper"],
-            "mid": profile["mid"],
-            "lower": profile["lower"],
-        }, "exercise_exact_match"
-
-    archetype = _infer_archetype(exercise_name)
-    if archetype and archetype in ARCHETYPE_DEFAULTS:
-        return dict(ARCHETYPE_DEFAULTS[archetype]), f"archetype_inferred:{archetype}"
-
-    return dict(NEUTRAL_DEFAULT), "neutral_default"
+    archetype_hint = _infer_archetype(exercise_name)
+    shares, source, features, confidence, drivers = get_overlay_result(
+        exercise_name, archetype_hint=archetype_hint,
+    )
+    return shares, source, features, confidence, drivers
 
 
 def apply_geometry_adjustment(shares, exercise_name):
@@ -176,7 +170,8 @@ def apply_grip_adjustment(shares, exercise_name):
 
 def compute_v2_shares(exercise_name, front_delt_signal, triceps_signal,
                       pec_init=0.0, pec_mid=0.0, pec_lock=0.0):
-    base, source = get_base_pec_zone_shares(exercise_name)
+    base, source, overlay_features, overlay_confidence, overlay_drivers = \
+        get_base_pec_zone_shares(exercise_name)
 
     geo_shares, geometry = apply_geometry_adjustment(dict(base), exercise_name)
 
@@ -193,6 +188,11 @@ def compute_v2_shares(exercise_name, front_delt_signal, triceps_signal,
     final = _apply_floor_and_normalize(grip_shares)
 
     adjustments = {
+        "overlay": {
+            "source": source,
+            "features": {k: round(v, 4) for k, v in overlay_features.items()},
+            "computed_shares": {k: round(v, 6) for k, v in base.items()},
+        },
         "geometry": {"geometry": geometry, "shares_after": {k: round(v, 6) for k, v in geo_shares.items()}},
         "phase": {"applied": phase_applied, "pec_init": pec_init, "pec_mid": pec_mid, "pec_lock": pec_lock,
                   "shares_after": {k: round(v, 6) for k, v in phase_shares.items()}},
@@ -202,7 +202,7 @@ def compute_v2_shares(exercise_name, front_delt_signal, triceps_signal,
         "grip": {"grip_class": grip_class, "shares_after": {k: round(v, 6) for k, v in grip_shares.items()}},
     }
 
-    return final, source, adjustments
+    return final, source, adjustments, overlay_confidence, overlay_drivers
 
 
 def allocate_pec_zones_for_signal(
@@ -215,7 +215,7 @@ def allocate_pec_zones_for_signal(
     pec_mid=0.0,
     pec_lock=0.0,
 ):
-    shares, source, adjustments = compute_v2_shares(
+    shares, source, adjustments, confidence, drivers = compute_v2_shares(
         exercise_name, front_delt_signal, triceps_signal,
         pec_init, pec_mid, pec_lock,
     )
@@ -227,6 +227,8 @@ def allocate_pec_zones_for_signal(
         "shares": shares,
         "total_dose": total_dose,
         "direct_dose": direct_dose,
+        "confidence": round(confidence, 4),
+        "drivers": drivers,
         "meta": {
             "base_profile_source": source,
             "geometry": adjustments["geometry"]["geometry"],
@@ -244,10 +246,16 @@ def aggregate_pec_zones(records):
     agg_total = {"upper": 0.0, "mid": 0.0, "lower": 0.0}
     agg_direct = {"upper": 0.0, "mid": 0.0, "lower": 0.0}
 
+    conf_weighted_sum = 0.0
+    dose_weight_sum = 0.0
+
     for rec in records:
+        rec_dose = sum(rec["total_dose"][z] for z in ("upper", "mid", "lower"))
         for zone in ("upper", "mid", "lower"):
             agg_total[zone] += rec["total_dose"][zone]
             agg_direct[zone] += rec["direct_dose"][zone]
+        conf_weighted_sum += rec.get("confidence", 0.5) * rec_dose
+        dose_weight_sum += rec_dose
 
     total_sum = agg_total["upper"] + agg_total["mid"] + agg_total["lower"]
     if total_sum > 0:
@@ -255,8 +263,11 @@ def aggregate_pec_zones(records):
     else:
         shares = {"upper": 0.33, "mid": 0.34, "lower": 0.33}
 
+    avg_confidence = conf_weighted_sum / dose_weight_sum if dose_weight_sum > 0 else 0.30
+
     return {
         "total_dose": agg_total,
         "direct_dose": agg_direct,
         "shares": shares,
+        "confidence": round(avg_confidence, 4),
     }
