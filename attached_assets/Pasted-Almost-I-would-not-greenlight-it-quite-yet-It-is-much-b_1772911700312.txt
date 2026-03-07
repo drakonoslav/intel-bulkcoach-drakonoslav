@@ -1,0 +1,116 @@
+Almost. I would not greenlight it quite yet.
+
+It is much better than the first version, and the biggest risk — synthetic exercises contaminating lift_sets — is fixed. That part is good.
+
+But before you tell Intel to start and hand it to Expo, I would require these final clarifications:
+
+1. Pin down how dose_estimate is computed for bridge-mode sets
+
+This is the biggest remaining ambiguity.
+
+Intel says game_bridge_sets stores one row per muscle per log event with a dose_estimate, but the contract needs to say exactly how that estimate is produced from Expo inputs.
+
+For example, if Expo sends:
+	•	muscle
+	•	RPE
+	•	compound vs isolation
+	•	timestamp
+	•	session_id
+
+then Intel must define:
+	•	what default dose a compound set gets
+	•	what default dose an isolation set gets
+	•	how RPE scales it
+	•	whether the selected muscle gets 100% of the estimate or whether there is any spillover
+	•	whether this estimate is intended only for game-state planning and not for canonical biomechanics
+
+Without that, Expo will integrate against a moving target.
+
+Send Intel this addition:
+
+Before implementation, add the exact bridge-dose estimation formula to the contract.
+
+I need to know precisely how game_bridge_sets.dose_estimate is computed from Expo’s set payload, including:
+- base dose for compound vs isolation
+- RPE scaling
+- whether the estimate is single-muscle only or distributed
+- whether the estimate is intended for game-state planning only
+
+This must be explicitly documented as estimated, not canonical biomechanics.
+
+2. Add idempotency / dedupe rules for POST /game/log-set
+
+This is critical.
+
+Expo may retry requests. If Intel logs duplicate bridge sets, freshness and fatigue will drift upward incorrectly.
+
+You need:
+	•	a client-generated event id or log id
+	•	idempotent write behavior
+	•	a statement of what happens if the same set is sent twice
+
+Tell Intel:
+
+Add idempotency rules for /game/log-set.
+I want a client event ID in the request and dedupe behavior documented so repeated submissions do not double-count fatigue/load.
+
+3. Clarify whether session-close changes state or is just a finalizer
+
+You want to know whether:
+	•	all important game-state updates happen at each log-set
+	•	or whether some state is only finalized at session-close
+
+Best practice here is:
+	•	log-set updates state incrementally
+	•	session-close is a finalizer/summary marker, not required for correctness if the app crashes late
+
+Ask Intel to state that clearly.
+
+4. Refine the freshness scale explanation
+
+The formula is okay for v1 bridge integration, but it needs one sentence explaining interpretation.
+
+freshness = 1 / (1 + fatigue / 1000)
+
+That means freshness is a transformed index, not a physiological percentage.
+
+Expo should not assume:
+	•	0.80 = 80% recovered
+	•	0.30 = 30% recovered
+
+It is just a bounded readiness-like scalar.
+
+So Intel should label it as:
+	•	normalized freshness index
+	•	0 to 1
+	•	derived from fatigue, not literal recovery percentage
+
+5. Freeze the actual response examples now
+
+Before build, make Intel include one full example JSON response for:
+	•	/game/muscle-state
+	•	/game/muscle-priority?mode=compound
+	•	/game/muscle-priority?mode=isolation
+	•	/game/log-set request and response
+	•	/game/session-close request and response
+
+Expo should build against those exact payloads.
+
+⸻
+
+My verdict
+
+Yes, this is close enough that you can keep moving — but I would ask for those five clarifications before saying “start building.”
+
+So the right answer to Intel is:
+
+This is close and directionally approved, but I want final clarification on:
+1. exact bridge-dose estimation formula
+2. idempotency/dedupe for /game/log-set
+3. whether session-close is required for correctness or just finalization
+4. interpretation of freshness as a normalized index rather than literal recovery %
+5. full example request/response JSON for every endpoint
+
+Once those are added to the contract, you can start building.
+
+And do not send it to Expo as final yet until Intel adds those. After that, yes — send the frozen contract to Expo.
