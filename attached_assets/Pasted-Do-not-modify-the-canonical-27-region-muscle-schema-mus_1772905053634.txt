@@ -1,0 +1,163 @@
+Do not modify the canonical 27-region muscle schema, muscle IDs, matrix seed files, or any existing endpoint response shapes. Keep Pectorals as the single canonical chest region for all current Intel logic. Add a separate non-breaking pec-zone proxy layer that takes the already-computed pectoral dose/direct dose/fatigue and allocates that existing pectoral signal into upper_pec, mid_pec, and lower_pec proxy outputs for new endpoints only.
+
+That keeps Intel stable.
+
+How the pec-zone proxy should work
+
+Use a two-stage model.
+
+Stage 1: keep Intel’s real chest signal
+
+For each set or day, Intel already knows:
+	•	pectoral total dose
+	•	pectoral direct dose
+	•	fatigue / freshness of pectorals
+
+That remains the base truth.
+
+Stage 2: split that pectoral signal into zones
+
+Take the pectoral dose and distribute it into upper/mid/lower shares using a hybrid of exercise profile + proxy muscles.
+
+That gives:
+	•	upper_pec_dose
+	•	mid_pec_dose
+	•	lower_pec_dose
+
+with the rule:
+
+upper + mid + lower = existing pectorals
+
+So the chest total never changes.
+You are only partitioning it.
+
+Do not do this yet
+
+I would tell Replit Intel not to:
+	•	add Upper Pec, Mid Pec, Lower Pec to the muscles table
+	•	change the activation CSV headers
+	•	change Pectorals in balance buckets
+	•	change recovery tables
+	•	change existing frontend-fed routes
+
+That would be the risky version.
+
+Best implementation design
+
+Create a new module, something like:
+	•	app/pec_zones.py
+
+Inside it:
+	•	a base exercise-profile mapping
+	•	a proxy-adjustment function
+	•	a splitter that allocates existing pec dose into three zones
+
+Then add new optional endpoints such as:
+	•	/reports/pec-zones/day
+	•	/reports/pec-zones/week
+	•	or add a separate field under a new route only
+
+Not inside the existing muscle-day chart response unless you decide later.
+
+The right modeling approach
+
+Do not try to infer pec zones from proxies alone.
+
+Pure proxy logic from front delts and triceps is too noisy by itself.
+
+Instead use:
+
+1. base exercise family profile
+
+Examples:
+	•	incline press → upper-biased
+	•	flat press → mid-biased
+	•	decline press / dips → lower-biased
+	•	flyes / converging press → often mid-heavy with variation depending on setup
+
+2. proxy adjustment from existing matrices
+
+Use adjacent muscle involvement as a nudge, not the whole model.
+
+Examples:
+	•	more front-delt relative to triceps → shift slightly upward
+	•	more triceps relative to front-delt → shift slightly downward
+	•	more stable balanced press signature → shift toward mid pec
+
+3. optional phase adjustment
+
+You already have a V3 phase model.
+That can later help distinguish patterns, but I would keep v1 simple.
+
+A clean formula
+
+For each exercise, define a base split:
+	•	upper_base
+	•	mid_base
+	•	lower_base
+
+that sums to 1.0.
+
+Then apply a small adjustment from proxies.
+
+Example concept:
+	•	front delt high relative to triceps → upper += small bonus
+	•	triceps high relative to front delt → lower += small bonus
+	•	balanced → mid += small bonus
+
+Then clamp all three to a minimum floor and renormalize to 1.0.
+
+Finally:
+	•	upper_pec_dose = pectoral_dose * upper_share
+	•	mid_pec_dose = pectoral_dose * mid_share
+	•	lower_pec_dose = pectoral_dose * lower_share
+
+That is the safest mathematical structure.
+
+Very important design rule
+
+The pec-zone outputs should be treated as:
+	•	proxy partitions of pectoral signal
+	•	not new independent muscle signals
+
+That means they should not feed back into:
+	•	balance metrics
+	•	optimizer penalties
+	•	canonical recovery maps
+	•	muscle IDs
+	•	matrix seed tables
+
+at least not yet
+
+They are an auxiliary analytics layer.
+
+My recommendation for v1
+
+Tell Replit Intel to implement this in three minimal pieces:
+
+1. new sidecar profile map
+
+A dict or CSV keyed by exercise name with base chest-zone shares.
+
+Example structure:
+	•	exercise_name
+	•	upper_pec_share
+	•	mid_pec_share
+	•	lower_pec_share
+
+2. new allocator function
+
+Given:
+	•	exercise
+	•	pectoral total/direct dose
+	•	front delt contribution
+	•	triceps contribution
+
+return:
+	•	upper/mid/lower pec partitions
+
+3. new non-breaking endpoint
+
+Expose the zone data separately.
+
+That gives you room to test the concept without risking the current map.

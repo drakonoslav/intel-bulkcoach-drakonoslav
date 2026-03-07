@@ -1,0 +1,239 @@
+Yes — the safest path is not to make pecs a new canonical muscle split inside Intel right now.
+
+Given your current repo, I would not replace Pectorals with Upper Pec / Mid Pec / Lower Pec in the seeded muscle map.
+
+Why:
+	•	your seed process creates the muscle table directly from the activation CSV header
+	•	the current activation CSV has 26 source columns, including a single Pectorals column
+	•	the app then derives Hands/Grip to reach the working 27-region model
+	•	your existing routers, balance buckets, recovery tables, and response shapes all assume Pectorals is one canonical region
+	•	you already have a clean delts/traps hierarchy patch, but that worked because the parent and child regions already existed in the system
+
+Pecs are different.
+Right now there is no existing upper/mid/lower pec hierarchy in the repo to rebuild from.
+
+So if you changed the muscle map itself, you would be taking on a much bigger migration.
+
+What I recommend instead
+
+Keep:
+	•	Pectorals as the canonical Intel muscle
+	•	the current 27-region logic exactly as is
+	•	all existing /muscle, /weekly, /coach, /balance, /optimizer outputs untouched
+
+Then add a secondary derived lens for pec zones.
+
+That means:
+	•	Intel still computes normal Pectorals dose, direct dose, fatigue, freshness
+	•	a new side computation splits that existing pec signal into:
+	•	upper_pec_proxy
+	•	mid_pec_proxy
+	•	lower_pec_proxy
+
+So you get more granularity without changing the stable muscle chart.
+
+Why this is the correct architecture for your repo
+
+In your active git, the stable structure is built around one canonical muscle table seeded from the CSV header.
+That means if you add new pec muscles into the seed files, you would ripple changes through:
+	•	seed logic
+	•	muscles table IDs/order
+	•	matrix tables
+	•	balance definitions
+	•	recovery tau mapping
+	•	coach logic
+	•	optimizer vectors
+	•	report serializers
+	•	and probably your Expo assumptions downstream
+
+That is exactly the kind of change you said you do not want right now.
+
+So the strategic move is:
+
+do not alter the canonical muscle map; add a sidecar pec-zone analytics layer.
+
+The best way to tell Replit Intel to do it
+
+Tell it this:
+
+Do not modify the canonical 27-region muscle schema, muscle IDs, matrix seed files, or any existing endpoint response shapes. Keep Pectorals as the single canonical chest region for all current Intel logic. Add a separate non-breaking pec-zone proxy layer that takes the already-computed pectoral dose/direct dose/fatigue and allocates that existing pectoral signal into upper_pec, mid_pec, and lower_pec proxy outputs for new endpoints only.
+
+That keeps Intel stable.
+
+How the pec-zone proxy should work
+
+Use a two-stage model.
+
+Stage 1: keep Intel’s real chest signal
+
+For each set or day, Intel already knows:
+	•	pectoral total dose
+	•	pectoral direct dose
+	•	fatigue / freshness of pectorals
+
+That remains the base truth.
+
+Stage 2: split that pectoral signal into zones
+
+Take the pectoral dose and distribute it into upper/mid/lower shares using a hybrid of exercise profile + proxy muscles.
+
+That gives:
+	•	upper_pec_dose
+	•	mid_pec_dose
+	•	lower_pec_dose
+
+with the rule:
+
+upper + mid + lower = existing pectorals
+
+So the chest total never changes.
+You are only partitioning it.
+
+Do not do this yet
+
+I would tell Replit Intel not to:
+	•	add Upper Pec, Mid Pec, Lower Pec to the muscles table
+	•	change the activation CSV headers
+	•	change Pectorals in balance buckets
+	•	change recovery tables
+	•	change existing frontend-fed routes
+
+That would be the risky version.
+
+Best implementation design
+
+Create a new module, something like:
+	•	app/pec_zones.py
+
+Inside it:
+	•	a base exercise-profile mapping
+	•	a proxy-adjustment function
+	•	a splitter that allocates existing pec dose into three zones
+
+Then add new optional endpoints such as:
+	•	/reports/pec-zones/day
+	•	/reports/pec-zones/week
+	•	or add a separate field under a new route only
+
+Not inside the existing muscle-day chart response unless you decide later.
+
+The right modeling approach
+
+Do not try to infer pec zones from proxies alone.
+
+Pure proxy logic from front delts and triceps is too noisy by itself.
+
+Instead use:
+
+1. base exercise family profile
+
+Examples:
+	•	incline press → upper-biased
+	•	flat press → mid-biased
+	•	decline press / dips → lower-biased
+	•	flyes / converging press → often mid-heavy with variation depending on setup
+
+2. proxy adjustment from existing matrices
+
+Use adjacent muscle involvement as a nudge, not the whole model.
+
+Examples:
+	•	more front-delt relative to triceps → shift slightly upward
+	•	more triceps relative to front-delt → shift slightly downward
+	•	more stable balanced press signature → shift toward mid pec
+
+3. optional phase adjustment
+
+You already have a V3 phase model.
+That can later help distinguish patterns, but I would keep v1 simple.
+
+A clean formula
+
+For each exercise, define a base split:
+	•	upper_base
+	•	mid_base
+	•	lower_base
+
+that sums to 1.0.
+
+Then apply a small adjustment from proxies.
+
+Example concept:
+	•	front delt high relative to triceps → upper += small bonus
+	•	triceps high relative to front delt → lower += small bonus
+	•	balanced → mid += small bonus
+
+Then clamp all three to a minimum floor and renormalize to 1.0.
+
+Finally:
+	•	upper_pec_dose = pectoral_dose * upper_share
+	•	mid_pec_dose = pectoral_dose * mid_share
+	•	lower_pec_dose = pectoral_dose * lower_share
+
+That is the safest mathematical structure.
+
+Very important design rule
+
+The pec-zone outputs should be treated as:
+	•	proxy partitions of pectoral signal
+	•	not new independent muscle signals
+
+That means they should not feed back into:
+	•	balance metrics
+	•	optimizer penalties
+	•	canonical recovery maps
+	•	muscle IDs
+	•	matrix seed tables
+
+at least not yet
+
+They are an auxiliary analytics layer.
+
+My recommendation for v1
+
+Tell Replit Intel to implement this in three minimal pieces:
+
+1. new sidecar profile map
+
+A dict or CSV keyed by exercise name with base chest-zone shares.
+
+Example structure:
+	•	exercise_name
+	•	upper_pec_share
+	•	mid_pec_share
+	•	lower_pec_share
+
+2. new allocator function
+
+Given:
+	•	exercise
+	•	pectoral total/direct dose
+	•	front delt contribution
+	•	triceps contribution
+
+return:
+	•	upper/mid/lower pec partitions
+
+3. new non-breaking endpoint
+
+Expose the zone data separately.
+
+That gives you room to test the concept without risking the current map.
+
+What to say to Replit Intel, directly
+
+Use this:
+
+Keep Pectorals as the canonical chest muscle in the existing 27-region system. Do not alter the seed CSV headers, muscles table, balance buckets, recovery schema, optimizer vectors, or current frontend-facing response shapes. Instead, add a new non-breaking pec-zone proxy layer that partitions the already-computed pectoral signal into upper_pec, mid_pec, and lower_pec outputs. Use a hybrid model: base zone shares by exercise archetype plus small adjustments from existing front-delt and triceps involvement. The three zone shares must always sum to 1.0, and the zone doses must always sum back to the original pectoral dose. Expose this only in new routes or new optional report fields, not in the canonical muscle map.
+
+My bottom-line recommendation
+
+For now:
+	•	keep Intel’s muscle engine unchanged
+	•	keep Expo-facing muscle map unchanged
+	•	add pec granularity as a sidecar analytics lens
+	•	treat it as a partition of pectoral dose, not a new chest muscle hierarchy
+
+That is the most strategic move.
+
+If you want, I can draft the exact v1 spec for Replit Intel, including the data model, formula, and endpoint shape, in a format you can paste directly into Replit.

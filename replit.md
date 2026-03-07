@@ -91,6 +91,17 @@ attached_assets/
 - phase_matrix_v3 uses 3-part PK (exercise_id, muscle_id, phase)
 - stabilization_matrix_v5 uses 3-part PK (exercise_id, muscle_id, component)
 
+## Pec Zone Proxy Layer (v1)
+- **Non-breaking sidecar analytics**: partitions existing Pectorals dose into Upper/Mid/Lower Pec zones
+- Does NOT modify muscles table, seed CSVs, balance buckets, recovery schema, optimizer vectors, or existing response shapes
+- Files: `app/pec_zone_profiles.py` (exercise profiles + archetype defaults), `app/pec_zones.py` (core allocator), `app/routers/pec_zones.py` (endpoints)
+- Hybrid model: base exercise archetype profile + small proxy adjustment from Front Delt / Triceps signals
+- Conservation rule: zone shares sum to 1.0, zone doses sum to canonical Pectorals dose
+- Endpoints:
+  - `GET /reports/pec-zones/day?date=` — daily pec zone breakdown
+  - `GET /reports/pec-zones/week?week=` — weekly pec zone breakdown
+  - `GET /reports/pec-zones/explain?exercise=` — per-exercise profile explanation
+
 ## Hierarchy Patch (Deltoids/Traps)
 - Patched source files (suffix `_2_1772898930398`) have Deltoids and Traps columns zeroed in all 5 CSV matrices + all 3 V3 xlsx sheets
 - **Shared utility `app/hierarchy.py`**: `build_derived_groups(db)` returns {group_id: [child_ids]}, `apply_derived_rollup(stim_dict, groups)` sums children into group

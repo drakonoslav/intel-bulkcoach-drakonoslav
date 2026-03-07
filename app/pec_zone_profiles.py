@@ -1,0 +1,42 @@
+EXERCISE_PROFILES = {
+    "Incline Barbell Bench Press": {"upper": 0.55, "mid": 0.30, "lower": 0.15, "archetype": "incline_press"},
+    "Incline Dumbbell Bench Press": {"upper": 0.58, "mid": 0.27, "lower": 0.15, "archetype": "incline_press"},
+    "Flat Barbell Bench Press": {"upper": 0.25, "mid": 0.50, "lower": 0.25, "archetype": "flat_press"},
+    "Flat Dumbbell Bench Press": {"upper": 0.27, "mid": 0.48, "lower": 0.25, "archetype": "flat_press"},
+    "Machine Chest Press": {"upper": 0.28, "mid": 0.50, "lower": 0.22, "archetype": "flat_press"},
+    "Decline Bench Press": {"upper": 0.12, "mid": 0.30, "lower": 0.58, "archetype": "decline_press"},
+    "Decline Barbell Bench Press": {"upper": 0.12, "mid": 0.30, "lower": 0.58, "archetype": "decline_press"},
+    "Decline Dumbbell Bench Press": {"upper": 0.12, "mid": 0.28, "lower": 0.60, "archetype": "decline_press"},
+    "Weighted Dips": {"upper": 0.10, "mid": 0.25, "lower": 0.65, "archetype": "dip"},
+    "Parallel Bar Dips (chest-focused)": {"upper": 0.10, "mid": 0.25, "lower": 0.65, "archetype": "dip"},
+    "Parallel Bar Dips (tricep-focused)": {"upper": 0.12, "mid": 0.28, "lower": 0.60, "archetype": "dip"},
+    "Ring Dips": {"upper": 0.10, "mid": 0.28, "lower": 0.62, "archetype": "dip"},
+    "Chest Fly": {"upper": 0.30, "mid": 0.45, "lower": 0.25, "archetype": "fly_midline"},
+    "Cable Fly High-to-Low": {"upper": 0.15, "mid": 0.25, "lower": 0.60, "archetype": "fly_high_to_low"},
+    "Cable Fly Midline": {"upper": 0.25, "mid": 0.50, "lower": 0.25, "archetype": "fly_midline"},
+    "Cable Fly Low-to-High": {"upper": 0.60, "mid": 0.25, "lower": 0.15, "archetype": "fly_low_to_high"},
+    "Push-Up": {"upper": 0.25, "mid": 0.50, "lower": 0.25, "archetype": "pushup_flat"},
+    "Weighted Push-Up": {"upper": 0.25, "mid": 0.50, "lower": 0.25, "archetype": "pushup_flat"},
+    "Decline Push-Up": {"upper": 0.15, "mid": 0.30, "lower": 0.55, "archetype": "pushup_decline"},
+    "Incline Push-Up": {"upper": 0.45, "mid": 0.35, "lower": 0.20, "archetype": "pushup_incline"},
+    "Close-Grip Bench Press": {"upper": 0.20, "mid": 0.45, "lower": 0.35, "archetype": "flat_press"},
+    "Floor Press": {"upper": 0.22, "mid": 0.50, "lower": 0.28, "archetype": "flat_press"},
+    "Board Press / Pin Press": {"upper": 0.22, "mid": 0.50, "lower": 0.28, "archetype": "flat_press"},
+    "Spoto Press": {"upper": 0.25, "mid": 0.50, "lower": 0.25, "archetype": "flat_press"},
+}
+
+ARCHETYPE_DEFAULTS = {
+    "incline_press":   {"upper": 0.55, "mid": 0.30, "lower": 0.15},
+    "flat_press":      {"upper": 0.25, "mid": 0.50, "lower": 0.25},
+    "decline_press":   {"upper": 0.12, "mid": 0.30, "lower": 0.58},
+    "dip":             {"upper": 0.10, "mid": 0.25, "lower": 0.65},
+    "fly_low_to_high": {"upper": 0.60, "mid": 0.25, "lower": 0.15},
+    "fly_midline":     {"upper": 0.25, "mid": 0.50, "lower": 0.25},
+    "fly_high_to_low": {"upper": 0.15, "mid": 0.25, "lower": 0.60},
+    "pushup_flat":     {"upper": 0.25, "mid": 0.50, "lower": 0.25},
+    "pushup_decline":  {"upper": 0.15, "mid": 0.30, "lower": 0.55},
+    "pushup_incline":  {"upper": 0.45, "mid": 0.35, "lower": 0.20},
+    "neutral_press":   {"upper": 0.33, "mid": 0.34, "lower": 0.33},
+}
+
+NEUTRAL_DEFAULT = {"upper": 0.33, "mid": 0.34, "lower": 0.33}

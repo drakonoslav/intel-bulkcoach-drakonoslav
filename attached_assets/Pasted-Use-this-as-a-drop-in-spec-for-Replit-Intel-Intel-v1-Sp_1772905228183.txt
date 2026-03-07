@@ -1,0 +1,529 @@
+Use this as a drop-in spec for Replit Intel:
+
+Intel v1 Spec — Non-Breaking Pec Zone Proxy Layer
+
+Goal
+Add upper/mid/lower pec proxy analytics without changing the canonical 27-region muscle schema, existing seed CSV headers, muscle IDs, balance logic, recovery schema, optimizer vectors, or current frontend-facing response shapes.
+
+Critical constraints
+1. Keep `Pectorals` as the single canonical chest muscle everywhere in the existing Intel system.
+2. Do NOT modify:
+   - source matrix headers
+   - muscles table structure or IDs
+   - seed/import shape
+   - existing `/muscle/day`, `/weekly_muscles`, `/coach`, `/reports`, `/optimizer` response shapes
+   - balance member definitions
+   - recovery tau mappings
+   - exercise vectors used by current stable endpoints
+3. The pec-zone layer must be additive and isolated.
+4. Pec-zone outputs are proxy partitions of the existing pectoral signal, not new canonical muscles.
+5. For every computed record:
+   - `upper_pec_share + mid_pec_share + lower_pec_share = 1.0`
+   - `upper_pec_total_dose + mid_pec_total_dose + lower_pec_total_dose = pectorals_total_dose`
+   - `upper_pec_direct_dose + mid_pec_direct_dose + lower_pec_direct_dose = pectorals_direct_dose`
+
+High-level design
+Create a sidecar analytics module that takes already-computed pectoral signal and partitions it into:
+- `upper_pec`
+- `mid_pec`
+- `lower_pec`
+
+Use a hybrid method:
+A. base zone shares by exercise archetype
+B. small adjustments from existing adjacent muscle signals already present in Intel:
+   - Front/Anterior Delt
+   - Triceps
+Optional later:
+   - phase lens adjustments from V3
+Not required for v1.
+
+Implementation scope for v1
+Create:
+1. a new profile/config module for pec-zone base shares
+2. a new service module that allocates pectoral signal into pec zones
+3. new non-breaking endpoints only
+
+No modifications to current stable endpoints unless adding optional internal calls that do not change response shape.
+
+==================================================
+1. DATA MODEL
+==================================================
+
+Create a new config file:
+
+`app/pec_zone_profiles.py`
+
+Purpose:
+Store per-exercise or per-archetype base chest-zone distributions.
+
+Required structure:
+A dict keyed by canonical exercise name, with values:
+
+{
+  "Exercise Name": {
+    "upper": float,
+    "mid": float,
+    "lower": float,
+    "archetype": str
+  }
+}
+
+Rules:
+- values must sum to 1.0
+- all values must be >= 0
+- if an exercise is missing, fall back to archetype inference
+- if archetype inference fails, use neutral default
+
+Neutral default:
+- upper = 0.33
+- mid = 0.34
+- lower = 0.33
+
+Initial example mapping:
+- Incline Barbell Bench Press: upper 0.55, mid 0.30, lower 0.15
+- Incline Dumbbell Bench Press: upper 0.58, mid 0.27, lower 0.15
+- Flat Barbell Bench Press: upper 0.25, mid 0.50, lower 0.25
+- Flat Dumbbell Bench Press: upper 0.27, mid 0.48, lower 0.25
+- Machine Chest Press: upper 0.28, mid 0.50, lower 0.22
+- Decline Barbell Bench Press: upper 0.12, mid 0.30, lower 0.58
+- Decline Dumbbell Bench Press: upper 0.12, mid 0.28, lower 0.60
+- Weighted Dips: upper 0.10, mid 0.25, lower 0.65
+- Chest Fly: upper 0.30, mid 0.45, lower 0.25
+- Cable Fly High-to-Low: upper 0.15, mid 0.25, lower 0.60
+- Cable Fly Midline: upper 0.25, mid 0.50, lower 0.25
+- Cable Fly Low-to-High: upper 0.60, mid 0.25, lower 0.15
+- Push-Up: upper 0.25, mid 0.50, lower 0.25
+- Decline Push-Up: upper 0.15, mid 0.30, lower 0.55
+- Incline Push-Up: upper 0.45, mid 0.35, lower 0.20
+
+Also create simple archetypes:
+- incline_press
+- flat_press
+- decline_press
+- dip
+- fly_low_to_high
+- fly_midline
+- fly_high_to_low
+- pushup_flat
+- pushup_decline
+- pushup_incline
+- neutral_press
+
+Exercise name matching should be case-insensitive and robust to minor naming variations if your repo already has a canonicalizer.
+
+==================================================
+2. CORE FORMULA
+==================================================
+
+Create a new service file:
+
+`app/pec_zones.py`
+
+Add these functions:
+
+A. `get_base_pec_zone_shares(exercise_name: str) -> dict[str, float]`
+Behavior:
+- exact-match exercise profile if present
+- else infer archetype from exercise name
+- else return neutral default
+
+B. `adjust_pec_zone_shares(base, front_delt_signal, triceps_signal) -> dict[str, float]`
+Behavior:
+Use existing muscle signals as small directional nudges only.
+Do NOT let proxies dominate the base profile.
+
+Definitions:
+- `front_delt_signal` = current exercise or set contribution for Front/Anterior Delt
+- `triceps_signal` = current exercise or set contribution for Triceps
+- compute:
+  - `proxy_total = front_delt_signal + triceps_signal`
+  - if proxy_total <= 0: return base unchanged
+  - `fd_ratio = front_delt_signal / proxy_total`
+  - `tri_ratio = triceps_signal / proxy_total`
+
+Nudge logic for v1:
+- front delt dominance suggests more upper pec
+- triceps dominance suggests more lower pec
+- balanced proxy suggests more mid pec
+
+Recommended bounded adjustment:
+- `raw_shift = fd_ratio - tri_ratio`
+- `upper_delta = clamp(raw_shift * 0.10, -0.08, 0.08)`
+- `lower_delta = clamp((-raw_shift) * 0.10, -0.08, 0.08)`
+- `mid_delta = -0.5 * (upper_delta + lower_delta)`
+
+Then:
+- `upper = base.upper + upper_delta`
+- `mid = base.mid + mid_delta`
+- `lower = base.lower + lower_delta`
+
+Apply floors:
+- each zone minimum floor = 0.10
+
+Then renormalize all three to sum to 1.0.
+
+Important:
+Adjustment magnitude must stay modest.
+Base exercise profile should remain primary.
+Proxy effect should only tilt the distribution, not override it.
+
+C. `allocate_pec_zones_for_set(...)`
+Input:
+- exercise_name
+- pectorals_total_dose
+- pectorals_direct_dose
+- front_delt_total_dose
+- triceps_total_dose
+
+Output:
+{
+  "shares": {
+    "upper": ...,
+    "mid": ...,
+    "lower": ...
+  },
+  "total_dose": {
+    "upper": ...,
+    "mid": ...,
+    "lower": ...
+  },
+  "direct_dose": {
+    "upper": ...,
+    "mid": ...,
+    "lower": ...
+  },
+  "meta": {
+    "base_profile_source": ...,
+    "proxy_adjustment_applied": true/false,
+    "front_delt_signal": ...,
+    "triceps_signal": ...
+  }
+}
+
+Dose allocation:
+- `upper_total = pectorals_total_dose * upper_share`
+- `mid_total = pectorals_total_dose * mid_share`
+- `lower_total = pectorals_total_dose * lower_share`
+- same pattern for direct dose
+
+D. `aggregate_pec_zones(records: list[dict]) -> dict`
+Sums set/day/week pec-zone outputs across records.
+
+==================================================
+3. SIGNAL SOURCES
+==================================================
+
+For v1, use Intel’s already-existing computed signals.
+
+Required existing source signals:
+- `Pectorals`
+- `Front/Anterior Delt`
+- `Triceps`
+
+Use whichever source is safest and already stable in your codebase:
+Preferred order:
+1. direct per-set dose if already available
+2. total per-set dose if direct per-set dose is not available
+3. daily aggregated values for day endpoint
+4. weekly aggregated values for weekly endpoint
+
+v1 recommendation:
+Use the same lens used by your current canonical muscle-dose logic for that route.
+Do not introduce a new matrix dependency.
+
+Example:
+If a route already computes total_dose and direct_dose from activation + role-weighted maps, use those outputs as the input to the pec-zone allocator.
+
+==================================================
+4. ENDPOINTS
+==================================================
+
+Add new endpoints only.
+
+A. Daily endpoint
+Route:
+`GET /reports/pec-zones/day`
+
+Query params:
+- `date=YYYY-MM-DD`
+
+Response shape:
+{
+  "date": "2026-03-07",
+  "zones": [
+    {
+      "zone": "Upper Pec",
+      "total_dose": 1234.56,
+      "direct_dose": 910.11,
+      "share": 0.42
+    },
+    {
+      "zone": "Mid Pec",
+      "total_dose": 1098.32,
+      "direct_dose": 802.88,
+      "share": 0.37
+    },
+    {
+      "zone": "Lower Pec",
+      "total_dose": 612.44,
+      "direct_dose": 430.21,
+      "share": 0.21
+    }
+  ],
+  "pectorals": {
+    "total_dose": 2945.32,
+    "direct_dose": 2143.20
+  },
+  "meta": {
+    "method": "base_profile_plus_proxy_adjustment_v1",
+    "canonical_muscle_unchanged": true
+  }
+}
+
+Rules:
+- total zone doses must sum exactly to pectorals total dose within rounding tolerance
+- direct zone doses must sum exactly to pectorals direct dose within rounding tolerance
+
+B. Weekly endpoint
+Route:
+`GET /reports/pec-zones/week`
+
+Query params:
+- either:
+  - `end_date=YYYY-MM-DD`
+  - optional `days=7`
+or align with your existing weekly pattern
+
+Response shape:
+{
+  "window": {
+    "start_date": "2026-03-01",
+    "end_date": "2026-03-07",
+    "days": 7
+  },
+  "zones": [
+    {
+      "zone": "Upper Pec",
+      "total_dose": ...,
+      "direct_dose": ...,
+      "share": ...
+    },
+    {
+      "zone": "Mid Pec",
+      "total_dose": ...,
+      "direct_dose": ...,
+      "share": ...
+    },
+    {
+      "zone": "Lower Pec",
+      "total_dose": ...,
+      "direct_dose": ...,
+      "share": ...
+    }
+  ],
+  "pectorals": {
+    "total_dose": ...,
+    "direct_dose": ...
+  },
+  "meta": {
+    "method": "base_profile_plus_proxy_adjustment_v1",
+    "canonical_muscle_unchanged": true
+  }
+}
+
+C. Optional exercise-level explain endpoint
+Only if easy and non-invasive.
+
+Route:
+`GET /reports/pec-zones/explain`
+
+Query params:
+- `exercise_name=...`
+
+Response shape:
+{
+  "exercise_name": "Incline Barbell Bench Press",
+  "base_shares": {
+    "upper": 0.55,
+    "mid": 0.30,
+    "lower": 0.15
+  },
+  "proxy_inputs": {
+    "front_delt_signal": ...,
+    "triceps_signal": ...
+  },
+  "adjusted_shares": {
+    "upper": ...,
+    "mid": ...,
+    "lower": ...
+  },
+  "meta": {
+    "base_profile_source": "exercise_exact_match",
+    "proxy_adjustment_applied": true
+  }
+}
+
+==================================================
+5. NON-BREAKING INTEGRATION RULES
+==================================================
+
+1. Do not modify existing stable responses.
+2. Do not add pec zones to the canonical muscles table.
+3. Do not include pec zones in:
+   - balance buckets
+   - optimizer vectors
+   - coach penalties
+   - canonical recovery maps
+   - current stable chart muscle list
+4. Pec zones are report-only analytics for now.
+5. Any frontend integration later should use the new endpoint(s), not the canonical muscle map.
+
+==================================================
+6. VALIDATION RULES
+==================================================
+
+Add explicit validation checks:
+
+A. share integrity
+For every allocation:
+- all shares finite
+- all shares >= 0
+- sum(shares) == 1.0 within tolerance
+
+B. dose conservation
+- sum(zone total doses) == pectorals total dose within tolerance
+- sum(zone direct doses) == pectorals direct dose within tolerance
+
+C. non-negativity
+- no negative zone doses
+
+D. fallback safety
+If pectorals total/direct dose is zero, return zeros for all zone doses and neutral shares or null shares based on your existing API style.
+
+==================================================
+7. V1 EXERCISE ARCHETYPE INFERENCE
+==================================================
+
+Implement lightweight name-based inference only.
+
+Suggested rules:
+- contains "incline" and ("bench" or "press") -> incline_press
+- contains "decline" and ("bench" or "press") -> decline_press
+- contains "dip" -> dip
+- contains "push-up" or "pushup":
+  - contains "decline" -> pushup_decline
+  - contains "incline" -> pushup_incline
+  - else -> pushup_flat
+- contains "fly":
+  - contains "low to high" -> fly_low_to_high
+  - contains "high to low" -> fly_high_to_low
+  - else -> fly_midline
+- contains "bench" or "chest press" or "press" -> flat_press or neutral_press depending on wording
+- else -> neutral default
+
+Keep this simple for v1.
+
+==================================================
+8. SUGGESTED CODE SHAPE
+==================================================
+
+Files to add:
+- `app/pec_zone_profiles.py`
+- `app/pec_zones.py`
+- one new router file if your repo uses routers per feature, e.g.:
+  - `app/routers/pec_zones.py`
+
+Router should call already-stable existing dose computation paths rather than recreating the whole engine.
+
+Preferred implementation style:
+- reuse existing daily/weekly computed muscle signals
+- then post-process only `Pectorals` into zones
+
+==================================================
+9. EXAMPLE PSEUDOCODE
+==================================================
+
+`app/pec_zones.py`
+
+Pseudo only; adapt to repo style.
+
+def clamp(x, lo, hi):
+    return max(lo, min(hi, x))
+
+def renormalize(shares):
+    total = shares["upper"] + shares["mid"] + shares["lower"]
+    if total <= 0:
+        return {"upper": 0.33, "mid": 0.34, "lower": 0.33}
+    return {k: v / total for k, v in shares.items()}
+
+def apply_floor_and_normalize(shares, floor=0.10):
+    shares = {k: max(floor, v) for k, v in shares.items()}
+    return renormalize(shares)
+
+def adjust_pec_zone_shares(base, front_delt_signal, triceps_signal):
+    proxy_total = front_delt_signal + triceps_signal
+    if proxy_total <= 0:
+        return renormalize(base)
+
+    fd_ratio = front_delt_signal / proxy_total
+    tri_ratio = triceps_signal / proxy_total
+    raw_shift = fd_ratio - tri_ratio
+
+    upper_delta = clamp(raw_shift * 0.10, -0.08, 0.08)
+    lower_delta = clamp((-raw_shift) * 0.10, -0.08, 0.08)
+    mid_delta = -0.5 * (upper_delta + lower_delta)
+
+    adjusted = {
+        "upper": base["upper"] + upper_delta,
+        "mid": base["mid"] + mid_delta,
+        "lower": base["lower"] + lower_delta,
+    }
+    return apply_floor_and_normalize(adjusted)
+
+def allocate_pec_zones_for_signal(
+    exercise_name,
+    pectorals_total_dose,
+    pectorals_direct_dose,
+    front_delt_signal,
+    triceps_signal,
+):
+    base = get_base_pec_zone_shares(exercise_name)
+    shares = adjust_pec_zone_shares(
+        base,
+        front_delt_signal=front_delt_signal,
+        triceps_signal=triceps_signal,
+    )
+
+    total_dose = {
+        "upper": pectorals_total_dose * shares["upper"],
+        "mid": pectorals_total_dose * shares["mid"],
+        "lower": pectorals_total_dose * shares["lower"],
+    }
+    direct_dose = {
+        "upper": pectorals_direct_dose * shares["upper"],
+        "mid": pectorals_direct_dose * shares["mid"],
+        "lower": pectorals_direct_dose * shares["lower"],
+    }
+
+    return {
+        "shares": shares,
+        "total_dose": total_dose,
+        "direct_dose": direct_dose,
+    }
+
+==================================================
+10. SUCCESS CRITERIA
+==================================================
+
+This v1 is successful if:
+1. Existing Intel routes remain unchanged and stable.
+2. Existing Expo-fed muscle map remains unchanged.
+3. New pec-zone endpoints return sensible upper/mid/lower partitions.
+4. Zone totals always reconcile exactly back to canonical `Pectorals`.
+5. No existing balance/recovery/optimizer logic is affected.
+6. The system is ready later for optional Expo-side display without having changed Intel’s canonical muscle schema.
+
+Final instruction
+Implement this as a non-breaking sidecar analytics feature only. Do not convert pec zones into canonical muscles at this stage.
+
+One small note for your own strategy: in that spec, I’d keep the label Mid Pec instead of Sternal Pec for v1 API readability, even if the internal comments mention sternal/clavicular/costal ideas.
