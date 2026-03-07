@@ -1,0 +1,112 @@
+Yes — and I checked the structure you uploaded. The bias is real.
+
+Across the source matrices, Deltoids and Traps are being scored at the same time as their subparts:
+	•	Deltoids alongside Front/Anterior Delt, Side/Lateral Delt, Rear/Posterior Delt
+	•	Traps alongside Upper Traps, Mid Traps, Lower Traps
+
+That means the current files can double-count those regions unless your runtime explicitly excludes the group columns.
+
+What I found in the uploaded files:
+	•	Exercise_Muscle_Matrix_v2.csv: delts duplicated on 33 rows, traps on 31
+	•	Role_Weighted_Matrix_v2.csv: delts duplicated on 33 rows, traps on 31
+	•	V5_Dynamic_Matrix.csv: delts duplicated on 33 rows, traps on 31
+	•	V5_Stability_Matrix.csv: delts duplicated on 33 rows, traps on 31
+	•	V4_Bottleneck_Coefficient_Matrix.csv: delts duplicated on 13 rows
+
+The clean fix
+
+Do not let collective groups act as source-scored muscles if their children are already source-scored.
+
+Use this rule:
+	•	leaf nodes get matrix values
+	•	group nodes are derived after computation
+
+So:
+	•	Front/Anterior Delt, Side/Lateral Delt, Rear/Posterior Delt stay as source inputs
+	•	Upper Traps, Mid Traps, Lower Traps stay as source inputs
+	•	Deltoids and Traps become derived rollups, not seeded channels
+
+For lats, with your 27-region constraint, leave Lats as a leaf node and derive:
+	•	Back Total = Lats + Upper Back + Middle Back + Lower Back
+
+Safest way to preserve your logic
+
+This is the least disruptive migration:
+
+In the source files
+
+Keep the columns for compatibility, but set:
+	•	Deltoids = 0
+	•	Traps = 0
+
+in:
+	•	Exercise_Muscle_Matrix_v2.csv
+	•	Role_Weighted_Matrix_v2.csv
+	•	V4_Bottleneck_Coefficient_Matrix.csv
+	•	V5_Dynamic_Matrix.csv
+	•	V5_Stability_Matrix.csv
+	•	all 3 phase sheets in V3_Phase_Model_Outputs.xlsx
+
+That preserves file shape and headers, so your loader and schema are less likely to break.
+
+In runtime / backend
+
+After all leaf-region math is computed, derive:
+
+deltoids = front_anterior_delt + side_lateral_delt + rear_posterior_delt
+traps = upper_traps + mid_traps + lower_traps
+back_total = lats + upper_back + middle_back + lower_back
+
+Use those derived values for:
+	•	dashboard group summaries
+	•	recovery rollups
+	•	coaching summaries
+	•	balance summaries
+
+But do not feed those group values back into the per-set seed logic.
+
+How to handle each layer
+
+For:
+	•	total dose
+	•	direct dose
+	•	bottleneck burden
+	•	dynamic load
+	•	stability load
+	•	phase-specific dose
+
+Use:
+	•	sum of leaf-region outputs
+
+For:
+	•	readiness / freshness / fatigue percentages
+
+Use:
+	•	a weighted mean of the child regions, ideally weighted by recent direct dose or total dose.
+
+That keeps group-level readiness from becoming misleading.
+
+What I made for you
+
+I created a patched package with:
+	•	schema-compatible source files
+	•	Deltoids and Traps zeroed out in the scoring matrices
+	•	a hierarchy mapping CSV
+	•	migration notes
+
+Download here:
+	•	Patched hierarchy package ZIP￼
+
+If you want the individual files instead:
+	•	Patched Exercise_Muscle_Matrix_v2.csv￼
+	•	Patched Role_Weighted_Matrix_v2.csv￼
+	•	Patched V4_Bottleneck_Coefficient_Matrix.csv￼
+	•	Patched V5_Dynamic_Matrix.csv￼
+	•	Patched V5_Stability_Matrix.csv￼
+	•	Patched V3_Phase_Model_Outputs.xlsx￼
+	•	Muscle hierarchy mapping CSV￼
+	•	Patch notes￼
+
+One important caution: the composite profile file should be regenerated after the backend uses the patched hierarchy, because its current rankings were built from the duplicated source structure.
+
+Next best step is updating your seed/runtime code so Deltoids, Traps, and Back Total are treated as derived groups rather than direct matrix-seeded muscles.
