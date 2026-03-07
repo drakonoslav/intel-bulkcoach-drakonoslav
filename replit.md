@@ -91,16 +91,18 @@ attached_assets/
 - phase_matrix_v3 uses 3-part PK (exercise_id, muscle_id, phase)
 - stabilization_matrix_v5 uses 3-part PK (exercise_id, muscle_id, component)
 
-## Pec Zone Proxy Layer (v1)
+## Pec Zone Proxy Layer (v2)
 - **Non-breaking sidecar analytics**: partitions existing Pectorals dose into Upper/Mid/Lower Pec zones
 - Does NOT modify muscles table, seed CSVs, balance buckets, recovery schema, optimizer vectors, or existing response shapes
-- Files: `app/pec_zone_profiles.py` (exercise profiles + archetype defaults), `app/pec_zones.py` (core allocator), `app/routers/pec_zones.py` (endpoints)
-- Hybrid model: base exercise archetype profile + small proxy adjustment from Front Delt / Triceps signals
+- Files: `app/exercise_geometry.py` (geometry classifier + grip inference), `app/pec_zone_profiles.py` (exercise profiles + archetype defaults), `app/pec_zones.py` (v2 pipeline allocator), `app/routers/pec_zones.py` (endpoints)
+- **v2 pipeline** (applied in order): base profile → geometry blend → V3 phase adjustment → proxy adjustment (fd/tri + stab) → grip-width adjustment → floor + renormalize
 - Conservation rule: zone shares sum to 1.0, zone doses sum to canonical Pectorals dose
+- Current matrix data note: fd/tri activation uniform across all pec exercises, V3 phase near-uniform (5/5/4). Geometry classification and grip inference are the primary differentiators; phase/proxy stages activate automatically with future matrix differentiation.
 - Endpoints:
   - `GET /reports/pec-zones/day?date=` — daily pec zone breakdown
   - `GET /reports/pec-zones/week?week=` — weekly pec zone breakdown
-  - `GET /reports/pec-zones/explain?exercise=` — per-exercise profile explanation
+  - `GET /reports/pec-zones/explain?exercise=` — per-exercise profile + adjustments
+  - `GET /reports/pec-zones/analysis?exercise=` — full v2 pipeline debug with all stage outputs
 
 ## Hierarchy Patch (Deltoids/Traps)
 - Patched source files (suffix `_2_1772898930398`) have Deltoids and Traps columns zeroed in all 5 CSV matrices + all 3 V3 xlsx sheets

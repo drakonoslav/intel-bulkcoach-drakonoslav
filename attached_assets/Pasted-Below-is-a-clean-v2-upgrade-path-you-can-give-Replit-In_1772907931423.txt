@@ -1,0 +1,342 @@
+Below is a clean v2 upgrade path you can give Replit Intel.
+It keeps all your current guarantees intact:
+	•	27-region canonical muscle map stays unchanged
+	•	Pectorals remains the only chest muscle in the core Intel system
+	•	No changes to seed CSVs or muscle IDs
+	•	No changes to balance, optimizer, recovery, or Expo-facing responses
+	•	Pec zones remain a sidecar analytics layer
+
+But v2 makes pec inference far more biologically meaningful.
+
+⸻
+
+Intel Pec Zones v2 — Upgrade Path
+
+(Non-breaking enhancement to existing v1 sidecar layer)
+
+Objective
+
+Improve pec-zone inference accuracy by incorporating biomechanical signals already present in Intel:
+	1.	Exercise geometry inference
+	2.	Grip width proxy
+	3.	V3 phase activation patterns
+	4.	Relative stabilizer load
+	5.	Exercise family priors
+
+All enhancements must remain post-processing on the canonical Pectorals signal.
+
+⸻
+
+Core rule remains unchanged
+
+For every computed record:
+
+upper_share + mid_share + lower_share = 1.0
+upper_total + mid_total + lower_total = Pectorals_total
+upper_direct + mid_direct + lower_direct = Pectorals_direct
+
+This guarantees no signal distortion.
+
+⸻
+
+v2 Enhancement 1 — Exercise Geometry Detection
+
+Instead of relying purely on exercise names, infer movement geometry.
+
+Create a new module:
+
+app/exercise_geometry.py
+
+It classifies exercises into these chest geometries:
+
+incline_press
+flat_press
+decline_press
+dip
+horizontal_adduction
+vertical_adduction
+pushup
+neutral_press
+
+Detection rules
+
+Example logic:
+
+if "incline" in name → incline_press
+if "decline" in name → decline_press
+if "dip" in name → dip
+if "fly" or "cable fly" → horizontal_adduction
+if "low to high fly" → vertical_adduction
+if "push-up" → pushup
+else → neutral_press
+
+Why this matters biologically
+
+Pec fibers run in three main orientations:
+
+Clavicular (upper)
+Sternal (mid)
+Costal (lower)
+
+Movement direction relative to torso determines which fibers shorten most.
+
+⸻
+
+v2 Enhancement 2 — Phase Model Signal (V3 matrices)
+
+You already have a phase model:
+
+Initiation
+Midrange
+Lockout
+
+These contain real biomechanical information.
+
+Use them as chest-zone hints
+
+Rules:
+
+Initiation dominant → upper pec bias
+Midrange dominant → mid pec bias
+Lockout dominant → lower pec bias
+
+Why:
+	•	upper pec contributes strongly during early shoulder flexion
+	•	mid pec dominates horizontal press midrange
+	•	lower pec becomes important during downward press / adduction
+
+Implementation
+
+From V3 matrix:
+
+pec_init
+pec_mid
+pec_lock
+
+Compute:
+
+phase_total = pec_init + pec_mid + pec_lock
+
+Then compute phase ratios:
+
+init_ratio = pec_init / phase_total
+mid_ratio = pec_mid / phase_total
+lock_ratio = pec_lock / phase_total
+
+Then apply bounded adjustment:
+
+upper += init_ratio * 0.10
+mid += mid_ratio * 0.10
+lower += lock_ratio * 0.10
+
+Then renormalize.
+
+⸻
+
+v2 Enhancement 3 — Stabilization Context
+
+Your V5 dynamic + stabilization matrices contain useful information.
+
+Example biological patterns
+
+Signal	Likely Chest Bias
+High anterior delt stabilization	upper pec bias
+High triceps dynamic load	lower pec bias
+Low stabilizer load	mid pec
+
+Adjustment
+
+Use ratios:
+
+fd = front_delt_signal
+tri = triceps_signal
+
+Compute:
+
+fd_ratio = fd / (fd + tri)
+tri_ratio = tri / (fd + tri)
+
+Adjust:
+
+upper += fd_ratio * 0.08
+lower += tri_ratio * 0.08
+mid -= (upper_delta + lower_delta)/2
+
+Clamp ±0.08.
+
+⸻
+
+v2 Enhancement 4 — Grip Width Proxy
+
+Grip width dramatically shifts pec fiber recruitment.
+
+Since Intel doesn’t explicitly store grip width, estimate it from exercise type.
+
+Approximate mapping
+
+wide bench press → mid pec bias
+narrow press → upper + triceps bias
+dips → lower pec bias
+push-ups → mid bias
+
+Implementation:
+
+if "wide" in name → mid += 0.06
+if "close grip" in name → upper += 0.04
+if dip → lower += 0.08
+
+Then renormalize.
+
+⸻
+
+v2 Enhancement 5 — Exercise Family Priors
+
+Instead of one profile per exercise, define family priors.
+
+Example:
+
+PRESS_FAMILY
+FLY_FAMILY
+DIP_FAMILY
+PUSHUP_FAMILY
+
+Base shares:
+
+Family	Upper	Mid	Lower
+Incline press	.60	.25	.15
+Flat press	.25	.50	.25
+Decline press	.15	.30	.55
+Dip	.10	.25	.65
+Fly	.35	.40	.25
+Push-up	.25	.50	.25
+
+Exercise-specific overrides can still exist.
+
+⸻
+
+Final v2 Algorithm
+
+The final share calculation becomes:
+
+shares = base_profile(exercise)
+shares = apply_geometry_adjustment(shares)
+shares = apply_phase_adjustment(shares)
+shares = apply_proxy_adjustment(shares)
+shares = apply_grip_adjustment(shares)
+shares = apply_floor_and_normalize(shares)
+
+Order matters because:
+	1.	exercise geometry sets baseline
+	2.	phase signals refine movement mechanics
+	3.	proxies refine muscular synergy
+	4.	grip adjusts mechanical leverage
+
+⸻
+
+Example Output (v2)
+
+Example:
+
+Incline Dumbbell Bench
+
+Base:
+
+upper .58
+mid .27
+lower .15
+
+Proxy adjustment:
+
+upper +0.02
+mid -0.01
+lower -0.01
+
+Phase adjustment:
+
+upper +0.03
+mid +0.00
+lower -0.03
+
+Final:
+
+upper .63
+mid .26
+lower .11
+
+Then doses:
+
+upper = pec_total * .63
+mid = pec_total * .26
+lower = pec_total * .11
+
+
+⸻
+
+New optional analytics endpoint
+
+Add:
+
+GET /reports/pec-zones/analysis
+
+Returns:
+
+{
+  exercise: "...",
+  base_profile: {...},
+  phase_adjustment: {...},
+  proxy_adjustment: {...},
+  geometry_adjustment: {...},
+  final_shares: {...}
+}
+
+This gives your Expo game a debugging lens.
+
+⸻
+
+Performance Impact
+
+Minimal.
+
+All computations are:
+	•	scalar math
+	•	dictionary lookups
+
+No new database reads required.
+
+⸻
+
+Why this version is biologically stronger
+
+v1 relied mostly on exercise archetype guesses.
+
+v2 integrates:
+	•	range-of-motion mechanics
+	•	stabilizer interaction
+	•	muscle synergy
+	•	press geometry
+
+Without touching the canonical muscle engine.
+
+⸻
+
+What I would not do yet
+
+Do NOT:
+	•	split Pectorals into three canonical muscles
+	•	modify seed matrices
+	•	add pec zones to balance metrics
+	•	include pec zones in recovery models
+
+That is a v3-level architectural change and unnecessary for now.
+
+⸻
+
+My recommendation
+
+Tell Replit Intel:
+
+Implement pec-zone v2 as an enhancement to the existing sidecar allocator. Incorporate exercise geometry classification, V3 phase activation ratios, stabilizer proxy adjustments, and grip-width inference while maintaining strict dose conservation and leaving the canonical muscle map unchanged.
+
+⸻
+
+If you’d like, I can also show you one very clever improvement for your Lifting Intel system that would let pec-zone inference become nearly EMG-grade accurate without touching the 27-region system at all.
