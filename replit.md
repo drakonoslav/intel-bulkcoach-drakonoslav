@@ -145,6 +145,7 @@ attached_assets/
   - freshness: `1/(1+fatigue/1000)` — normalized readiness index, NOT literal recovery %
   - heatmap: `0.50×(1-freshness) + 0.30×(load_7d/max) + 0.20×(1-recency_norm)`
   - priority: `gate × (0.25×deficit + 0.15×load_deficit + 0.20×freshness + 0.20×recency + 0.20×mode_suit)`, gate=freshness≥0.30; load_deficit = 1 - (load_7d / max_load)
+  - proximity fatigue bypass: if freshness < 0.30 AND load_deficit > 0.85 (bottom 15% load), muscle enters queue with dampened score instead of being gated out. Dampener = 0.5 + 0.5 × load_deficit. Distinguishes indirect/proximity fatigue from real training fatigue.
   - compound_suitability: count of slot-tagged exercises with activation≥3, normalized
   - isolation_suitability: count of high-role-weight + low-bottleneck exercises, normalized
 

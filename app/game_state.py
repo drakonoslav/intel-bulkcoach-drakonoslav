@@ -17,6 +17,7 @@ FRESHNESS_K = 1000.0
 DECAY_LOOKBACK_DAYS = 30
 ROLLING_WINDOW_DAYS = 7
 READINESS_THRESHOLD = 0.30
+PROXIMITY_FATIGUE_LOAD_RATIO = 0.15
 COMPOUND_SLOTS = {"hinge", "squat", "push", "pull"}
 COMPOUND_ACTIVATION_MIN = 3
 ISOLATION_ROLE_WEIGHT_MIN = 0.60
@@ -277,16 +278,25 @@ def _recency_norm(days_since_hit):
 
 
 def _compute_queue_priority(fresh, underfed_score, recency_norm, mode_suit, load_deficit=0.5):
-    if fresh < READINESS_THRESHOLD:
+    is_proximity_fatigued = fresh < READINESS_THRESHOLD and load_deficit > (1.0 - PROXIMITY_FATIGUE_LOAD_RATIO)
+
+    if fresh < READINESS_THRESHOLD and not is_proximity_fatigued:
         return 0.0
+
     deficit_norm = underfed_score / 100.0
-    return (
+    raw = (
         W_DEFICIT * deficit_norm +
         W_LOAD_DEFICIT * load_deficit +
         W_FRESHNESS * fresh +
         W_RECENCY * recency_norm +
         W_MODE * mode_suit
     )
+
+    if is_proximity_fatigued:
+        dampen = 0.5 + 0.5 * load_deficit
+        return raw * dampen
+
+    return raw
 
 
 def _compute_underfed_canonical(query_date, db, muscle_ids, muscle_map, derived_groups):

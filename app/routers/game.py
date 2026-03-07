@@ -14,6 +14,7 @@ from app.models import (
 )
 from app.game_state import (
     MUSCLE_SCHEMA_VERSION, FRESHNESS_K, READINESS_THRESHOLD,
+    PROXIMITY_FATIGUE_LOAD_RATIO,
     W_DEFICIT, W_LOAD_DEFICIT, W_FRESHNESS, W_RECENCY, W_MODE,
     BRIDGE_DEFAULT_TONNAGE, TAU_TABLE, DEFAULT_TAU,
     PUSH_MEMBERS, PULL_MEMBERS, UPPER_MEMBERS, LOWER_MEMBERS,
@@ -103,7 +104,12 @@ def muscle_priority(
         mode_suit = suit_map.get(mid, 0.0)
         ld = load_deficit_map.get(mid, 0.5)
 
-        if fresh < READINESS_THRESHOLD:
+        is_proximity_fatigued = (
+            fresh < READINESS_THRESHOLD and
+            ld > (1.0 - PROXIMITY_FATIGUE_LOAD_RATIO)
+        )
+
+        if fresh < READINESS_THRESHOLD and not is_proximity_fatigued:
             gated_out.append({
                 "muscle_id": mid,
                 "muscle": muscle_map[mid],
@@ -114,7 +120,7 @@ def muscle_priority(
 
         priority = _compute_queue_priority(fresh, underfed_scores[mid], recency, mode_suit, ld)
 
-        queue.append({
+        entry = {
             "muscle_id": mid,
             "muscle": muscle_map[mid],
             "priority_score": round(priority, 4),
@@ -123,14 +129,17 @@ def muscle_priority(
                 "load_deficit_component": round(ld, 4),
                 "freshness_component": fresh,
                 "recency_component": round(recency, 4),
-                "readiness_gate": 1.0,
+                "readiness_gate": 0.0 if is_proximity_fatigued else 1.0,
                 "mode_suitability": round(mode_suit, 4),
             },
             "status": statuses[mid],
             "freshness": fresh,
             "days_since_hit": days_since_map[mid],
             "recommended_slots": slots_map.get(mid, []),
-        })
+        }
+        if is_proximity_fatigued:
+            entry["proximity_fatigue_bypass"] = True
+        queue.append(entry)
 
     queue.sort(key=lambda x: -x["priority_score"])
     for i, item in enumerate(queue):
@@ -142,8 +151,9 @@ def muscle_priority(
         "queue": queue[:top_n],
         "gated_out": gated_out,
         "meta": {
-            "scoring_model": "v2_load_aware",
+            "scoring_model": "v3_proximity_aware",
             "readiness_threshold": READINESS_THRESHOLD,
+            "proximity_fatigue_load_ratio": PROXIMITY_FATIGUE_LOAD_RATIO,
             "weights": {
                 "deficit": W_DEFICIT,
                 "load_deficit": W_LOAD_DEFICIT,

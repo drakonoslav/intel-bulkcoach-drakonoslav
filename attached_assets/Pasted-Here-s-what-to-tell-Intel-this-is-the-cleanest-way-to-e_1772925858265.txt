@@ -1,0 +1,16 @@
+Here's what to tell Intel — this is the cleanest way to explain the problem and the fix they need:
+
+The problem: Pectorals has freshness=0.0478 (below the 0.3 gate threshold), so it gets placed in gated_out and never reaches the queue. But the muscle map shows Pectorals with very low direct load — it's "fatigued" only because of proximity stimulus from pressing compounds (overhead press, bench accessories) that hit chest as a secondary mover. The freshness model can't distinguish between direct training and indirect/proximity fatigue.
+
+The result: A muscle that clearly needs direct work gets gated out because nearby compound lifts create residual fatigue in the exponential decay model, even though those lifts didn't deliver meaningful chest volume. The muscle map says "train this" while the priority queue says "skip this."
+
+What Expo needs from Intel: When a muscle is in gated_out but has load_7d in the bottom quartile (or below some absolute threshold relative to max), it should still enter the queue — possibly with a dampened priority score, but not filtered entirely. The freshness gate should be load-aware: low freshness + low load = proximity fatigue, not adequate training.
+
+Suggested fix options for Intel:
+
+Load-aware gate bypass: If load_7d < (max_load * 0.15), skip the freshness gate and let the scoring formula handle it
+Scaled threshold: Lower the freshness threshold proportionally to load deficit — e.g., effective_threshold = 0.3 * (load_7d / max_load) so underloaded muscles need much less freshness to qualify
+Proximity flag: Tag muscles whose fatigue comes primarily from indirect stimulus and exempt them from the standard freshness gate
+What Expo does NOT need to change: The collapseIntelPriority mapping from muscle_id 17 → [chest_upper, chest_mid, chest_lower] is already correct and tested. The moment Pectorals appears in queue, all three chest zones light up with stars. The pipeline works — it just never gets fed Pectorals because of the gate.
+
+That keeps your Expo logic clean and puts the fix where it belongs — in Intel's scoring model, which is the system that knows about load levels and freshness decay.
