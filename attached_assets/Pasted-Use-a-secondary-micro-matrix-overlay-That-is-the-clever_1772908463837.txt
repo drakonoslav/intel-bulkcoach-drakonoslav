@@ -1,0 +1,259 @@
+Use a secondary micro-matrix overlay.
+
+That is the clever move.
+
+Not a new canonical muscle split.
+Not a new seed schema.
+Not a change to the 27-region engine.
+
+Instead:
+
+The idea
+
+Keep Intel exactly as it is:
+	•	canonical Pectorals
+	•	canonical Front/Anterior Delt
+	•	canonical Triceps
+	•	all existing matrices unchanged for the stable engine
+
+Then add a tiny chest-zone overlay table that exists only inside the pec-zone sidecar.
+
+This overlay would describe, for each chest-relevant exercise, the relative bias toward:
+	•	upper_pec
+	•	mid_pec
+	•	lower_pec
+
+across a few meaningful movement dimensions.
+
+So instead of guessing from just exercise name, v2.5 or v3 can use a much richer local model.
+
+Why this is powerful
+
+Right now your sidecar is doing:
+	•	exercise archetype prior
+	•	maybe small proxy adjustments from front delt vs triceps
+
+That is decent, but still coarse.
+
+A micro-matrix overlay would let you encode something much closer to how EMG papers actually differ lifts:
+	•	incline angle
+	•	humeral path
+	•	adduction vector
+	•	elbow path
+	•	pressing depth / stretch bias
+	•	convergence
+	•	dip torso angle
+
+Those factors matter far more than just the label “incline” or “flat.”
+
+What this looks like
+
+Create a new sidecar file, something like:
+
+pec_zone_overlay.csv
+
+Each row is an exercise already in Intel.
+
+Columns could be:
+	•	exercise_name
+	•	upper_bias
+	•	mid_bias
+	•	lower_bias
+	•	stretch_bias
+	•	contraction_bias
+	•	front_delt_coupling
+	•	triceps_coupling
+	•	adduction_bias
+	•	decline_vector_bias
+	•	convergence_bias
+
+You do not expose these as muscles.
+They are just hidden analytic coefficients.
+
+The key principle
+
+The overlay does not create new chest dose.
+
+It only tells you how to partition the chest dose you already computed.
+
+So:
+
+pectorals_total_dose stays the source of truth.
+
+Then the overlay determines how that existing dose gets divided into upper/mid/lower pec.
+
+Why this gets you much closer to EMG-grade behavior
+
+Because EMG differences between chest exercises are often really about mechanics, not just muscle names.
+
+For example:
+
+Two “incline presses” are not the same
+
+A low incline dumbbell press with elbows slightly tucked and strong stretch may bias differently than a steeper incline Smith press with shorter ROM.
+
+Two “flyes” are not the same
+
+Low-to-high cable fly and flat dumbbell fly do not stress the same pec fibers similarly.
+
+Dips vary massively
+
+A torso-forward dip vs upright triceps dip changes chest distribution a lot.
+
+The micro-overlay gives you room to encode those differences without touching the main engine.
+
+Best structure
+
+I would use three layers.
+
+Layer 1: canonical Intel output
+
+Already exists:
+	•	pectorals total/direct dose
+	•	front delt signal
+	•	triceps signal
+	•	phase signal
+	•	dynamic/stability signal
+
+Layer 2: chest-zone overlay coefficients
+
+Static or semi-static per exercise.
+
+Layer 3: runtime allocator
+
+Combines:
+	•	canonical pectoral dose
+	•	exercise overlay
+	•	current proxy signals
+	•	optional phase adjustment
+
+to produce:
+	•	upper pec
+	•	mid pec
+	•	lower pec
+
+The clever part
+
+Instead of one base share like:
+	•	incline bench = 0.55 / 0.30 / 0.15
+
+you store a feature profile and compute the shares from that.
+
+Example:
+
+For incline dumbbell bench:
+	•	stretch_bias = 0.7
+	•	front_delt_coupling = 0.6
+	•	adduction_bias = 0.4
+	•	decline_vector_bias = 0.0
+	•	convergence_bias = 0.3
+
+Then the allocator turns those features into zone weights.
+
+That is much more flexible than hardcoded final shares.
+
+A simple formula
+
+You could define zone scores before normalization:
+
+upper_score = 0.45 + 0.35*front_delt_coupling + 0.20*stretch_bias + 0.25*incline_geometry
+
+mid_score = 0.45 + 0.30*adduction_bias + 0.20*convergence_bias
+
+lower_score = 0.45 + 0.35*decline_vector_bias + 0.25*triceps_coupling
+
+Then normalize the three scores so they sum to 1.
+
+That gives you dynamic but stable partitioning.
+
+Why this is better than adding pec muscles to Intel
+
+Because it avoids all the dangerous stuff:
+	•	no muscle table changes
+	•	no matrix header changes
+	•	no broken Expo chart assumptions
+	•	no need to update balance/recovery/optimizer
+	•	no migrations to the core engine
+
+You get a “shadow biomechanics layer” only for chest analytics.
+
+Even better: confidence scoring
+
+Add one more output:
+	•	pec_zone_confidence
+
+Why? Because some exercises are clearer than others.
+
+Examples:
+	•	incline press: high confidence
+	•	low-to-high cable fly: fairly high confidence
+	•	generic machine press: moderate
+	•	weird hybrid pressing movement: low
+
+That would let your later Expo layer decide:
+	•	show vivid zone detail when confidence is high
+	•	show a softer or blended display when confidence is low
+
+That is very smart UX.
+
+Example response shape
+
+A future endpoint could return:
+
+{
+  "exercise_name": "Incline Dumbbell Bench Press",
+  "pectorals_total_dose": 1200,
+  "pectorals_direct_dose": 950,
+  "pec_zones": {
+    "upper": 684,
+    "mid": 342,
+    "lower": 174
+  },
+  "shares": {
+    "upper": 0.57,
+    "mid": 0.285,
+    "lower": 0.145
+  },
+  "confidence": 0.86,
+  "drivers": {
+    "geometry": "incline_press",
+    "stretch_bias": 0.7,
+    "front_delt_coupling": 0.6,
+    "triceps_coupling": 0.4
+  }
+}
+
+That is extremely useful later for your game layer.
+
+Best upgrade sequence
+
+v2
+
+Keep your current sidecar and add:
+	•	phase adjustments
+	•	geometry inference
+	•	confidence score
+
+v2.5
+
+Replace hardcoded base shares with the micro-matrix overlay
+
+v3
+
+Add optional user-specific correction factors based on actual response patterns:
+	•	soreness log
+	•	pump perception
+	•	strength curve behavior
+	•	exercise-specific recovery drift
+
+That would make it personalized.
+
+The cleanest instruction to Replit Intel
+
+Paste this:
+
+Do not modify the canonical 27-region system or the Pectorals muscle definition. Add a sidecar chest-zone overlay model for the pec-zone analytics layer only. Create a new per-exercise feature table that stores biomechanical coefficients such as upper_bias, mid_bias, lower_bias, stretch_bias, adduction_bias, front_delt_coupling, triceps_coupling, convergence_bias, and decline_vector_bias. Use these coefficients at runtime to compute normalized upper/mid/lower pec shares that partition the already-computed canonical Pectorals dose. The overlay must not create new dose; it must only redistribute the existing Pectorals signal. Return optional confidence and driver metadata so pec-zone outputs can later be visualized in Expo without changing the canonical muscle map.
+
+That is the clever improvement.
+
+It gives you near-EMG-style nuance without ripping apart your stable system.
