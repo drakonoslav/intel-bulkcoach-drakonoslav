@@ -1,3 +1,23 @@
+"""
+Pec Zone Proxy Allocator — v1
+
+Partitions canonical Pectorals dose into Upper/Mid/Lower Pec proxy zones.
+This is a sidecar analytics layer; it does NOT alter the canonical 27-region
+muscle schema, balance logic, recovery maps, or optimizer vectors.
+
+v1 implementation note:
+    The current activation matrix gives identical front-delt (4) and triceps (4)
+    values for every pec-activating exercise. Because fd_ratio == tri_ratio,
+    the proxy adjustment produces zero shift for all current exercises.
+    The base exercise archetype profile is therefore the sole driver of zone
+    allocation in v1. The bounded proxy support is structurally in place and
+    will activate automatically if future matrix revisions introduce
+    differentiated front-delt / triceps signals across chest exercises.
+
+    Treat this as: base-profile allocator with bounded proxy support,
+    not a fully proxy-driven pec detector.
+"""
+
 import re
 from app.pec_zone_profiles import EXERCISE_PROFILES, ARCHETYPE_DEFAULTS, NEUTRAL_DEFAULT
 
