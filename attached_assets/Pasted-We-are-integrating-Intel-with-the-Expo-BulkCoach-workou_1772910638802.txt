@@ -1,0 +1,58 @@
+We are integrating Intel with the Expo BulkCoach workout game.
+
+I do NOT want to change the canonical 27-region system, seed CSVs, muscle IDs, balance logic, optimizer logic, recovery schema, or existing stable frontend-facing responses unless absolutely necessary.
+
+Your job right now is NOT to implement code immediately.
+Your first task is to define a clean integration contract that the Expo app can consume.
+
+The target architecture is:
+- Intel = physiology / muscle-state engine
+- Expo game = CBP / phase / pacing / session UI engine
+
+I want the game to stop using its old local 17-group targeting logic as the primary training brain.
+Instead, Intel should provide canonical muscle state, queue priority, freshness/fatigue, recent-use/recency, and mode recommendations.
+
+Please do this in order:
+
+1. Audit the current Intel repo and identify the best existing endpoints, tables, and computed signals that can support:
+   - canonical 27 muscle regions
+   - muscle freshness / fatigue
+   - recent training recency
+   - weekly deficit / weekly target gap
+   - heatmap status
+   - mode recommendation (compound vs isolation bias)
+
+2. Propose a non-breaking set of NEW integration endpoints for Expo. Do not implement yet. First propose the exact contract.
+
+I expect something close to:
+- GET /game/muscle-state/today
+- GET /game/muscle-priority?mode=compound
+- GET /game/muscle-priority?mode=isolation
+- POST /game/log-set
+- POST /game/session-close
+
+3. For each proposed endpoint, specify:
+   - request shape
+   - response shape
+   - which existing Intel data sources power it
+   - whether values are direct, derived, or estimated
+   - whether the endpoint is canonical-27-native
+
+4. Propose how the Intel side should score queue priority using:
+   - weekly deficit
+   - freshness
+   - fatigue
+   - recency
+   - readiness gating
+   - compound-vs-isolation suitability
+
+5. Propose a canonical heatmap payload for the 27 muscles.
+
+6. Propose a migration-safe way for Expo to log workout actions to Intel without requiring full exercise logging on day one.
+I am okay with a staged bridge where Expo initially logs muscle-target + RPE + compound/isolation, as long as the contract is clean and upgradeable later to exercise-level logging.
+
+Important constraints:
+- Do not start coding yet
+- Do not change stable existing Intel behavior
+- Do not assume Expo knows Intel internals
+- I want a contract-first plan with exact payloads and acceptance criteria
