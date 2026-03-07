@@ -1,0 +1,14 @@
+node,parent_group,node_type,seed_from_matrix
+Front/Anterior Delt,Deltoids,source_leaf,1
+Side/Lateral Delt,Deltoids,source_leaf,1
+Rear/Posterior Delt,Deltoids,source_leaf,1
+Upper Traps,Traps,source_leaf,1
+Mid Traps,Traps,source_leaf,1
+Lower Traps,Traps,source_leaf,1
+Lats,Back Total,source_leaf,1
+Upper Back,Back Total,source_leaf,1
+Middle Back,Back Total,source_leaf,1
+Lower Back,Back Total,source_leaf,1
+Deltoids,Upper Body Groups,derived_group,0
+Traps,Upper Body Groups,derived_group,0
+Back Total,Upper Body Groups,derived_group,0

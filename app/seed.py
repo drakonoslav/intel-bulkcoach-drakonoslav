@@ -15,12 +15,12 @@ from app.models import (
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "attached_assets")
 
-ACTIVATION_CSV = os.path.join(ASSETS_DIR, "Exercise_Muscle_Matrix_v2_1772329150478.csv")
-ROLE_WEIGHTED_CSV = os.path.join(ASSETS_DIR, "Role_Weighted_Matrix_v2_1772329858110.csv")
-PHASE_V3_XLSX = os.path.join(ASSETS_DIR, "V3_Phase_Model_Outputs_1772330146444.xlsx")
-BOTTLENECK_CSV = os.path.join(ASSETS_DIR, "V4_Bottleneck_Coefficient_Matrix_1772330621400.csv")
-V5_DYNAMIC_CSV = os.path.join(ASSETS_DIR, "V5_Dynamic_Matrix_1772330962718.csv")
-V5_STABILITY_CSV = os.path.join(ASSETS_DIR, "V5_Stability_Matrix_1772330962718.csv")
+ACTIVATION_CSV = os.path.join(ASSETS_DIR, "Exercise_Muscle_Matrix_v2_2_1772898930398.csv")
+ROLE_WEIGHTED_CSV = os.path.join(ASSETS_DIR, "Role_Weighted_Matrix_v2_2_1772898930398.csv")
+PHASE_V3_XLSX = os.path.join(ASSETS_DIR, "V3_Phase_Model_Outputs_2_1772898930398.xlsx")
+BOTTLENECK_CSV = os.path.join(ASSETS_DIR, "V4_Bottleneck_Coefficient_Matrix_2_1772898930398.csv")
+V5_DYNAMIC_CSV = os.path.join(ASSETS_DIR, "V5_Dynamic_Matrix_2_1772898930398.csv")
+V5_STABILITY_CSV = os.path.join(ASSETS_DIR, "V5_Stability_Matrix_2_1772898930398.csv")
 COMPOSITE_MUSCLE_CSV = os.path.join(ASSETS_DIR, "Composite_Muscle_Profile_Index_1772331293343.csv")
 
 
@@ -507,6 +507,74 @@ _EXERCISE_EQUIPMENT = {
     "Sled Pull": ["sled"],
     "Tire Flip": ["tire"],
 }
+
+
+def reseed_matrices(db: Session) -> dict:
+    from sqlalchemy import text
+    tables = [
+        "activation_matrix_v2",
+        "role_weighted_matrix_v2",
+        "phase_matrix_v3",
+        "bottleneck_matrix_v4",
+        "stabilization_matrix_v5",
+    ]
+    counts_before = {}
+    for t in tables:
+        row = db.execute(text(f"SELECT COUNT(*) FROM {t}")).scalar()
+        counts_before[t] = row
+        db.execute(text(f"TRUNCATE TABLE {t}"))
+    db.commit()
+
+    _seed_activation_matrix(db)
+    _seed_role_weighted(db)
+    _seed_phase_v3(db)
+    _seed_bottleneck_v4(db)
+    _seed_stabilization_v5(db)
+
+    counts_after = {}
+    for t in tables:
+        counts_after[t] = db.execute(text(f"SELECT COUNT(*) FROM {t}")).scalar()
+
+    return {
+        "truncated": counts_before,
+        "reseeded": counts_after,
+    }
+
+
+def _seed_activation_matrix(db: Session):
+    if db.query(ActivationMatrixV2).count() > 0:
+        return
+    if not os.path.exists(ACTIVATION_CSV):
+        return
+
+    muscle_map = _get_muscle_map(db)
+    exercise_map = _get_exercise_map(db)
+
+    with open(ACTIVATION_CSV, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        muscle_names = [h.strip() for h in header[1:]]
+
+        for row in reader:
+            exercise_name = row[0].strip()
+            if not exercise_name:
+                continue
+            ex_id = exercise_map.get(exercise_name)
+            if ex_id is None:
+                continue
+
+            for i, muscle_name in enumerate(muscle_names):
+                mu_id = muscle_map.get(muscle_name)
+                if mu_id is None:
+                    continue
+                val = int(float(row[i + 1].strip()))
+                db.add(ActivationMatrixV2(
+                    exercise_id=ex_id,
+                    muscle_id=mu_id,
+                    activation_value=val,
+                ))
+
+    db.commit()
 
 
 def _seed_hands_grip_muscle(db: Session):

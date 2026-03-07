@@ -12,6 +12,10 @@ router = APIRouter(prefix="/muscle", tags=["muscle"])
 HANDS_GRIP_NAME = "Hands/Grip"
 FOREARMS_NAME = "Forearms"
 HANDS_GRIP_SCALE = 0.85
+DELTOIDS_NAME = "Deltoids"
+TRAPS_NAME = "Traps"
+DELTOID_CHILDREN = ["Front/Anterior Delt", "Side/Lateral Delt", "Rear/Posterior Delt"]
+TRAP_CHILDREN = ["Upper Traps", "Mid Traps", "Lower Traps"]
 MUSCLE_SCHEMA_VERSION = 27
 BALANCE_SCHEMA_VERSION = 3
 RECOVERY_SCHEMA_VERSION = 1
@@ -58,7 +62,7 @@ PUSH_MEMBERS = [
 ]
 PULL_MEMBERS = [
     "Lats", "Upper Back", "Middle Back", "Rear/Posterior Delt", "Biceps",
-    "Forearms", "Hands/Grip", "Traps", "Upper Traps", "Mid Traps", "Lower Traps",
+    "Forearms", "Hands/Grip", "Upper Traps", "Mid Traps", "Lower Traps",
     "Hamstrings", "Lower Back",
 ]
 ANTERIOR_MEMBERS = ["Pectorals", "Quads", "Front/Anterior Delt", "Abs"]
@@ -68,8 +72,8 @@ POSTERIOR_MEMBERS = [
 ]
 UPPER_MEMBERS = [
     "Pectorals", "Lats", "Upper Back", "Middle Back",
-    "Deltoids", "Front/Anterior Delt", "Rear/Posterior Delt", "Side/Lateral Delt",
-    "Traps", "Upper Traps", "Mid Traps", "Lower Traps",
+    "Front/Anterior Delt", "Rear/Posterior Delt", "Side/Lateral Delt",
+    "Upper Traps", "Mid Traps", "Lower Traps",
     "Triceps", "Biceps", "Forearms", "Hands/Grip", "Neck",
 ]
 LOWER_MEMBERS = [
@@ -79,18 +83,18 @@ LOWER_MEMBERS = [
 AXIAL_MEMBERS = [
     "Neck", "Abs", "Obliques", "Lower Back",
     "Upper Back", "Middle Back", "Lats",
-    "Traps", "Upper Traps", "Mid Traps", "Lower Traps",
+    "Upper Traps", "Mid Traps", "Lower Traps",
     "Pectorals",
 ]
 APPENDICULAR_MEMBERS = [
-    "Deltoids", "Front/Anterior Delt", "Rear/Posterior Delt", "Side/Lateral Delt",
+    "Front/Anterior Delt", "Rear/Posterior Delt", "Side/Lateral Delt",
     "Triceps", "Biceps", "Forearms", "Hands/Grip",
     "Glutes", "Quads", "Hamstrings", "Calves", "Shins",
     "Adductors", "Abductors",
 ]
 
 
-def _compute_day_doses(sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hands_grip_id):
+def _compute_day_doses(sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hands_grip_id, derived_groups=None):
     total_dose = defaultdict(float)
     direct_dose = defaultdict(float)
 
@@ -105,6 +109,11 @@ def _compute_day_doses(sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hand
         if total_dose[hands_grip_id] == 0:
             total_dose[hands_grip_id] = total_dose[forearm_id] * HANDS_GRIP_SCALE
             direct_dose[hands_grip_id] = direct_dose[forearm_id] * HANDS_GRIP_SCALE
+
+    if derived_groups:
+        for group_id, child_ids in derived_groups.items():
+            total_dose[group_id] = sum(total_dose[cid] for cid in child_ids)
+            direct_dose[group_id] = sum(direct_dose[cid] for cid in child_ids)
 
     return total_dose, direct_dose
 
@@ -139,11 +148,25 @@ def muscle_day(
 
     forearm_id = None
     hands_grip_id = None
+    deltoids_id = None
+    traps_id = None
+    name_to_mid = {}
     for m in muscles:
+        name_to_mid[m.name] = m.id
         if m.name == FOREARMS_NAME:
             forearm_id = m.id
         elif m.name == HANDS_GRIP_NAME:
             hands_grip_id = m.id
+        elif m.name == DELTOIDS_NAME:
+            deltoids_id = m.id
+        elif m.name == TRAPS_NAME:
+            traps_id = m.id
+
+    derived_groups = {}
+    if deltoids_id:
+        derived_groups[deltoids_id] = [name_to_mid[n] for n in DELTOID_CHILDREN if n in name_to_mid]
+    if traps_id:
+        derived_groups[traps_id] = [name_to_mid[n] for n in TRAP_CHILDREN if n in name_to_mid]
 
     decay_from = date_param - timedelta(days=DECAY_LOOKBACK_DAYS - 1)
     window_from = date_param - timedelta(days=ROLLING_WINDOW_DAYS - 1)
@@ -171,7 +194,7 @@ def muscle_day(
     today_sets = sets_by_day.get(date_param, [])
 
     today_total, today_direct = _compute_day_doses(
-        today_sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hands_grip_id
+        today_sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hands_grip_id, derived_groups
     )
 
     load_7d_total = defaultdict(float)
@@ -191,7 +214,7 @@ def muscle_day(
             continue
 
         day_total, day_direct = _compute_day_doses(
-            day_sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hands_grip_id
+            day_sets, muscle_ids, act_lookup, rw_lookup, forearm_id, hands_grip_id, derived_groups
         )
 
         days_ago = (date_param - d).days
@@ -218,6 +241,12 @@ def muscle_day(
     ex_name_map = {e.id: e.name for e in db.query(Exercise).filter(Exercise.id.in_(today_ex_ids)).all()} if today_ex_ids else {}
 
     total_tonnage = sum(s.tonnage for s in today_sets)
+
+    derived_group_children = {}
+    if deltoids_id and deltoids_id in derived_groups:
+        derived_group_children[deltoids_id] = DELTOID_CHILDREN
+    if traps_id and traps_id in derived_groups:
+        derived_group_children[traps_id] = TRAP_CHILDREN
 
     regions = []
     for mid in muscle_ids:
@@ -249,6 +278,9 @@ def muscle_day(
         if mid == hands_grip_id:
             entry["derived_from"] = "forearms" if derived else None
             entry["scale"] = HANDS_GRIP_SCALE if derived else None
+        if mid in derived_group_children:
+            entry["derived_from"] = "children_sum"
+            entry["children"] = derived_group_children[mid]
         regions.append(entry)
 
     exercises_used = []

@@ -10,6 +10,7 @@ from app.models import (
     LiftSet, Exercise, Muscle,
     ActivationMatrixV2, RoleWeightedMatrixV2,
 )
+from app.hierarchy import build_derived_groups, apply_derived_rollup
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -67,10 +68,12 @@ def _load_week_data(week: str, db: Session):
         for r in role_rows:
             role_lookup[(r.exercise_id, r.muscle_id)] = r.role_weight
 
-    return sets, muscle_map, muscle_by_name, ex_name_map, act_lookup, role_lookup
+    derived_groups = build_derived_groups(db)
+
+    return sets, muscle_map, muscle_by_name, ex_name_map, act_lookup, role_lookup, derived_groups
 
 
-def _compute_doses(sets, muscle_map, ex_name_map, act_lookup, role_lookup, topN):
+def _compute_doses(sets, muscle_map, ex_name_map, act_lookup, role_lookup, topN, derived_groups=None):
     total_by_muscle = defaultdict(float)
     direct_by_muscle = defaultdict(float)
     total_by_muscle_ex = defaultdict(lambda: defaultdict(float))
@@ -88,6 +91,16 @@ def _compute_doses(sets, muscle_map, ex_name_map, act_lookup, role_lookup, topN)
             if d_dose > 0:
                 direct_by_muscle[mid] += d_dose
                 direct_by_muscle_ex[mid][s.exercise_id] += d_dose
+
+    if derived_groups:
+        for group_id, child_ids in derived_groups.items():
+            total_by_muscle[group_id] = sum(total_by_muscle.get(cid, 0) for cid in child_ids)
+            direct_by_muscle[group_id] = sum(direct_by_muscle.get(cid, 0) for cid in child_ids)
+            for cid in child_ids:
+                for eid, dose in total_by_muscle_ex[cid].items():
+                    total_by_muscle_ex[group_id][eid] += dose
+                for eid, dose in direct_by_muscle_ex[cid].items():
+                    direct_by_muscle_ex[group_id][eid] += dose
 
     results = []
     for mid in sorted(muscle_map.keys()):
@@ -123,7 +136,7 @@ def weekly_muscle_dose(
     topN: int = Query(5, ge=1, le=20, description="Top N contributing exercises per muscle"),
     db: Session = Depends(get_db),
 ):
-    sets, muscle_map, _, ex_name_map, act_lookup, role_lookup = _load_week_data(week, db)
+    sets, muscle_map, _, ex_name_map, act_lookup, role_lookup, derived_groups = _load_week_data(week, db)
     total_tonnage = sum(s.tonnage for s in sets)
 
     if not sets:
@@ -133,7 +146,7 @@ def weekly_muscle_dose(
             "muscles": [],
         }
 
-    muscles = _compute_doses(sets, muscle_map, ex_name_map, act_lookup, role_lookup, topN)
+    muscles = _compute_doses(sets, muscle_map, ex_name_map, act_lookup, role_lookup, topN, derived_groups)
 
     return {
         "week": week,
@@ -153,7 +166,7 @@ def weekly_muscle_dose_single(
     includeSets: bool = Query(False, description="Include top individual sets"),
     db: Session = Depends(get_db),
 ):
-    sets, muscle_map, muscle_by_name, ex_name_map, act_lookup, role_lookup = _load_week_data(week, db)
+    sets, muscle_map, muscle_by_name, ex_name_map, act_lookup, role_lookup, derived_groups = _load_week_data(week, db)
 
     mid = muscle_by_name.get(muscle)
     if mid is None:
@@ -161,6 +174,10 @@ def weekly_muscle_dose_single(
         raise HTTPException(status_code=404, detail=f"Unknown muscle: '{muscle}'. Valid muscles: {valid}")
 
     total_tonnage = sum(s.tonnage for s in sets)
+
+    lookup_mids = [mid]
+    if mid in derived_groups:
+        lookup_mids = derived_groups[mid]
 
     total_dose = 0.0
     direct_dose = 0.0
@@ -170,8 +187,8 @@ def weekly_muscle_dose_single(
     set_doses_direct = []
 
     for s in sets:
-        act = act_lookup.get((s.exercise_id, mid), 0)
-        rw = role_lookup.get((s.exercise_id, mid), 0)
+        act = sum(act_lookup.get((s.exercise_id, lmid), 0) for lmid in lookup_mids)
+        rw = sum(role_lookup.get((s.exercise_id, lmid), 0) for lmid in lookup_mids)
         t_dose = s.tonnage * (act / 5.0)
         d_dose = s.tonnage * rw
 

@@ -37,7 +37,7 @@ attached_assets/
 | Table | Rows | Description |
 |-------|------|-------------|
 | `exercises` | 92 | Exercise names from CSV first column |
-| `muscles` | 26 | Muscle names from CSV header |
+| `muscles` | 27 | Muscle names from CSV header + Hands/Grip |
 | `activation_matrix_v2` | 2392 | 92×26 integer activations (0–5), PK (exercise_id, muscle_id) |
 | `role_weighted_matrix_v2` | 2392 | 92×26 float role weights (0.0–1.0), PK (exercise_id, muscle_id) |
 | `phase_matrix_v3` | 7176 | 92×26×3 float phase values (0–5), PK (exercise_id, muscle_id, phase) |
@@ -90,3 +90,11 @@ attached_assets/
 - Composite PKs on matrix tables — no extra serial id columns
 - phase_matrix_v3 uses 3-part PK (exercise_id, muscle_id, phase)
 - stabilization_matrix_v5 uses 3-part PK (exercise_id, muscle_id, component)
+
+## Hierarchy Patch (Deltoids/Traps)
+- Patched source files (suffix `_2_1772898930398`) have Deltoids and Traps columns zeroed in all 5 CSV matrices + all 3 V3 xlsx sheets
+- **Shared utility `app/hierarchy.py`**: `build_derived_groups(db)` returns {group_id: [child_ids]}, `apply_derived_rollup(stim_dict, groups)` sums children into group
+- Runtime derivation applied in: `muscle_day.py`, `weekly_muscles.py`, `muscle_dose.py`, `coach.py` (_compute_weekly_balance + recommend-session + session compliance), `weekly_optimizer.py`, `reports.py`
+- Balance member lists use leaf muscles only (no group names) to prevent double-counting
+- Admin re-seed endpoint: `POST /admin/reseed-matrices` (wipes + reloads matrix tables, does NOT touch lift_sets/exercises/muscles)
+- Derived groups marked in `/muscle/day` response with `derived_from: children_sum` and `children` array

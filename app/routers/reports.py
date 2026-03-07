@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Dict
 from app.database import get_db
 from app.models import VolumeLog, Exercise, Muscle, ActivationMatrixV2
+from app.hierarchy import DELTOIDS_NAME, TRAPS_NAME, DELTOID_CHILDREN, TRAP_CHILDREN
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -28,6 +29,9 @@ def _compute_muscle_stimulus(db: Session, logs: list) -> Dict[str, float]:
         for act_row, mu in activations:
             stim = tonnage * act_row.activation_value
             stimulus[mu.name] = stimulus.get(mu.name, 0.0) + stim
+
+    stimulus[DELTOIDS_NAME] = sum(stimulus.get(c, 0) for c in DELTOID_CHILDREN)
+    stimulus[TRAPS_NAME] = sum(stimulus.get(c, 0) for c in TRAP_CHILDREN)
 
     return {k: round(v, 2) for k, v in sorted(stimulus.items(), key=lambda x: -x[1])}
 

@@ -10,6 +10,7 @@ from app.models import (
     StabilizationMatrixV5, CompositeMuscleIndex, Preset, ExerciseTag,
 )
 from app.equipment_filter import build_equipment_eligible, filter_candidates_by_equipment
+from app.hierarchy import build_derived_groups, sum_vec_leaf_only
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,17 @@ def weekly_template(
             stab_vec[r.exercise_id] = [0.0] * n_muscles
         stab_vec[r.exercise_id][mid_index[r.muscle_id]] = r.value
 
+    derived_groups = build_derived_groups(db)
+    for eid in act_vec:
+        for group_id, child_ids in derived_groups.items():
+            if group_id in mid_index:
+                gi = mid_index[group_id]
+                act_vec[eid][gi] = sum(act_vec[eid][mid_index[cid]] for cid in child_ids if cid in mid_index)
+                if eid in bn_vec:
+                    bn_vec[eid][gi] = sum(bn_vec[eid][mid_index[cid]] for cid in child_ids if cid in mid_index)
+                if eid in stab_vec:
+                    stab_vec[eid][gi] = sum(stab_vec[eid][mid_index[cid]] for cid in child_ids if cid in mid_index)
+
     available_tags = None
     equip_result = None
     equipment_active = False
@@ -224,8 +236,8 @@ def weekly_template(
                     max_sim = max(_cosine_sim(avec, sv) for sv in selected_vecs)
                     red_penalty = redundancyLambda * max_sim
 
-                bn_sum = sum(bn_vec.get(eid, [0.0] * n_muscles))
-                stab_sum = sum(stab_vec.get(eid, [0.0] * n_muscles))
+                bn_sum = sum_vec_leaf_only(bn_vec.get(eid, [0.0] * n_muscles), derived_groups, mid_index)
+                stab_sum = sum_vec_leaf_only(stab_vec.get(eid, [0.0] * n_muscles), derived_groups, mid_index)
 
                 bn_penalty = bottleneckLambda * bn_sum
                 stab_penalty = stabilityLambda * stab_sum

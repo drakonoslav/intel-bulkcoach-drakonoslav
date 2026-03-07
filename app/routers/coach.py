@@ -21,6 +21,7 @@ from app.models import (
     ExerciseTag, SessionPlan, SessionPlanSet,
 )
 from app.equipment_filter import build_equipment_eligible, filter_candidates_by_equipment
+from app.hierarchy import build_derived_groups, apply_derived_rollup, sum_vec_leaf_only
 
 router = APIRouter(prefix="/coach", tags=["coach"])
 
@@ -130,6 +131,12 @@ def _compute_weekly_balance(week: str, db: Session, lookback_weeks: int = 1):
             direct_dose[mid] += s.tonnage * rw
             bn_pressure[mid] += s.tonnage * bn
             stab_load[mid] += s.tonnage * st
+
+    derived_groups = build_derived_groups(db)
+    apply_derived_rollup(total_dose, derived_groups)
+    apply_derived_rollup(direct_dose, derived_groups)
+    apply_derived_rollup(bn_pressure, derived_groups)
+    apply_derived_rollup(stab_load, derived_groups)
 
     total_tonnage = sum(s.tonnage for s in sets)
 
@@ -342,11 +349,22 @@ def recommend_session(
             stab_vec[r.exercise_id] = [0.0] * n_muscles
         stab_vec[r.exercise_id][mid_index[r.muscle_id]] = r.value
 
+    derived_groups = build_derived_groups(db)
+    for eid in act_vec:
+        for group_id, child_ids in derived_groups.items():
+            if group_id in mid_index:
+                gi = mid_index[group_id]
+                act_vec[eid][gi] = sum(act_vec[eid][mid_index[cid]] for cid in child_ids if cid in mid_index)
+                if eid in bn_vec:
+                    bn_vec[eid][gi] = sum(bn_vec[eid][mid_index[cid]] for cid in child_ids if cid in mid_index)
+                if eid in stab_vec:
+                    stab_vec[eid][gi] = sum(stab_vec[eid][mid_index[cid]] for cid in child_ids if cid in mid_index)
+
     ex_bn_scalar = {}
     ex_stab_scalar = {}
     for eid in act_vec:
-        ex_bn_scalar[eid] = sum(bn_vec.get(eid, [0.0] * n_muscles))
-        ex_stab_scalar[eid] = sum(stab_vec.get(eid, [0.0] * n_muscles))
+        ex_bn_scalar[eid] = sum_vec_leaf_only(bn_vec.get(eid, [0.0] * n_muscles), derived_groups, mid_index)
+        ex_stab_scalar[eid] = sum_vec_leaf_only(stab_vec.get(eid, [0.0] * n_muscles), derived_groups, mid_index)
 
     all_bn_vals_for_norm = list(ex_bn_scalar.values())
     all_stab_vals_for_norm = list(ex_stab_scalar.values())
@@ -792,6 +810,10 @@ def session_complete(payload: SessionCompleteIn, db: Session = Depends(get_db)):
             executed_bn_total += s.tonnage * bn_lookup.get((s.exercise_id, mid), 0)
             executed_stab_total += s.tonnage * stab_lookup.get((s.exercise_id, mid), 0)
 
+    derived_groups = build_derived_groups(db)
+    apply_derived_rollup(executed_total_dose, derived_groups)
+    apply_derived_rollup(executed_direct_dose, derived_groups)
+
     planned_coverage = defaultdict(float)
     planned_direct_coverage = defaultdict(float)
     for ex_name in planned_exercises:
@@ -803,6 +825,8 @@ def session_complete(payload: SessionCompleteIn, db: Session = Depends(get_db)):
             rw = role_lookup.get((eid, mid), 0)
             planned_coverage[mid] += act / 5.0
             planned_direct_coverage[mid] += rw
+    apply_derived_rollup(planned_coverage, derived_groups)
+    apply_derived_rollup(planned_direct_coverage, derived_groups)
 
     max_planned = max(planned_coverage.values()) if planned_coverage else 1.0
     max_planned = max_planned if max_planned > 0 else 1.0

@@ -11,6 +11,7 @@ from app.models import (
     ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3,
     BottleneckMatrixV4, StabilizationMatrixV5,
 )
+from app.hierarchy import build_derived_groups, apply_derived_rollup
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -70,6 +71,7 @@ def weekly_muscles(
 
     all_muscles = db.query(Muscle).order_by(Muscle.id).all()
     muscle_map = {m.id: m.name for m in all_muscles}
+    derived_groups = build_derived_groups(db)
 
     total_tonnage = sum(s.tonnage for s in sets)
 
@@ -81,6 +83,7 @@ def weekly_muscles(
             ).all()
             for a in acts:
                 stim[a.muscle_id] += s.tonnage * (a.activation_value / 5.0)
+        apply_derived_rollup(stim, derived_groups)
         muscles = sorted(
             [{"muscle": muscle_map[mid], "value": round(v, 4)} for mid, v in stim.items()],
             key=lambda x: -x["value"],
@@ -96,6 +99,7 @@ def weekly_muscles(
             ).all()
             for r in rows:
                 stim[r.muscle_id] += s.tonnage * r.role_weight
+        apply_derived_rollup(stim, derived_groups)
         muscles = sorted(
             [{"muscle": muscle_map[mid], "value": round(v, 4)} for mid, v in stim.items()],
             key=lambda x: -x["value"],
@@ -111,6 +115,8 @@ def weekly_muscles(
             ).all()
             for r in rows:
                 phase_stim[r.phase][r.muscle_id] += s.tonnage * (r.phase_value / 5.0)
+        for phase_dict in phase_stim.values():
+            apply_derived_rollup(phase_dict, derived_groups)
         extras = {}
         for phase in ["initiation", "midrange", "lockout"]:
             extras[phase] = sorted(
@@ -136,6 +142,7 @@ def weekly_muscles(
             ).all()
             for r in rows:
                 pressure[r.muscle_id] += s.tonnage * r.bottleneck_coeff
+        apply_derived_rollup(pressure, derived_groups)
         muscles = sorted(
             [{"muscle": muscle_map[mid], "value": round(v, 4)} for mid, v in pressure.items()],
             key=lambda x: -x["value"],
@@ -155,6 +162,8 @@ def weekly_muscles(
                     dyn[r.muscle_id] += s.tonnage * r.value
                 else:
                     stab[r.muscle_id] += s.tonnage * r.value
+        apply_derived_rollup(dyn, derived_groups)
+        apply_derived_rollup(stab, derived_groups)
         all_stim = defaultdict(float)
         for mid in set(list(dyn.keys()) + list(stab.keys())):
             all_stim[mid] = dyn.get(mid, 0) + stab.get(mid, 0)

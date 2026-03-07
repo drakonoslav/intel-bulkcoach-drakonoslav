@@ -60,6 +60,18 @@ def db_info(request: Request, db: Session = Depends(get_db), _auth=Depends(_chec
     })
 
 
+@router.post("/reseed-matrices", summary="Wipe and re-seed all matrix tables from patched source files")
+def reseed_matrices(
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth=Depends(_check_token),
+):
+    _check_rate(request)
+    from app.seed import reseed_matrices as do_reseed
+    result = do_reseed(db)
+    return _no_store_response(result)
+
+
 @router.get("/lift-sets", summary="Query lift sets by date range")
 def admin_lift_sets(
     request: Request,

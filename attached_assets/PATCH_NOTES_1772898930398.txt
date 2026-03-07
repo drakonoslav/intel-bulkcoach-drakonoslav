@@ -1,0 +1,27 @@
+Lifting Intel hierarchy patch
+
+Goal:
+- Preserve existing schema/column names in source matrices
+- Remove duplicate direct scoring for aggregate groups (Deltoids, Traps)
+- Keep group values available as derived runtime rollups
+
+Edits applied:
+- In Exercise_Muscle_Matrix_v2.csv, Role_Weighted_Matrix_v2.csv, V4_Bottleneck_Coefficient_Matrix.csv,
+  V5_Dynamic_Matrix.csv, V5_Stability_Matrix.csv, and V3_Phase_Model_Outputs.xlsx (Initiation/Midrange/Lockout),
+  the columns Deltoids and Traps were zeroed out.
+- This keeps the file shape stable while eliminating double-counting from matrix seeding.
+
+Required runtime rule:
+- Seed dose/fatigue/recovery only from leaf regions.
+- Derive group outputs after computation:
+    deltoids = front_anterior_delt + side_lateral_delt + rear_posterior_delt
+    traps = upper_traps + mid_traps + lower_traps
+    back_total = lats + upper_back + middle_back + lower_back
+
+Recommended weighting rule for group summaries:
+- For dose/direct_dose/dynamic/stability/bottleneck totals: sum leaf values
+- For readiness/freshness percentages: weighted mean using same group's recent direct dose or total dose as weight
+- For phase score display: sum phase-specific leaf doses, not raw source scores
+
+Composite file:
+- Composite_Muscle_Profile_Index.csv was copied unchanged except for any preserved schema formatting. It should be regenerated from patched source files after backend updates.
