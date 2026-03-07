@@ -14,7 +14,7 @@ from app.models import (
 )
 from app.game_state import (
     MUSCLE_SCHEMA_VERSION, FRESHNESS_K, READINESS_THRESHOLD,
-    W_DEFICIT, W_FRESHNESS, W_RECENCY, W_MODE,
+    W_DEFICIT, W_LOAD_DEFICIT, W_FRESHNESS, W_RECENCY, W_MODE,
     BRIDGE_DEFAULT_TONNAGE, TAU_TABLE, DEFAULT_TAU,
     PUSH_MEMBERS, PULL_MEMBERS, UPPER_MEMBERS, LOWER_MEMBERS,
     ANTERIOR_MEMBERS, POSTERIOR_MEMBERS,
@@ -89,7 +89,7 @@ def muscle_priority(
 
     (results, muscle_ids, muscle_map, name_to_id, load_7d,
      freshness_map, days_since_map, underfed_scores, statuses,
-     compound_suit, isolation_suit) = compute_blended_muscle_state(date_param, db)
+     compound_suit, isolation_suit, load_deficit_map) = compute_blended_muscle_state(date_param, db)
 
     suit_map = compound_suit if mode == "compound" else isolation_suit
     slots_map = compute_recommended_slots(db, muscle_ids, muscle_map)
@@ -101,6 +101,7 @@ def muscle_priority(
         fresh = freshness_map[mid]
         recency = _recency_norm(days_since_map[mid])
         mode_suit = suit_map.get(mid, 0.0)
+        ld = load_deficit_map.get(mid, 0.5)
 
         if fresh < READINESS_THRESHOLD:
             gated_out.append({
@@ -111,7 +112,7 @@ def muscle_priority(
             })
             continue
 
-        priority = _compute_queue_priority(fresh, underfed_scores[mid], recency, mode_suit)
+        priority = _compute_queue_priority(fresh, underfed_scores[mid], recency, mode_suit, ld)
 
         queue.append({
             "muscle_id": mid,
@@ -119,6 +120,7 @@ def muscle_priority(
             "priority_score": round(priority, 4),
             "priority_breakdown": {
                 "deficit_component": round(underfed_scores[mid] / 100.0, 4),
+                "load_deficit_component": round(ld, 4),
                 "freshness_component": fresh,
                 "recency_component": round(recency, 4),
                 "readiness_gate": 1.0,
@@ -140,10 +142,11 @@ def muscle_priority(
         "queue": queue[:top_n],
         "gated_out": gated_out,
         "meta": {
-            "scoring_model": "v1_weighted",
+            "scoring_model": "v2_load_aware",
             "readiness_threshold": READINESS_THRESHOLD,
             "weights": {
                 "deficit": W_DEFICIT,
+                "load_deficit": W_LOAD_DEFICIT,
                 "freshness": W_FRESHNESS,
                 "recency": W_RECENCY,
                 "mode_suitability": W_MODE,

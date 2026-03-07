@@ -144,7 +144,7 @@ attached_assets/
 - **Scoring formulas**:
   - freshness: `1/(1+fatigue/1000)` — normalized readiness index, NOT literal recovery %
   - heatmap: `0.50×(1-freshness) + 0.30×(load_7d/max) + 0.20×(1-recency_norm)`
-  - priority: `gate × (0.35×deficit + 0.25×freshness + 0.20×recency + 0.20×mode_suit)`, gate=freshness≥0.30
+  - priority: `gate × (0.25×deficit + 0.15×load_deficit + 0.20×freshness + 0.20×recency + 0.20×mode_suit)`, gate=freshness≥0.30; load_deficit = 1 - (load_7d / max_load)
   - compound_suitability: count of slot-tagged exercises with activation≥3, normalized
   - isolation_suitability: count of high-role-weight + low-bottleneck exercises, normalized
 

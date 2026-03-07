@@ -23,8 +23,9 @@ ISOLATION_ROLE_WEIGHT_MIN = 0.60
 
 BRIDGE_DEFAULT_TONNAGE = {"compound": 500.0, "isolation": 200.0}
 
-W_DEFICIT = 0.35
-W_FRESHNESS = 0.25
+W_DEFICIT = 0.25
+W_LOAD_DEFICIT = 0.15
+W_FRESHNESS = 0.20
 W_RECENCY = 0.20
 W_MODE = 0.20
 
@@ -217,6 +218,10 @@ def compute_blended_muscle_state(query_date: date, db: Session):
 
     max_load = max(load_7d[mid] for mid in muscle_ids) if muscle_ids else 0
 
+    load_deficit_map = {}
+    for mid in muscle_ids:
+        load_deficit_map[mid] = 1.0 - (load_7d[mid] / max_load) if max_load > 0 else 0.5
+
     results = []
     for mid in muscle_ids:
         recency_norm = _recency_norm(days_since[mid])
@@ -229,7 +234,8 @@ def compute_blended_muscle_state(query_date: date, db: Session):
 
         priority = _compute_queue_priority(
             freshness[mid], underfed_scores[mid],
-            recency_norm, compound_suit.get(mid, 0.0)
+            recency_norm, compound_suit.get(mid, 0.0),
+            load_deficit_map[mid]
         )
 
         hc = has_canonical[mid]
@@ -261,7 +267,7 @@ def compute_blended_muscle_state(query_date: date, db: Session):
             "data_blend": blend,
         })
 
-    return results, muscle_ids, muscle_map, name_to_id, load_7d, freshness, days_since, underfed_scores, statuses, compound_suit, isolation_suit
+    return results, muscle_ids, muscle_map, name_to_id, load_7d, freshness, days_since, underfed_scores, statuses, compound_suit, isolation_suit, load_deficit_map
 
 
 def _recency_norm(days_since_hit):
@@ -270,12 +276,13 @@ def _recency_norm(days_since_hit):
     return min(days_since_hit, 7) / 7.0
 
 
-def _compute_queue_priority(fresh, underfed_score, recency_norm, mode_suit):
+def _compute_queue_priority(fresh, underfed_score, recency_norm, mode_suit, load_deficit=0.5):
     if fresh < READINESS_THRESHOLD:
         return 0.0
     deficit_norm = underfed_score / 100.0
     return (
         W_DEFICIT * deficit_norm +
+        W_LOAD_DEFICIT * load_deficit +
         W_FRESHNESS * fresh +
         W_RECENCY * recency_norm +
         W_MODE * mode_suit
