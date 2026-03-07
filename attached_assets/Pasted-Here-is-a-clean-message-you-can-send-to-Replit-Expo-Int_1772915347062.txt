@@ -1,0 +1,147 @@
+Here is a clean message you can send to Replit (Expo + Intel). It separates the next steps so they don’t blur responsibilities again.
+
+It is written so they plan first, not code, and so the stages stay clearly separated.
+
+⸻
+
+Message to send Replit (Expo + Intel)
+
+Stage A is working correctly and is now closed.
+
+The game is successfully consuming Intel’s priority signals through the bridge layer while preserving the current workout shell.
+
+However, Stage A only implemented read-side integration. It does not yet implement the full interaction loop between the workout game and Intel.
+
+Before any additional code is written, I want a planning document only for the next three stages.
+
+Do not begin implementation yet.
+
+I want the work broken into three clearly separated layers so responsibilities do not blur again.
+
+⸻
+
+Stage B — Intel Write Integration (Game → Intel)
+
+Goal:
+The workout game should send training events back to Intel so Intel’s physiology engine can incorporate game activity into its muscle-state model.
+
+This stage must not change the game UI.
+
+The current 17-muscle button shell remains unchanged.
+
+The only change is that the game session should write to Intel.
+
+Please provide a plan describing:
+	1.	How POST /game/log-set will be called from the workout game
+	2.	Whether bridge-mode or exercise-level logging will be used initially
+	3.	How event_id idempotency will be generated on the client
+	4.	Whether the write should occur:
+	•	inside /api/workout/:sessionId/set
+	•	or directly from the client
+	5.	Confirmation that Intel writes are fire-and-forget and never block the UI
+	6.	When POST /game/session-close will be called
+	7.	How failures are handled if Intel is unreachable
+	8.	Confirmation that existing workout flow, CBP logic, and session persistence remain unchanged
+
+Deliverable:
+A file-by-file implementation plan for adding Intel write integration.
+
+⸻
+
+Stage C — Canonical 27 Muscle Game Support
+
+Goal:
+Move the game beyond the legacy 17-muscle shell so the workout game can eventually support Intel’s full canonical muscle map.
+
+This stage must not break the current game UX.
+
+Provide a plan explaining:
+	1.	Whether the game UI will remain grouped or expand to full canonical 27
+	2.	How currently dropped muscles will be handled:
+	•	traps
+	•	forearms
+	•	obliques
+	•	lower back
+	•	adductors
+	•	abductors
+	•	shins
+	•	hands/grip
+	3.	Whether the UI should show:
+	•	full canonical 27
+	•	grouped clusters
+	•	or a hybrid model
+	4.	How the existing 17 buttons will migrate without breaking existing users
+	5.	Whether grouping logic should live in:
+	•	the Expo layer
+	•	or Intel
+
+Deliverable:
+A staged migration plan for evolving the game from the current 17-button shell to canonical-27 support.
+
+No UI redesign should happen yet.
+
+⸻
+
+Stage D — Exercise Recommendation Layer
+
+Goal:
+Once the user selects a muscle, the system should recommend actual compound or isolation exercises rather than only logging “muscle targets”.
+
+This stage introduces exercise awareness to the game.
+
+Provide a design describing:
+	1.	How Intel will recommend exercises for a selected muscle
+	2.	Whether the API should look like:
+	•	GET /game/exercise-recommendations?muscle_id=...
+	3.	Whether recommendations should include:
+	•	compound vs isolation filtering
+	•	readiness / fatigue weighting
+	•	slot compatibility (push/pull/legs)
+	4.	How the UI should present exercises:
+	•	dropdown
+	•	bottom sheet
+	•	quick suggestions
+	5.	How exercises map back to Intel exercise IDs
+	6.	Whether the game will log:
+	•	bridge-mode sets
+	•	or full exercise-level sets
+
+Deliverable:
+An API and UI design proposal for exercise-level recommendations and logging.
+
+⸻
+
+Important Constraints
+
+Across Stages B–D:
+
+The following must remain unchanged unless explicitly approved:
+
+• CBP budget logic
+• phase switching logic
+• drain per set
+• set logging flow
+• end workout flow
+• the current game shell
+
+The game engine remains responsible for pacing and session flow.
+
+Intel remains responsible for physiology and muscle-state modeling.
+
+⸻
+
+Deliverable Requested
+
+Return three separate planning sections:
+
+Stage B — Intel write integration
+Stage C — canonical muscle support
+Stage D — exercise recommendation layer
+
+Do not implement code yet.
+
+I will review the architecture before approving any further development.
+
+⸻
+
+If you want, I can also show you the architecture Intel will probably propose next and which parts you should accept or push back on. That will help you steer the build instead of just reacting to it.
