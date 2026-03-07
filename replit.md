@@ -85,6 +85,8 @@ attached_assets/
 | GET | `/game/muscle-priority?mode=&date=&top_n=` | Ranked muscle training queue by mode |
 | POST | `/game/log-set` | Log workout action (exercise-level or bridge mode) |
 | POST | `/game/session-close` | Finalize session, return summary |
+| GET | `/game/exercise-catalog` | Full 92-exercise list with slots, equipment, primary muscles |
+| GET | `/game/exercise-recommendations?muscle_id=&mode=&date=&top_n=&available=` | Scored exercise recommendations |
 | GET | `/game/muscle-schema` | Canonical 27-muscle schema with IDs, hierarchy, balance groups |
 | GET | `/health` | Service health check for Expo client connectivity |
 | GET | `/docs` | Swagger UI |
@@ -132,6 +134,13 @@ attached_assets/
   - `GET /game/muscle-priority?mode=compound|isolation&date=&top_n=` — ranked queue with readiness gating
   - `POST /game/log-set` — exercise-level or bridge mode logging with idempotency
   - `POST /game/session-close` — session summary with balance impact
+- **Stage D — Exercise Recommendation Layer** (read-only):
+  - `GET /game/exercise-catalog` — full 92-exercise list with slots, equipment, primary muscles, compound/isolation
+  - `GET /game/exercise-recommendations?muscle_id=&mode=&date=&top_n=&available=` — scored recommendations with breakdown
+  - Scoring: `0.30×activation + 0.25×role_weight + 0.15×bottleneck_clearance + 0.20×secondary_value + 0.10×freshness_bonus`
+  - Compound mode: requires compound slot membership, secondary_value rewards hitting other underfed muscles
+  - Isolation mode: requires role_weight≥0.40, secondary_value scaled down by 0.3
+  - Equipment filter: comma-separated tags, exercises must have all required equipment in available set
 - **Scoring formulas**:
   - freshness: `1/(1+fatigue/1000)` — normalized readiness index, NOT literal recovery %
   - heatmap: `0.50×(1-freshness) + 0.30×(load_7d/max) + 0.20×(1-recency_norm)`

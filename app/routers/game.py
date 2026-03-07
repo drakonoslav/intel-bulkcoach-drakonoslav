@@ -18,8 +18,10 @@ from app.game_state import (
     BRIDGE_DEFAULT_TONNAGE, TAU_TABLE, DEFAULT_TAU,
     PUSH_MEMBERS, PULL_MEMBERS, UPPER_MEMBERS, LOWER_MEMBERS,
     ANTERIOR_MEMBERS, POSTERIOR_MEMBERS,
+    W_ACT_REL, W_ROLE, W_BN_CLEAR, W_SECONDARY, W_FRESH_BONUS,
     compute_blended_muscle_state, compute_recommended_slots,
     compute_balance_ratios, _recency_norm, _compute_queue_priority,
+    compute_exercise_recommendations, build_exercise_catalog,
 )
 
 logger = logging.getLogger(__name__)
@@ -448,6 +450,68 @@ def session_close(payload: SessionCloseRequest, db: Session = Depends(get_db)):
                 (["game_bridge_sets"] if bridge_rows else [])
             )),
             "session_close_semantics": "finalizer_only",
+        },
+    }
+
+
+@router.get("/exercise-catalog", summary="Full exercise catalog with slots, equipment, primary muscles")
+def exercise_catalog(db: Session = Depends(get_db)):
+    catalog = build_exercise_catalog(db)
+    return {
+        "muscle_schema_version": MUSCLE_SCHEMA_VERSION,
+        **catalog,
+    }
+
+
+@router.get("/exercise-recommendations", summary="Scored exercise recommendations for a target muscle")
+def exercise_recommendations(
+    muscle_id: int = Query(..., description="Target muscle ID from canonical schema"),
+    mode: str = Query("compound", description="compound or isolation"),
+    date_param: date = Query(default=None, alias="date", examples=["2026-03-07"]),
+    top_n: int = Query(5, ge=1, le=30, description="Max exercises to return"),
+    available: Optional[str] = Query(None, description="Comma-separated equipment tags, e.g. 'barbell,rack,bench'"),
+    db: Session = Depends(get_db),
+):
+    if mode not in ("compound", "isolation"):
+        raise HTTPException(status_code=400, detail="mode must be 'compound' or 'isolation'")
+
+    if date_param is None:
+        date_param = date.today()
+
+    muscle = db.query(Muscle).filter(Muscle.id == muscle_id).first()
+    if not muscle:
+        raise HTTPException(status_code=404, detail=f"muscle_id {muscle_id} not found in canonical schema")
+
+    available_equipment = None
+    if available:
+        available_equipment = [tag.strip() for tag in available.split(",") if tag.strip()]
+
+    result = compute_exercise_recommendations(
+        target_muscle_id=muscle_id,
+        mode=mode,
+        query_date=date_param,
+        db=db,
+        top_n=top_n,
+        available_equipment=available_equipment,
+    )
+
+    return {
+        "date": str(date_param),
+        "target_muscle_id": muscle_id,
+        "target_muscle": muscle.name,
+        "mode": mode,
+        "top_n": top_n,
+        "equipment_filter": available_equipment,
+        **result,
+        "meta": {
+            "scoring_model": "exercise_rec_v1",
+            "weights": {
+                "activation_relevance": W_ACT_REL,
+                "role_weight": W_ROLE,
+                "bottleneck_clearance": W_BN_CLEAR,
+                "secondary_value": W_SECONDARY,
+                "freshness_bonus": W_FRESH_BONUS,
+            },
         },
     }
 

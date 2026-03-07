@@ -452,6 +452,229 @@ def compute_recommended_slots(db, muscle_ids, muscle_map):
     return {mid: sorted(muscle_slots.get(mid, set())) for mid in muscle_ids}
 
 
+W_ACT_REL = 0.30
+W_ROLE = 0.25
+W_BN_CLEAR = 0.15
+W_SECONDARY = 0.20
+W_FRESH_BONUS = 0.10
+
+
+def compute_exercise_recommendations(
+    target_muscle_id: int,
+    mode: str,
+    query_date: date,
+    db: Session,
+    top_n: int = 5,
+    available_equipment: list = None,
+):
+    muscles = db.query(Muscle).order_by(Muscle.id).all()
+    muscle_map = {m.id: m.name for m in muscles}
+    muscle_ids = [m.id for m in muscles]
+
+    exercises = db.query(Exercise).order_by(Exercise.id).all()
+    ex_map = {e.id: e.name for e in exercises}
+    ex_ids = [e.id for e in exercises]
+
+    act_all = db.query(ActivationMatrixV2).all()
+    act_by = {}
+    for r in act_all:
+        act_by[(r.exercise_id, r.muscle_id)] = r.activation_value
+
+    rw_all = db.query(RoleWeightedMatrixV2).all()
+    rw_by = {}
+    for r in rw_all:
+        rw_by[(r.exercise_id, r.muscle_id)] = r.role_weight
+
+    bn_all = db.query(BottleneckMatrixV4).all()
+    bn_by = {}
+    for r in bn_all:
+        bn_by[(r.exercise_id, r.muscle_id)] = r.bottleneck_coeff
+
+    tags_all = db.query(ExerciseTag).all()
+    slots_by_ex = defaultdict(set)
+    for t in tags_all:
+        slots_by_ex[t.exercise_id].add(t.slot)
+
+    from app.models import ExerciseEquipment
+    equip_all = db.query(ExerciseEquipment).all()
+    equip_by_ex = defaultdict(set)
+    for eq in equip_all:
+        equip_by_ex[eq.exercise_id].add(eq.equipment_tag)
+
+    available_set = set(available_equipment) if available_equipment else None
+
+    (_, _, _, _, _, freshness_map, _, underfed_scores,
+     *_rest) = compute_blended_muscle_state(query_date, db)
+
+    target_freshness = freshness_map.get(target_muscle_id, 1.0)
+
+    priority_by_muscle = {}
+    for mid in muscle_ids:
+        priority_by_muscle[mid] = underfed_scores.get(mid, 50.0) / 100.0
+
+    candidates = []
+    for eid in ex_ids:
+        target_act = act_by.get((eid, target_muscle_id), 0)
+        if target_act == 0:
+            continue
+
+        ex_slots = slots_by_ex.get(eid, set())
+        if mode == "compound":
+            if not ex_slots.intersection(COMPOUND_SLOTS):
+                continue
+        elif mode == "isolation":
+            target_rw = rw_by.get((eid, target_muscle_id), 0.0)
+            if target_rw < 0.40:
+                continue
+
+        if available_set is not None:
+            required = equip_by_ex.get(eid, set())
+            if required and not required.issubset(available_set):
+                continue
+
+        activation_relevance = target_act / 5.0
+
+        role_weight = rw_by.get((eid, target_muscle_id), 0.0)
+
+        target_bn = bn_by.get((eid, target_muscle_id), 0.0)
+        bottleneck_clearance = 1.0 - target_bn
+
+        secondary_total = 0.0
+        secondary_count = 0
+        for mid in muscle_ids:
+            if mid == target_muscle_id:
+                continue
+            sec_act = act_by.get((eid, mid), 0)
+            if sec_act >= 2:
+                sec_priority = priority_by_muscle.get(mid, 0.5)
+                secondary_total += (sec_act / 5.0) * sec_priority
+                secondary_count += 1
+        secondary_value = min(1.0, secondary_total / 3.0) if secondary_count > 0 else 0.0
+
+        if mode == "isolation":
+            secondary_value *= 0.3
+
+        freshness_bonus = max(0.0, target_freshness - 0.5) * 2.0
+        freshness_bonus = min(1.0, freshness_bonus)
+
+        score = (
+            W_ACT_REL * activation_relevance +
+            W_ROLE * role_weight +
+            W_BN_CLEAR * bottleneck_clearance +
+            W_SECONDARY * secondary_value +
+            W_FRESH_BONUS * freshness_bonus
+        )
+
+        primary_muscles = []
+        secondary_muscles = []
+        for mid in muscle_ids:
+            a = act_by.get((eid, mid), 0)
+            rw = rw_by.get((eid, mid), 0.0)
+            if a >= 3:
+                primary_muscles.append({
+                    "muscle_id": mid,
+                    "muscle": muscle_map.get(mid, f"id:{mid}"),
+                    "activation": a,
+                    "role_weight": round(rw, 2),
+                })
+            elif a >= 1:
+                secondary_muscles.append({
+                    "muscle_id": mid,
+                    "muscle": muscle_map.get(mid, f"id:{mid}"),
+                    "activation": a,
+                    "role_weight": round(rw, 2),
+                })
+
+        primary_muscles.sort(key=lambda x: (-x["activation"], -x["role_weight"]))
+        secondary_muscles.sort(key=lambda x: (-x["activation"], -x["role_weight"]))
+
+        is_compound = bool(ex_slots.intersection(COMPOUND_SLOTS))
+        slot_list = sorted(ex_slots)
+        primary_slot = slot_list[0] if slot_list else None
+
+        candidates.append({
+            "exercise_id": eid,
+            "exercise_name": ex_map[eid],
+            "score": round(score, 4),
+            "score_breakdown": {
+                "activation_relevance": round(activation_relevance, 4),
+                "role_weight": round(role_weight, 4),
+                "bottleneck_clearance": round(bottleneck_clearance, 4),
+                "secondary_value": round(secondary_value, 4),
+                "freshness_bonus": round(freshness_bonus, 4),
+            },
+            "compound_or_isolation": "compound" if is_compound else "isolation",
+            "primary_muscles": primary_muscles,
+            "secondary_muscles": secondary_muscles,
+            "equipment_tags": sorted(equip_by_ex.get(eid, set())),
+            "movement_slot": primary_slot,
+        })
+
+    candidates.sort(key=lambda x: -x["score"])
+
+    return {
+        "candidates": candidates[:top_n],
+        "total_candidates": len(ex_ids),
+        "filtered_candidates": len(candidates),
+        "equipment_filter_applied": available_set is not None,
+    }
+
+
+def build_exercise_catalog(db: Session):
+    exercises = db.query(Exercise).order_by(Exercise.id).all()
+    muscles = db.query(Muscle).order_by(Muscle.id).all()
+    muscle_map = {m.id: m.name for m in muscles}
+
+    act_all = db.query(ActivationMatrixV2).all()
+    act_by = defaultdict(dict)
+    for r in act_all:
+        act_by[r.exercise_id][r.muscle_id] = r.activation_value
+
+    tags_all = db.query(ExerciseTag).all()
+    slots_by_ex = defaultdict(set)
+    for t in tags_all:
+        slots_by_ex[t.exercise_id].add(t.slot)
+
+    from app.models import ExerciseEquipment, Equipment
+    equip_all = db.query(ExerciseEquipment).all()
+    equip_by_ex = defaultdict(set)
+    for eq in equip_all:
+        equip_by_ex[eq.exercise_id].add(eq.equipment_tag)
+
+    equip_universe = sorted([e.tag for e in db.query(Equipment).all()])
+
+    result = []
+    for ex in exercises:
+        ex_slots = sorted(slots_by_ex.get(ex.id, set()))
+        is_compound = bool(set(ex_slots).intersection(COMPOUND_SLOTS))
+
+        primary = []
+        for mid in sorted(act_by.get(ex.id, {}).keys()):
+            a = act_by[ex.id][mid]
+            if a >= 3:
+                primary.append({
+                    "muscle_id": mid,
+                    "muscle": muscle_map.get(mid, f"id:{mid}"),
+                    "activation": a,
+                })
+        primary.sort(key=lambda x: -x["activation"])
+
+        result.append({
+            "exercise_id": ex.id,
+            "exercise_name": ex.name,
+            "slots": ex_slots,
+            "equipment_tags": sorted(equip_by_ex.get(ex.id, set())),
+            "primary_muscles": primary,
+            "compound_or_isolation": "compound" if is_compound else "isolation",
+        })
+
+    return {
+        "total_exercises": len(result),
+        "exercises": result,
+        "equipment_universe": equip_universe,
+    }
+
+
 def compute_balance_ratios(load_7d, name_to_id):
     def _ratio(members):
         return sum(load_7d.get(name_to_id.get(m, -1), 0.0) for m in members)
