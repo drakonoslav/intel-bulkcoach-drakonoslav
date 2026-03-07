@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Float, Date, DateTime, Text,
-    ForeignKey, CheckConstraint
+    ForeignKey, CheckConstraint, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -144,6 +144,7 @@ class LiftSet(Base):
     tonnage = Column(Float, nullable=False)
     notes = Column(Text, nullable=True)
     source = Column(Text, nullable=True)
+    event_id = Column(Text, nullable=True, index=True)
 
     exercise = relationship("Exercise")
 
@@ -190,6 +191,30 @@ class SessionPlanSet(Base):
 
     plan = relationship("SessionPlan")
     lift_set = relationship("LiftSet")
+
+
+class GameBridgeSet(Base):
+    __tablename__ = "game_bridge_sets"
+    __table_args__ = (
+        CheckConstraint("dose_estimate >= 0", name="ck_gbs_dose"),
+        CheckConstraint("rpe BETWEEN 1 AND 10", name="ck_gbs_rpe"),
+        CheckConstraint("movement_type IN ('compound','isolation')", name="ck_gbs_mvmt"),
+        UniqueConstraint("event_id", "muscle_id", name="uq_gbs_event_muscle"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Text, nullable=True, index=True)
+    performed_at = Column(Date, nullable=False, index=True)
+    muscle_id = Column(Integer, ForeignKey("muscles.id"), nullable=False)
+    dose_estimate = Column(Float, nullable=False)
+    rpe = Column(Integer, nullable=True)
+    movement_type = Column(Text, nullable=False)
+    session_id = Column(Text, nullable=True, index=True)
+    source = Column(Text, nullable=False, server_default="expo_game_bridge")
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    muscle = relationship("Muscle")
 
 
 class VolumeLog(Base):

@@ -81,6 +81,10 @@ attached_assets/
 | GET | `/volume/logs` | Legacy: query volume history |
 | GET | `/reports/weekly` | Legacy: weekly report with muscle stimulus |
 | GET | `/optimizer` | Greedy set-cover exercise selection |
+| GET | `/game/muscle-state?date=` | 27-muscle physiological snapshot for Expo game |
+| GET | `/game/muscle-priority?mode=&date=&top_n=` | Ranked muscle training queue by mode |
+| POST | `/game/log-set` | Log workout action (exercise-level or bridge mode) |
+| POST | `/game/session-close` | Finalize session, return summary |
 | GET | `/docs` | Swagger UI |
 
 ## Data Integrity
@@ -111,6 +115,27 @@ attached_assets/
   - `GET /reports/pec-zones/week?week=` — weekly pec zone breakdown + confidence
   - `GET /reports/pec-zones/explain?exercise=` — per-exercise overlay features + adjustments + confidence + drivers
   - `GET /reports/pec-zones/analysis?exercise=` — full v2.5 pipeline debug with overlay stage, all pipeline outputs, raw inputs
+
+## Game Integration Layer (Expo BulkCoach)
+- **Non-breaking additive layer**: 4 new endpoints under `/game/` prefix
+- **New table**: `game_bridge_sets` — stores muscle-target events from Expo, completely separate from canonical `lift_sets`
+- **Bridge-dose formula**: `(estimated_tonnage or default) × (rpe/10) / N_targets`, defaults: compound=500, isolation=200
+- **Data blending**: `/game/muscle-state` merges canonical lift_sets + bridge events. Each muscle tagged with `data_blend` (canonical_only|bridge_only|blended|no_data)
+- **underfed_score**: uses ONLY canonical lift_sets, NOT bridge estimates
+- **Idempotency**: `event_id` field for deduplication — duplicates return original IDs
+- **session-close**: read-only finalizer, NOT required for correctness (all state updates happen at log-set)
+- **Files**: `app/game_state.py` (computation), `app/routers/game.py` (endpoints)
+- **Endpoints**:
+  - `GET /game/muscle-state?date=` — 27-muscle snapshot: freshness, fatigue, load, heatmap, priority, suitability
+  - `GET /game/muscle-priority?mode=compound|isolation&date=&top_n=` — ranked queue with readiness gating
+  - `POST /game/log-set` — exercise-level or bridge mode logging with idempotency
+  - `POST /game/session-close` — session summary with balance impact
+- **Scoring formulas**:
+  - freshness: `1/(1+fatigue/1000)` — normalized readiness index, NOT literal recovery %
+  - heatmap: `0.50×(1-freshness) + 0.30×(load_7d/max) + 0.20×(1-recency_norm)`
+  - priority: `gate × (0.35×deficit + 0.25×freshness + 0.20×recency + 0.20×mode_suit)`, gate=freshness≥0.30
+  - compound_suitability: count of slot-tagged exercises with activation≥3, normalized
+  - isolation_suitability: count of high-role-weight + low-bottleneck exercises, normalized
 
 ## Hierarchy Patch (Deltoids/Traps)
 - Patched source files (suffix `_2_1772898930398`) have Deltoids and Traps columns zeroed in all 5 CSV matrices + all 3 V3 xlsx sheets
