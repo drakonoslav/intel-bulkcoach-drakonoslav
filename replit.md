@@ -158,7 +158,8 @@ attached_assets/
 - Derived groups marked in `/muscle/day` response with `derived_from: children_sum` and `children` array
 
 ## Data Floor
-- `DATA_FLOOR_DATE = date(2026, 3, 8)` in `app/game_state.py`
-- All time-series endpoints clamp their query window start to this date — data before it is kept in the DB but never served
-- Applied across: game_state.py (blended state + underfed), strength.py, muscle_day.py, coach.py, weekly_muscles.py, muscle_dose.py, pec_zones.py, lifts.py
+- `DATA_FLOOR_DATE = date(2026, 3, 8)` and `DATA_FLOOR_TS = datetime(2026, 3, 8, 12, 45, 0, tzinfo=timezone.utc)` in `app/game_state.py`
+- All time-series endpoints enforce BOTH: `performed_at >= DATA_FLOOR_DATE` AND `created_at >= DATA_FLOOR_TS`
+- `created_at` column added to `lift_sets` via startup migration (ALTER TABLE); existing rows get 2020-01-01, new inserts get now()
+- Applied across: game_state.py (blended state + underfed + bridge sets), strength.py, muscle_day.py, coach.py, weekly_muscles.py, muscle_dose.py, pec_zones.py, lifts.py
 - Purpose: isolate fresh data after prod DB reset; old data preserved but invisible to all readers

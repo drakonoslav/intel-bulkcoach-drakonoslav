@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 import os
 from urllib.parse import urlparse
 
+from sqlalchemy import text
 from app.database import engine, SessionLocal, DATABASE_URL
 from app.models import Base
 from app.seed import seed_from_csv
@@ -22,6 +23,16 @@ if _dialect not in ("postgresql", "postgres"):
     raise RuntimeError(f"FATAL: expected postgres, got dialect={_dialect}. No sqlite fallback allowed.")
 
 Base.metadata.create_all(bind=engine)
+
+with engine.connect() as conn:
+    conn.execute(text("""
+        ALTER TABLE lift_sets
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT '2020-01-01T00:00:00Z'
+    """))
+    conn.execute(text("""
+        ALTER TABLE lift_sets ALTER COLUMN created_at SET DEFAULT now()
+    """))
+    conn.commit()
 
 with SessionLocal() as db:
     seed_from_csv(db)

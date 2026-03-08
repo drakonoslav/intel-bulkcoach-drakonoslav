@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import LiftSet, Exercise
-from app.game_state import DATA_FLOOR_DATE
+from app.game_state import DATA_FLOOR_DATE, DATA_FLOOR_TS
 
 router = APIRouter(prefix="/strength", tags=["strength"])
 
@@ -31,6 +31,7 @@ def _gather_daily_stats(db: Session, start: date, end: date):
     sets = db.query(LiftSet).filter(
         LiftSet.performed_at >= effective_start,
         LiftSet.performed_at <= end,
+        LiftSet.created_at >= DATA_FLOOR_TS,
     ).all()
 
     by_day = defaultdict(list)
@@ -132,6 +133,7 @@ def strength_trend(
     all_sets = db.query(LiftSet).filter(
         LiftSet.performed_at >= swap_start,
         LiftSet.performed_at <= to_date,
+        LiftSet.created_at >= DATA_FLOOR_TS,
     ).all()
     for s in all_sets:
         all_sets_by_day[s.performed_at].append(s)
@@ -248,6 +250,7 @@ def strength_day(
     sets = db.query(LiftSet).filter(
         LiftSet.performed_at == date_param,
         LiftSet.performed_at >= DATA_FLOOR_DATE,
+        LiftSet.created_at >= DATA_FLOOR_TS,
     ).all()
     ex_ids = list({s.exercise_id for s in sets})
     ex_map = {e.id: e.name for e in db.query(Exercise).filter(Exercise.id.in_(ex_ids)).all()} if ex_ids else {}

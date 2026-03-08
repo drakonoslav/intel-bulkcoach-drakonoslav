@@ -145,6 +145,7 @@ class LiftSet(Base):
     notes = Column(Text, nullable=True)
     source = Column(Text, nullable=True)
     event_id = Column(Text, nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     exercise = relationship("Exercise")
 

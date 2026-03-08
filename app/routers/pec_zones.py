@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.game_state import DATA_FLOOR_DATE
+from app.game_state import DATA_FLOOR_DATE, DATA_FLOOR_TS
 from app.models import (
     LiftSet, Exercise, Muscle,
     ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3,
@@ -164,7 +164,7 @@ def pec_zones_day(
 ):
     pec_id, fd_id, tri_id = _resolve_muscle_ids(db)
 
-    sets = db.query(LiftSet).filter(LiftSet.performed_at == date_param, LiftSet.performed_at >= DATA_FLOOR_DATE).all()
+    sets = db.query(LiftSet).filter(LiftSet.performed_at == date_param, LiftSet.performed_at >= DATA_FLOOR_DATE, LiftSet.created_at >= DATA_FLOOR_TS).all()
 
     _empty_meta = {"method": METHOD_TAG, "canonical_muscle_unchanged": True, "data_provenance": "authored_biomechanics_priors"}
 
@@ -215,7 +215,7 @@ def pec_zones_week(
     pec_id, fd_id, tri_id = _resolve_muscle_ids(db)
 
     sets = db.query(LiftSet).filter(
-        LiftSet.performed_at >= effective_monday, LiftSet.performed_at <= sunday
+        LiftSet.performed_at >= effective_monday, LiftSet.performed_at <= sunday, LiftSet.created_at >= DATA_FLOOR_TS
     ).all()
 
     _empty_meta = {"method": METHOD_TAG, "canonical_muscle_unchanged": True, "data_provenance": "authored_biomechanics_priors"}

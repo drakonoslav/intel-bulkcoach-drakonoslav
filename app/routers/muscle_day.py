@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import LiftSet, Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2
-from app.game_state import DATA_FLOOR_DATE
+from app.game_state import DATA_FLOOR_DATE, DATA_FLOOR_TS
 
 router = APIRouter(prefix="/muscle", tags=["muscle"])
 
@@ -180,6 +180,7 @@ def muscle_day(
     all_sets = db.query(LiftSet).filter(
         LiftSet.performed_at >= decay_from,
         LiftSet.performed_at <= window_to,
+        LiftSet.created_at >= DATA_FLOOR_TS,
     ).all()
 
     all_ex_ids = list({s.exercise_id for s in all_sets})

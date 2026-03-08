@@ -6,7 +6,7 @@ from typing import Optional
 from collections import defaultdict
 
 from app.database import get_db
-from app.game_state import DATA_FLOOR_DATE
+from app.game_state import DATA_FLOOR_DATE, DATA_FLOOR_TS
 from app.models import (
     LiftSet, Exercise, Muscle,
     ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3,
@@ -57,7 +57,7 @@ def weekly_muscles(
 
     sets = (
         db.query(LiftSet)
-        .filter(LiftSet.performed_at >= effective_monday, LiftSet.performed_at <= sunday)
+        .filter(LiftSet.performed_at >= effective_monday, LiftSet.performed_at <= sunday, LiftSet.created_at >= DATA_FLOOR_TS)
         .all()
     )
 

@@ -1,6 +1,6 @@
 import math
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from app.hierarchy import build_derived_groups, apply_derived_rollup
 
 MUSCLE_SCHEMA_VERSION = 27
 DATA_FLOOR_DATE = date(2026, 3, 8)
+DATA_FLOOR_TS = datetime(2026, 3, 8, 12, 45, 0, tzinfo=timezone.utc)
 FRESHNESS_K = 1000.0
 DECAY_LOOKBACK_DAYS = 30
 ROLLING_WINDOW_DAYS = 7
@@ -120,6 +121,7 @@ def compute_blended_muscle_state(query_date: date, db: Session):
     all_sets = db.query(LiftSet).filter(
         LiftSet.performed_at >= decay_from,
         LiftSet.performed_at <= query_date,
+        LiftSet.created_at >= DATA_FLOOR_TS,
     ).all()
 
     all_ex_ids = list({s.exercise_id for s in all_sets})
@@ -143,6 +145,7 @@ def compute_blended_muscle_state(query_date: date, db: Session):
     bridge_sets = db.query(GameBridgeSet).filter(
         GameBridgeSet.performed_at >= decay_from,
         GameBridgeSet.performed_at <= query_date,
+        GameBridgeSet.created_at >= DATA_FLOOR_TS,
     ).all()
 
     bridge_dose_by_day = defaultdict(lambda: defaultdict(float))
@@ -316,6 +319,7 @@ def _compute_underfed_canonical(query_date, db, muscle_ids, muscle_map, derived_
     sets = db.query(LiftSet).filter(
         LiftSet.performed_at >= monday,
         LiftSet.performed_at <= sunday,
+        LiftSet.created_at >= DATA_FLOOR_TS,
     ).all()
 
     exercise_ids = list({s.exercise_id for s in sets})
