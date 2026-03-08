@@ -14,7 +14,7 @@ from app.hierarchy import build_derived_groups, apply_derived_rollup
 
 MUSCLE_SCHEMA_VERSION = 27
 DATA_FLOOR_DATE = date(2026, 3, 8)
-DATA_FLOOR_TS = datetime(2026, 3, 8, 12, 45, 0, tzinfo=timezone.utc)
+DATA_FLOOR_TS = datetime(2026, 3, 8, 12, 38, 0, tzinfo=timezone.utc)
 FRESHNESS_K = 1000.0
 DECAY_LOOKBACK_DAYS = 30
 ROLLING_WINDOW_DAYS = 7
