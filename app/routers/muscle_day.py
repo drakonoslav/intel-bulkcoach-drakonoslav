@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import LiftSet, Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2
+from app.game_state import DATA_FLOOR_DATE
 
 router = APIRouter(prefix="/muscle", tags=["muscle"])
 
@@ -169,7 +170,11 @@ def muscle_day(
         derived_groups[traps_id] = [name_to_mid[n] for n in TRAP_CHILDREN if n in name_to_mid]
 
     decay_from = date_param - timedelta(days=DECAY_LOOKBACK_DAYS - 1)
+    if decay_from < DATA_FLOOR_DATE:
+        decay_from = DATA_FLOOR_DATE
     window_from = date_param - timedelta(days=ROLLING_WINDOW_DAYS - 1)
+    if window_from < DATA_FLOOR_DATE:
+        window_from = DATA_FLOOR_DATE
     window_to = date_param
 
     all_sets = db.query(LiftSet).filter(

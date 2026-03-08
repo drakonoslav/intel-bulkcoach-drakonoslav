@@ -156,3 +156,9 @@ attached_assets/
 - Balance member lists use leaf muscles only (no group names) to prevent double-counting
 - Admin re-seed endpoint: `POST /admin/reseed-matrices` (wipes + reloads matrix tables, does NOT touch lift_sets/exercises/muscles)
 - Derived groups marked in `/muscle/day` response with `derived_from: children_sum` and `children` array
+
+## Data Floor
+- `DATA_FLOOR_DATE = date(2026, 3, 8)` in `app/game_state.py`
+- All time-series endpoints clamp their query window start to this date — data before it is kept in the DB but never served
+- Applied across: game_state.py (blended state + underfed), strength.py, muscle_day.py, coach.py, weekly_muscles.py, muscle_dose.py, pec_zones.py, lifts.py
+- Purpose: isolate fresh data after prod DB reset; old data preserved but invisible to all readers

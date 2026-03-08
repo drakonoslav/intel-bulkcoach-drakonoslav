@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import LiftSet, Exercise
+from app.game_state import DATA_FLOOR_DATE
 
 router = APIRouter(prefix="/strength", tags=["strength"])
 
@@ -26,8 +27,9 @@ def _classify_source(source_val):
 
 
 def _gather_daily_stats(db: Session, start: date, end: date):
+    effective_start = max(start, DATA_FLOOR_DATE)
     sets = db.query(LiftSet).filter(
-        LiftSet.performed_at >= start,
+        LiftSet.performed_at >= effective_start,
         LiftSet.performed_at <= end,
     ).all()
 
@@ -126,8 +128,9 @@ def strength_trend(
             velocity_series[d] = 0.0
 
     all_sets_by_day = defaultdict(list)
+    swap_start = max(from_date - timedelta(days=VELOCITY_WINDOW), DATA_FLOOR_DATE)
     all_sets = db.query(LiftSet).filter(
-        LiftSet.performed_at >= from_date - timedelta(days=VELOCITY_WINDOW),
+        LiftSet.performed_at >= swap_start,
         LiftSet.performed_at <= to_date,
     ).all()
     for s in all_sets:
@@ -242,7 +245,10 @@ def strength_day(
 
     stats = daily_stats.get(date_param)
 
-    sets = db.query(LiftSet).filter(LiftSet.performed_at == date_param).all()
+    sets = db.query(LiftSet).filter(
+        LiftSet.performed_at == date_param,
+        LiftSet.performed_at >= DATA_FLOOR_DATE,
+    ).all()
     ex_ids = list({s.exercise_id for s in sets})
     ex_map = {e.id: e.name for e in db.query(Exercise).filter(Exercise.id.in_(ex_ids)).all()} if ex_ids else {}
 

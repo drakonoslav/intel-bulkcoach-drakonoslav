@@ -6,6 +6,7 @@ from typing import Optional
 from collections import defaultdict
 
 from app.database import get_db
+from app.game_state import DATA_FLOOR_DATE
 from app.models import (
     LiftSet, Exercise, Muscle,
     ActivationMatrixV2, RoleWeightedMatrixV2, PhaseMatrixV3,
@@ -52,10 +53,11 @@ def weekly_muscles(
         raise HTTPException(status_code=400, detail=f"Invalid lens: {lens}. Valid: {sorted(VALID_LENSES)}")
 
     monday, sunday = _iso_week_bounds(week)
+    effective_monday = max(monday, DATA_FLOOR_DATE)
 
     sets = (
         db.query(LiftSet)
-        .filter(LiftSet.performed_at >= monday, LiftSet.performed_at <= sunday)
+        .filter(LiftSet.performed_at >= effective_monday, LiftSet.performed_at <= sunday)
         .all()
     )
 

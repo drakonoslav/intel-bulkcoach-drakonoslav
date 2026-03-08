@@ -13,6 +13,7 @@ from app.models import (
 from app.hierarchy import build_derived_groups, apply_derived_rollup
 
 MUSCLE_SCHEMA_VERSION = 27
+DATA_FLOOR_DATE = date(2026, 3, 8)
 FRESHNESS_K = 1000.0
 DECAY_LOOKBACK_DAYS = 30
 ROLLING_WINDOW_DAYS = 7
@@ -110,7 +111,11 @@ def compute_blended_muscle_state(query_date: date, db: Session):
         tau_by_id[mid] = TAU_TABLE.get(muscle_map[mid], DEFAULT_TAU)
 
     decay_from = query_date - timedelta(days=DECAY_LOOKBACK_DAYS - 1)
+    if decay_from < DATA_FLOOR_DATE:
+        decay_from = DATA_FLOOR_DATE
     window_from = query_date - timedelta(days=ROLLING_WINDOW_DAYS - 1)
+    if window_from < DATA_FLOOR_DATE:
+        window_from = DATA_FLOOR_DATE
 
     all_sets = db.query(LiftSet).filter(
         LiftSet.performed_at >= decay_from,
@@ -304,6 +309,8 @@ def _compute_underfed_canonical(query_date, db, muscle_ids, muscle_map, derived_
     jan4 = date(cal[0], 1, 4)
     start_of_w1 = jan4 - timedelta(days=jan4.isoweekday() - 1)
     monday = start_of_w1 + timedelta(weeks=cal[1] - 1)
+    if monday < DATA_FLOOR_DATE:
+        monday = DATA_FLOOR_DATE
     sunday = monday + timedelta(days=6)
 
     sets = db.query(LiftSet).filter(

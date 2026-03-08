@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional, List
 from datetime import date
+from app.game_state import DATA_FLOOR_DATE
 
 from app.database import get_db
 from app.models import LiftSet, Exercise
@@ -157,6 +158,7 @@ def get_lift_sets(
     limit: int = Query(200, ge=1, le=1000),
 ):
     q = db.query(LiftSet).join(Exercise)
+    q = q.filter(LiftSet.performed_at >= DATA_FLOOR_DATE)
     if from_date:
         q = q.filter(LiftSet.performed_at >= from_date)
     if to_date:

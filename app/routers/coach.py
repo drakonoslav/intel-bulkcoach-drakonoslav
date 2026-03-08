@@ -5,6 +5,7 @@ import traceback
 import uuid
 from datetime import date, timedelta
 from collections import defaultdict
+from app.game_state import DATA_FLOOR_DATE
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -89,6 +90,8 @@ def _compute_weekly_balance(week: str, db: Session, lookback_weeks: int = 1):
     monday, sunday = _iso_week_bounds(week)
     if lookback_weeks > 1:
         monday = monday - timedelta(weeks=lookback_weeks - 1)
+    if monday < DATA_FLOOR_DATE:
+        monday = DATA_FLOOR_DATE
 
     sets = (
         db.query(LiftSet)
