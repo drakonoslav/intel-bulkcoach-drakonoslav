@@ -16,6 +16,15 @@ VELOCITY_WINDOW = 14
 LOOKBACK_BUFFER = 30
 
 
+GAME_SOURCES = {"expo_bulkcoach"}
+
+
+def _classify_source(source_val):
+    if source_val and source_val in GAME_SOURCES:
+        return "game"
+    return "daily_log"
+
+
 def _gather_daily_stats(db: Session, start: date, end: date):
     sets = db.query(LiftSet).filter(
         LiftSet.performed_at >= start,
@@ -36,6 +45,13 @@ def _gather_daily_stats(db: Session, start: date, end: date):
         avg_reps = total_reps / total_sets if total_sets > 0 else 0.0
         max_weight = max(weights) if weights else 0.0
 
+        source_breakdown = defaultdict(lambda: {"tonnage": 0.0, "sets": 0, "reps": 0})
+        for s in day_sets:
+            src = _classify_source(s.source)
+            source_breakdown[src]["tonnage"] += s.tonnage
+            source_breakdown[src]["sets"] += 1
+            source_breakdown[src]["reps"] += s.reps
+
         daily[d] = {
             "tonnage": total_tonnage,
             "total_reps": total_reps,
@@ -43,6 +59,7 @@ def _gather_daily_stats(db: Session, start: date, end: date):
             "avg_weight": avg_weight,
             "avg_reps": avg_reps,
             "max_weight": max_weight,
+            "source_breakdown": dict(source_breakdown),
         }
 
     return daily
@@ -158,7 +175,10 @@ def strength_trend(
         else:
             swap_penalty = 0.0
 
-        days.append({
+        sb = stats["source_breakdown"] if stats else {}
+        data_blend = "blended" if len(sb) > 1 else (list(sb.keys())[0] if sb else "no_data")
+
+        day_entry = {
             "date": str(d),
             "day_strength_index": si,
             "rolling_avg_7d": ra,
@@ -173,9 +193,24 @@ def strength_trend(
             "sets": stats["total_sets"] if stats else 0,
             "avg_weight": round(stats["avg_weight"], 2) if stats else 0.0,
             "avg_reps": round(stats["avg_reps"], 2) if stats else 0.0,
-        })
+            "data_blend": data_blend,
+        }
+        if sb:
+            day_entry["source_breakdown"] = {
+                src: {
+                    "tonnage": round(v["tonnage"], 2),
+                    "sets": v["sets"],
+                    "reps": v["reps"],
+                }
+                for src, v in sb.items()
+            }
+        days.append(day_entry)
 
         d += timedelta(days=1)
+
+    all_sources_seen = set()
+    for d_stats in daily_stats.values():
+        all_sources_seen.update(d_stats.get("source_breakdown", {}).keys())
 
     latest = days[-1] if days else None
 
@@ -187,6 +222,7 @@ def strength_trend(
         "to": str(to_date),
         "baseline_tonnage": round(baseline_tonnage, 2),
         "training_days_in_baseline": len(training_days),
+        "data_sources_in_window": sorted(all_sources_seen),
         "days": days,
         "latest": latest,
     }
@@ -219,6 +255,7 @@ def strength_day(
         tonnage = sum(s.tonnage for s in ex_sets)
         reps = sum(s.reps for s in ex_sets)
         weights = [s.weight for s in ex_sets if s.weight > 0]
+        ex_sources = set(_classify_source(s.source) for s in ex_sets)
         contributors.append({
             "exercise": ex_map.get(ex_id, f"id:{ex_id}"),
             "exercise_id": ex_id,
@@ -228,6 +265,7 @@ def strength_day(
             "avg_weight": round(sum(weights) / len(weights), 2) if weights else 0.0,
             "max_weight": max(weights) if weights else 0.0,
             "contribution_pct": round(tonnage / stats["tonnage"] * 100, 2) if stats and stats["tonnage"] > 0 else 0.0,
+            "data_sources": sorted(ex_sources),
         })
 
     contributors.sort(key=lambda c: c["total_tonnage"], reverse=True)
@@ -235,7 +273,10 @@ def strength_day(
     si = stats["tonnage"] / baseline_tonnage if stats and stats["tonnage"] > 0 else 0.0
     phase = _detect_phase(stats["avg_reps"], stats["tonnage"], baseline_tonnage) if stats else "rest"
 
-    return {
+    sb = stats["source_breakdown"] if stats else {}
+    data_blend = "blended" if len(sb) > 1 else (list(sb.keys())[0] if sb else "no_data")
+
+    result = {
         "source": "intel",
         "lane": LANE,
         "schema_version": SCHEMA_VERSION,
@@ -249,5 +290,16 @@ def strength_day(
         "avg_weight": round(stats["avg_weight"], 2) if stats else 0.0,
         "avg_reps": round(stats["avg_reps"], 2) if stats else 0.0,
         "max_weight": stats["max_weight"] if stats else 0.0,
+        "data_blend": data_blend,
         "contributors": contributors,
     }
+    if sb:
+        result["source_breakdown"] = {
+            src: {
+                "tonnage": round(v["tonnage"], 2),
+                "sets": v["sets"],
+                "reps": v["reps"],
+            }
+            for src, v in sb.items()
+        }
+    return result
