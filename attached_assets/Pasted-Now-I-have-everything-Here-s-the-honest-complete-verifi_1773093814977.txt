@@ -1,0 +1,81 @@
+Now I have everything. Here's the honest, complete verification:
+
+Answer: Option B is confirmed. The Intel /game/exercise-catalog endpoint does not return a nested biomechanics sub-object. There is no key called biomechanics on any of the 92 exercises.
+
+The actual per-exercise keys returned by Intel are:
+
+exercise_id, exercise_name, slots, equipment_tags, primary_muscles, compound_or_isolation
+Zero exercises contain implement_type, body_position, laterality, resistance_origin, resistance_direction, grip_style, bench_angle, stability_demand, humeral_plane, elbow_path, stretch_bias, shortened_bias, or convergence_arc.
+
+Live sample payloads from Intel (3 exercises):
+
+Exercise 1 — Back Squat (high-bar):
+
+{
+  "exercise_id": 1,
+  "exercise_name": "Back Squat (high-bar)",
+  "slots": ["squat"],
+  "equipment_tags": ["barbell", "plates", "rack"],
+  "primary_muscles": [
+    {"muscle_id": 23, "muscle": "Quads", "activation": 5},
+    {"muscle_id": 15, "muscle": "Lower Back", "activation": 4},
+    {"muscle_id": 20, "muscle": "Glutes", "activation": 4},
+    {"muscle_id": 18, "muscle": "Obliques", "activation": 3},
+    {"muscle_id": 19, "muscle": "Abs", "activation": 3},
+    {"muscle_id": 24, "muscle": "Hamstrings", "activation": 3}
+  ],
+  "compound_or_isolation": "compound"
+}
+Exercise 33 — Flat Barbell Bench Press:
+
+{
+  "exercise_id": 33,
+  "exercise_name": "Flat Barbell Bench Press",
+  "slots": ["push"],
+  "equipment_tags": ["barbell", "bench", "plates"],
+  "primary_muscles": [
+    {"muscle_id": 17, "muscle": "Pectorals", "activation": 5},
+    {"muscle_id": 3, "muscle": "Triceps", "activation": 4},
+    {"muscle_id": 5, "muscle": "Front/Anterior Delt", "activation": 4},
+    {"muscle_id": 4, "muscle": "Deltoids", "activation": 3}
+  ],
+  "compound_or_isolation": "compound"
+}
+Exercise 46 — Standing Barbell Overhead Press:
+
+{
+  "exercise_id": 46,
+  "exercise_name": "Standing Barbell Overhead Press",
+  "slots": ["push"],
+  "equipment_tags": ["barbell", "plates"],
+  "primary_muscles": [
+    {"muscle_id": 4, "muscle": "Deltoids", "activation": 5},
+    {"muscle_id": 5, "muscle": "Front/Anterior Delt", "activation": 5},
+    {"muscle_id": 3, "muscle": "Triceps", "activation": 4},
+    {"muscle_id": 7, "muscle": "Side/Lateral Delt", "activation": 3},
+    {"muscle_id": 10, "muscle": "Upper Traps", "activation": 3}
+  ],
+  "compound_or_isolation": "compound"
+}
+Answering your 5 questions honestly:
+
+1. Source-of-truth mapping
+What is stored: The four catalog-level fields (primary_muscles, compound_or_isolation, slots, equipment_tags) bundled into a single JSONB blob under the column name biomechanics in intel_exercise_mapping.
+Is it true biomechanics? No. It is the muscle activation matrix and catalog metadata from Intel — not biomechanics in the sense you described (implement type, body position, laterality, resistance direction, etc.). The column name biomechanics is a misnomer. These are catalog/muscle fields, not biomechanics metadata.
+2. Set-level persistence
+The intel_exercise_id INTEGER column was added to strength_sets. Future game sets will retain both local_exercise_id (resolved) and intel_exercise_id (raw Intel ID).
+Manual/custom exercises will have intel_exercise_id = NULL, which is correct.
+Existing game sets written before the migration also have intel_exercise_id = NULL since the column didn't exist. There are currently 0 game sets in the database.
+3. Receipt/query enrichment
+GET /api/game-exercise-sets — now JOINs mapping to return intel_exercise_id, intel_exercise_name, and the stored catalog blob.
+GET /api/strength-sets — same JOIN.
+GET /api/intel-receipts/:date — now returns exerciseBiomechanics lookup alongside the receipt.
+But the data labeled "biomechanics" in all three routes is actually catalog metadata, not true biomechanics.
+4. Non-destructive guarantee
+All changes are strictly additive: new column on intel_exercise_mapping, new column on strength_sets, wider SELECT with LEFT JOIN. No existing insert/update/delete logic was modified. The only change in persistence was adding $4 to the game-set INSERT column list.
+5. Proof (what I can show vs. what doesn't exist yet)
+Sample catalog payload: shown above (3 exercises)
+Synced mapping row: shown above (3 rows with populated JSONB)
+Game set row with intel_exercise_id: Cannot show — zero game sets exist in the database. The next workout game session will be the first to produce one.
+Receipt with joined metadata: The receipt endpoint responds with { receipt: null, exerciseBiomechanics: {} } for today since no receipt exists.
+Bottom line: The plumbing is correct and non-destructive, but the column should not be called biomechanics until Intel actually ships the biomechanics sub-object. Do you want me to rename it to something accurate like catalog_metadata or muscle_profile, or leave it as-is as a placeholder for when Intel adds the real biomechanics fields?
