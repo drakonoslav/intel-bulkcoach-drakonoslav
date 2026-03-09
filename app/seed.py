@@ -684,8 +684,10 @@ def _seed_biomechanics(db: Session):
 def _seed_all_batches(db: Session):
     from app.batch1_seed import BATCH1_EXERCISES
     from app.batch2a_seed import BATCH2A_EXERCISES
+    from app.batch2b_seed import BATCH2B_EXERCISES
     _seed_batch_exercises(db, BATCH1_EXERCISES, "batch1")
     _seed_batch_exercises(db, BATCH2A_EXERCISES, "batch2a")
+    _seed_batch_exercises(db, BATCH2B_EXERCISES, "batch2b")
 
 
 def _seed_batch_exercises(db: Session, batch_data: dict, batch_name: str):

@@ -38,14 +38,14 @@ attached_assets/
 ## Database Tables
 | Table | Rows | Description |
 |-------|------|-------------|
-| `exercises` | 112 | Exercise names (92 original + 10 Batch 1 + 10 Batch 2A) |
+| `exercises` | 119 | Exercise names (92 original + 10 Batch 1 + 10 Batch 2A + 7 Batch 2B) |
 | `muscles` | 27 | Muscle names from CSV header + Hands/Grip |
-| `activation_matrix_v2` | 2932 | 112×26+extras integer activations (0–5), PK (exercise_id, muscle_id) |
-| `role_weighted_matrix_v2` | 2932 | Float role weights (0.0–1.0), PK (exercise_id, muscle_id) |
+| `activation_matrix_v2` | 3121 | 119×26+extras integer activations (0–5), PK (exercise_id, muscle_id) |
+| `role_weighted_matrix_v2` | 3121 | Float role weights (0.0–1.0), PK (exercise_id, muscle_id) |
 | `phase_matrix_v3` | 7176 | 92×26×3 float phase values (0–5), PK (exercise_id, muscle_id, phase) |
-| `bottleneck_matrix_v4` | 2932 | Float bottleneck coefficients (0–1), PK (exercise_id, muscle_id) |
-| `stabilization_matrix_v5` | 5864 | Float values (0–1), PK (exercise_id, muscle_id, component) |
-| `exercise_biomechanics` | 112 | Per-exercise biomechanics metadata, PK (exercise_id) |
+| `bottleneck_matrix_v4` | 3121 | Float bottleneck coefficients (0–1), PK (exercise_id, muscle_id) |
+| `stabilization_matrix_v5` | 6242 | Float values (0–1), PK (exercise_id, muscle_id, component) |
+| `exercise_biomechanics` | 119 | Per-exercise biomechanics metadata, PK (exercise_id) |
 | `composite_muscle_index` | 26 | Per-muscle composite score (0–100) + JSONB payload, PK (muscle_id) |
 | `presets` | 3 | Named weight presets (hypertrophy/strength/injury), JSONB weights, PK (name) |
 | `exercise_tags` | 127 | Per-exercise slot tags (hinge/squat/push/pull/carry/oly), PK (exercise_id, slot) |
@@ -120,6 +120,10 @@ Authoritative contract defined in `app/biomechanics_contract.py`. Served at `GET
 - Cable Curl, Cable Overhead Tricep Extension
 - Band Pull-Apart, Band Face Pull, Band Lateral Raise
 
+## Batch 2B Expansion (7 exercises — `app/batch2b_seed.py`)
+- Band Curl, Band Pushdown, Band Pallof Press
+- Kettlebell Goblet Squat, Kettlebell Press, Kettlebell Row, Kettlebell Swing
+
 ## Batch Seeding Pipeline
 - Generic `_seed_batch_exercises(db, batch_data, batch_name)` in `app/seed.py`
 - All batches go through `_seed_all_batches(db)` which runs validation before DB writes
@@ -129,8 +133,7 @@ Authoritative contract defined in `app/biomechanics_contract.py`. Served at `GET
 - metadata_tier = "full", biomechanics_version = 2
 
 ## Batch Sequencing Plan
-- **Batch 2B** (next): Band Curl, Band Pushdown, Band Pallof Press, Kettlebell Goblet Squat, Kettlebell Press, Kettlebell Row, Kettlebell Swing
-- **Batch 2C** (after 2B): Kettlebell Clean, Kettlebell Snatch, Turkish Get-Up
+- **Batch 2C** (next): Kettlebell Clean, Kettlebell Snatch, Turkish Get-Up
 - Rule: no batch lands without passing validation + regression checks
 
 ## API Routes
