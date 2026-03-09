@@ -688,6 +688,15 @@ def build_exercise_catalog(db: Session):
             "convergence_arc": bool(b.convergence_arc) if b.convergence_arc is not None else None,
             "humeral_plane": b.humeral_plane,
             "elbow_path": b.elbow_path,
+            "movement_family": b.movement_family,
+            "pattern_class": b.pattern_class,
+            "biomechanics_version": b.biomechanics_version if hasattr(b, "biomechanics_version") else 1,
+            "metadata_tier": b.metadata_tier if hasattr(b, "metadata_tier") else "core",
+            "field_classification": {
+                "structural": ["implement_type", "body_position", "laterality", "resistance_origin", "resistance_direction", "grip_style", "bench_angle"],
+                "categorical": ["movement_family", "pattern_class"],
+                "interpretive": ["stability_demand", "stretch_bias", "shortened_bias", "convergence_arc", "humeral_plane", "elbow_path"],
+            },
         }
 
     result = []

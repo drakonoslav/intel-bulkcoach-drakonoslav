@@ -32,6 +32,22 @@ with engine.connect() as conn:
     conn.execute(text("""
         ALTER TABLE lift_sets ALTER COLUMN created_at SET DEFAULT now()
     """))
+    conn.execute(text("""
+        ALTER TABLE exercise_biomechanics
+        ADD COLUMN IF NOT EXISTS movement_family TEXT
+    """))
+    conn.execute(text("""
+        ALTER TABLE exercise_biomechanics
+        ADD COLUMN IF NOT EXISTS pattern_class TEXT
+    """))
+    conn.execute(text("""
+        ALTER TABLE exercise_biomechanics
+        ADD COLUMN IF NOT EXISTS biomechanics_version INTEGER NOT NULL DEFAULT 1
+    """))
+    conn.execute(text("""
+        ALTER TABLE exercise_biomechanics
+        ADD COLUMN IF NOT EXISTS metadata_tier TEXT NOT NULL DEFAULT 'core'
+    """))
     conn.commit()
 
 with SessionLocal() as db:

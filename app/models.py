@@ -235,6 +235,10 @@ class ExerciseBiomechanics(Base):
     convergence_arc = Column(Integer, nullable=True)
     humeral_plane = Column(Text, nullable=True)
     elbow_path = Column(Text, nullable=True)
+    movement_family = Column(Text, nullable=True)
+    pattern_class = Column(Text, nullable=True)
+    biomechanics_version = Column(Integer, nullable=False, server_default="1")
+    metadata_tier = Column(Text, nullable=False, server_default="core")
 
     exercise = relationship("Exercise")
 

@@ -1,0 +1,237 @@
+Yes — a few.
+
+The overall direction is good, but I would sequence it more carefully than Intel proposed.
+
+My strongest recommendation
+
+Do not enrich all sparse fields on the existing 92 before defining field semantics more tightly.
+
+Some sparse fields are sparse because they are under-authored.
+But some are sparse because they should only apply in narrow cases.
+
+That distinction matters.
+
+For example:
+	•	bench_angle being sparse is fine
+	•	convergence_arc should not be forced onto many exercises
+	•	elbow_path may genuinely be null for many lower-body and whole-body movements
+	•	humeral_plane should probably stay null where it is not meaningfully primary
+	•	stretch_bias and shortened_bias need a very explicit rubric or they become hand-wavy
+
+So I would tell Intel:
+
+1. Define field applicability rules first
+
+Before “filling gaps,” create a short authoring spec for each field:
+	•	when must it be populated
+	•	when may it be null
+	•	when should it be null
+	•	allowed enum values
+	•	whether multi-value cases are allowed or not
+
+Without that, enrichment can become fake completeness.
+
+Example:
+	•	humeral_plane: only primary for upper-body shoulder-driven patterns
+	•	elbow_path: only where elbow tracking materially defines the exercise
+	•	convergence_arc: only for movements with real inward converging arm path
+	•	stretch_bias / shortened_bias: only when the resistance profile meaningfully peaks there
+
+That spec is more important than rushing coverage.
+
+2. Separate “descriptive metadata” from “coaching interpretation”
+
+Some fields are objective enough:
+	•	implement type
+	•	body position
+	•	laterality
+	•	resistance origin
+	•	resistance direction
+	•	bench angle
+
+Some are more interpretive:
+	•	stability demand
+	•	stretch bias
+	•	shortened bias
+	•	convergence arc
+
+I would recommend Intel mark internally which fields are:
+	•	structural
+	•	interpretive
+
+That way Expo knows which fields are safe for hard filtering versus soft display.
+
+For example:
+	•	filter safely by implement_type
+	•	display stability_demand as advisory, not as a hard categorical truth
+
+3. Add versioning to the biomechanics blob
+
+This is important.
+
+Ask Intel to include something like:
+	•	biomechanics_version
+	•	authored_at
+	•	maybe authoring_confidence
+
+That way Expo can distinguish:
+	•	older sparse first-pass records
+	•	enriched later records
+	•	future improved batches
+
+Otherwise the blob looks equally authoritative across all exercises even when coverage quality differs.
+
+4. Add a “field completeness” or “metadata quality” signal
+
+Something like:
+	•	metadata_tier: core, extended, full
+or
+	•	biomechanics_completeness_score
+
+Example:
+	•	current compound rows might be core
+	•	fully enriched future cable/isolation rows might be full
+
+That prevents Expo from over-trusting partially authored rows.
+
+5. For new exercises, prefer smaller high-quality batches
+
+Intel proposed 36 new exercises. That is a lot if each needs:
+	•	exercise row
+	•	equipment mapping
+	•	5 matrix rows
+	•	biomechanics row
+	•	actual validation
+
+I would recommend Batch 1 = 8 to 12 exercises max, chosen for highest value.
+
+My suggested first batch:
+
+Dumbbell / cable isolation priority
+	1.	Dumbbell Lateral Raise
+	2.	Dumbbell Rear Delt Fly
+	3.	Dumbbell Hammer Curl
+	4.	Incline Dumbbell Curl
+	5.	Cable Fly (low-to-high)
+	6.	Cable Fly (high-to-low)
+	7.	Cable Tricep Pushdown
+	8.	Cable Face Pull
+	9.	Cable Lateral Raise
+	10.	Cable Rear Delt Fly
+
+Why this batch first:
+	•	high practical value
+	•	strong isolation coverage
+	•	makes the sparse metadata fields actually useful
+	•	clearer line-of-pull distinctions
+	•	less technical ambiguity than kettlebell ballistic lifts
+
+6. Push kettlebell ballistic work to Batch 2
+
+I would not mix these into the first authoring batch:
+	•	kettlebell snatch
+	•	kettlebell clean
+	•	Turkish get-up
+
+Those are more complex:
+	•	multi-phase
+	•	high stabilization
+	•	harder matrix authoring
+	•	harder to summarize with simple metadata
+
+Kettlebell Batch 2 should probably be:
+	•	kettlebell goblet squat
+	•	kettlebell press
+	•	kettlebell row
+	•	swing
+and only later:
+	•	clean
+	•	snatch
+	•	TGU
+
+7. Add “movement family” and “pattern class”
+
+This would help a lot.
+
+A couple of extra fields would make filtering and UI much stronger:
+	•	movement_family
+examples: press, row, fly, curl, extension, raise, squat, hinge, carry, pull
+	•	pattern_class
+examples: compound, isolation, carry, ballistic, olympic, corrective
+
+These are extremely useful for Expo and easier to rely on than some of the more interpretive biomechanics fields.
+
+8. Consider “limb emphasis” or “region emphasis” tags for future UI
+
+Not for canonical scoring — just metadata.
+
+Examples:
+	•	shoulder_abduction
+	•	shoulder_flexion
+	•	horizontal_adduction
+	•	elbow_flexion
+	•	elbow_extension
+	•	hip_hinge
+	•	knee_dominant
+
+That would make isolation exercise browsing much easier than relying only on muscle matrices.
+
+9. Keep null honest
+
+This is a big one.
+
+Tell Intel not to treat null as a problem by default.
+Some nulls are correct. The goal is not maximal fill. The goal is truthful metadata.
+
+What I would tell Intel
+
+Additional recommendations:
+
+1. Before enriching sparse fields on the existing 92, create a field-authoring spec for each biomechanics field:
+- when it must be populated
+- when it may be null
+- when it should be null
+- allowed values / enums
+
+2. Distinguish structural vs interpretive fields.
+Structural: implement_type, body_position, laterality, resistance_origin, resistance_direction, bench_angle.
+Interpretive: stability_demand, stretch_bias, shortened_bias, convergence_arc.
+This helps Expo know what is safe for hard filtering.
+
+3. Add metadata/version signals if possible:
+- biomechanics_version
+- authored_at
+- authoring_confidence or metadata_tier
+
+4. Do not optimize for fill-rate alone. Keep null honest where a field is not meaningfully applicable.
+
+5. For expansion, do not start with 36 new rows at once.
+Start with a smaller high-value Batch 1 focused on dumbbell/cable isolation:
+- DB lateral raise
+- DB rear delt fly
+- DB hammer curl
+- incline DB curl
+- cable low-to-high fly
+- cable high-to-low fly
+- cable pushdown
+- cable face pull
+- cable lateral raise
+- cable rear delt fly
+
+6. Push more complex kettlebell ballistic lifts to Batch 2.
+
+7. Consider adding two extra metadata fields:
+- movement_family
+- pattern_class
+These would be very useful for Expo filtering/display.
+
+8. Preserve the current rule:
+new exercises get new rows and real authored matrices; no inferred overlays.
+
+My bottom line:
+	•	Yes to enrichment
+	•	Yes to new exercise batches
+	•	No to chasing dense metadata without a rubric
+	•	No to launching all 36 at once
+
+The best next move is a field-authoring spec + a 10-exercise isolation-first batch.

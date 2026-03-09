@@ -45,6 +45,7 @@ def seed_from_csv(db: Session) -> bool:
         _seed_exercise_equipment(db)
         _seed_hands_grip_muscle(db)
         _seed_biomechanics(db)
+        _seed_batch1_exercises(db)
         return False
 
     with open(ACTIVATION_CSV, newline="", encoding="utf-8") as f:
@@ -87,6 +88,7 @@ def seed_from_csv(db: Session) -> bool:
     _seed_exercise_equipment(db)
     _seed_hands_grip_muscle(db)
     _seed_biomechanics(db)
+    _seed_batch1_exercises(db)
     return True
 
 
@@ -631,35 +633,148 @@ def _seed_biomechanics(db: Session):
     from app.biomechanics_seed import BIOMECHANICS_DATA
     from app.models import ExerciseBiomechanics
 
-    if db.query(ExerciseBiomechanics).count() >= len(BIOMECHANICS_DATA):
-        return
+    ALL_FIELDS = [
+        "implement_type", "body_position", "laterality",
+        "resistance_origin", "resistance_direction", "grip_style",
+        "bench_angle", "stretch_bias", "shortened_bias",
+        "stability_demand", "convergence_arc", "humeral_plane",
+        "elbow_path", "movement_family", "pattern_class",
+        "biomechanics_version", "metadata_tier",
+    ]
 
     ex_map = {e.name: e.id for e in db.query(Exercise).all()}
     added = 0
+    updated = 0
     for ex_name, meta in BIOMECHANICS_DATA.items():
         eid = ex_map.get(ex_name)
         if eid is None:
             continue
         existing = db.query(ExerciseBiomechanics).filter(ExerciseBiomechanics.exercise_id == eid).first()
         if existing:
-            continue
-        row = ExerciseBiomechanics(
-            exercise_id=eid,
-            implement_type=meta["implement_type"],
-            body_position=meta["body_position"],
-            laterality=meta["laterality"],
-            resistance_origin=meta.get("resistance_origin"),
-            resistance_direction=meta.get("resistance_direction"),
-            grip_style=meta.get("grip_style"),
-            bench_angle=meta.get("bench_angle"),
-            stretch_bias=meta.get("stretch_bias"),
-            shortened_bias=meta.get("shortened_bias"),
-            stability_demand=meta.get("stability_demand"),
-            convergence_arc=meta.get("convergence_arc"),
-            humeral_plane=meta.get("humeral_plane"),
-            elbow_path=meta.get("elbow_path"),
-        )
-        db.add(row)
-        added += 1
+            seed_version = meta.get("biomechanics_version", 1)
+            current_version = getattr(existing, "biomechanics_version", 1) or 1
+            if seed_version > current_version:
+                for field in ALL_FIELDS:
+                    if field in meta:
+                        setattr(existing, field, meta[field])
+                    elif field not in ("implement_type", "body_position", "laterality", "biomechanics_version", "metadata_tier"):
+                        setattr(existing, field, None)
+                updated += 1
+        else:
+            row = ExerciseBiomechanics(exercise_id=eid)
+            for field in ALL_FIELDS:
+                if field in meta:
+                    setattr(row, field, meta[field])
+            db.add(row)
+            added += 1
     db.commit()
-    print(f"  exercise_biomechanics: seeded {added} rows for {len(BIOMECHANICS_DATA)} exercises")
+    print(f"  exercise_biomechanics: seeded {added}, updated {updated} rows for {len(BIOMECHANICS_DATA)} exercises")
+
+
+def _seed_batch1_exercises(db: Session):
+    from app.batch1_seed import BATCH1_EXERCISES
+    from app.models import (
+        Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2,
+        BottleneckMatrixV4, StabilizationMatrixV5, ExerciseTag,
+        ExerciseEquipment, ExerciseBiomechanics,
+    )
+
+    muscle_map = {m.name: m.id for m in db.query(Muscle).all()}
+    existing_exercises = {e.name: e.id for e in db.query(Exercise).all()}
+
+    BIO_FIELDS = [
+        "implement_type", "body_position", "laterality",
+        "resistance_origin", "resistance_direction", "grip_style",
+        "bench_angle", "stretch_bias", "shortened_bias",
+        "stability_demand", "convergence_arc", "humeral_plane",
+        "elbow_path", "movement_family", "pattern_class",
+        "biomechanics_version", "metadata_tier",
+    ]
+
+    added = 0
+    repaired = 0
+    for ex_name, data in BATCH1_EXERCISES.items():
+        eid = existing_exercises.get(ex_name)
+        if eid is None:
+            ex = Exercise(name=ex_name)
+            db.add(ex)
+            db.flush()
+            eid = ex.id
+            added += 1
+        else:
+            repaired_any = False
+
+        has_act = db.query(ActivationMatrixV2).filter(ActivationMatrixV2.exercise_id == eid).count() > 0
+        if not has_act:
+            for muscle_name, val in data["activation"].items():
+                mid = muscle_map.get(muscle_name)
+                if mid is not None:
+                    db.add(ActivationMatrixV2(
+                        exercise_id=eid, muscle_id=mid, activation_value=val,
+                    ))
+            if eid in existing_exercises.values():
+                repaired_any = True
+
+        has_rw = db.query(RoleWeightedMatrixV2).filter(RoleWeightedMatrixV2.exercise_id == eid).count() > 0
+        if not has_rw:
+            for muscle_name, val in data["role_weighted"].items():
+                mid = muscle_map.get(muscle_name)
+                if mid is not None:
+                    db.add(RoleWeightedMatrixV2(
+                        exercise_id=eid, muscle_id=mid, role_weight=val,
+                    ))
+            if eid in existing_exercises.values():
+                repaired_any = True
+
+        has_bn = db.query(BottleneckMatrixV4).filter(BottleneckMatrixV4.exercise_id == eid).count() > 0
+        if not has_bn:
+            for muscle_name, val in data["bottleneck"].items():
+                mid = muscle_map.get(muscle_name)
+                if mid is not None:
+                    db.add(BottleneckMatrixV4(
+                        exercise_id=eid, muscle_id=mid, bottleneck_coeff=val,
+                    ))
+            if eid in existing_exercises.values():
+                repaired_any = True
+
+        has_stab = db.query(StabilizationMatrixV5).filter(StabilizationMatrixV5.exercise_id == eid).count() > 0
+        if not has_stab:
+            for muscle_name, val in data["stabilization"].items():
+                mid = muscle_map.get(muscle_name)
+                if mid is not None:
+                    db.add(StabilizationMatrixV5(
+                        exercise_id=eid, muscle_id=mid,
+                        component="dynamic", value=val,
+                    ))
+                    db.add(StabilizationMatrixV5(
+                        exercise_id=eid, muscle_id=mid,
+                        component="stability", value=val,
+                    ))
+            if eid in existing_exercises.values():
+                repaired_any = True
+
+        has_tags = db.query(ExerciseTag).filter(ExerciseTag.exercise_id == eid).count() > 0
+        if not has_tags:
+            for slot in data.get("tags", []):
+                db.add(ExerciseTag(exercise_id=eid, slot=slot))
+
+        has_equip = db.query(ExerciseEquipment).filter(ExerciseEquipment.exercise_id == eid).count() > 0
+        if not has_equip:
+            for etag in data.get("equipment", []):
+                db.add(ExerciseEquipment(exercise_id=eid, equipment_tag=etag))
+
+        has_bio = db.query(ExerciseBiomechanics).filter(ExerciseBiomechanics.exercise_id == eid).count() > 0
+        if not has_bio:
+            bio = data.get("biomechanics", {})
+            if bio:
+                row = ExerciseBiomechanics(exercise_id=eid)
+                for field in BIO_FIELDS:
+                    if field in bio:
+                        setattr(row, field, bio[field])
+                db.add(row)
+
+        if eid in existing_exercises.values() and locals().get("repaired_any"):
+            repaired += 1
+
+    db.commit()
+    print(f"  batch1_exercises: seeded {added} new, repaired {repaired} existing")
