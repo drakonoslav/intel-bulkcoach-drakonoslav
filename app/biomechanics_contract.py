@@ -5,7 +5,7 @@ This module defines the authoritative contract for exercise biomechanics data.
 All future exercise batches MUST pass validate_exercise_batch() before seeding.
 """
 
-CATALOG_REVISION = "2026-03-09T22:40:00Z"
+CATALOG_REVISION = "2026-03-10T00:00:00Z"
 
 IMPLEMENT_TYPES = frozenset({
     "barbell", "dumbbell", "bodyweight", "cable", "machine",
@@ -50,6 +50,13 @@ PATTERN_CLASSES = frozenset({
 METADATA_TIERS = frozenset({"core", "extended", "full"})
 
 EXERCISE_SLOTS = frozenset({"hinge", "squat", "push", "pull", "carry", "oly"})
+
+EQUIPMENT_TAGS = frozenset({
+    "rack", "barbell", "plates", "bench", "landmine", "dumbbell",
+    "kettlebell", "pullup_bar", "cable", "sled", "tire", "yoke",
+    "sandbag", "trap_bar", "machine_hack", "rings", "ghr",
+    "flat_bench", "adjustable_bench", "cable_machine", "rope_attachment", "band",
+})
 
 CANONICAL_MUSCLES = [
     "Forearms", "Biceps", "Triceps", "Deltoids", "Front/Anterior Delt",
@@ -123,7 +130,8 @@ def validate_biomechanics(name, bio):
     _check_enum("pattern_class", bio.get("pattern_class"), PATTERN_CLASSES)
     _check_enum("metadata_tier", bio.get("metadata_tier"), METADATA_TIERS)
 
-    for field in ["implement_type", "body_position", "laterality"]:
+    for field in ["implement_type", "body_position", "laterality",
+                  "resistance_origin", "resistance_direction"]:
         if not bio.get(field):
             errors.append(f"{name}: required field '{field}' is missing")
 
@@ -185,9 +193,18 @@ def validate_exercise_batch(batch_data):
                     all_errors.append(f"{name}: {matrix_name}['{m}']={v} must be float 0-1")
 
         tags = data.get("tags", [])
+        if not tags:
+            all_errors.append(f"{name}: must have at least one tag (slot)")
         for tag in tags:
             if tag not in EXERCISE_SLOTS:
                 all_errors.append(f"{name}: tag '{tag}' not in {sorted(EXERCISE_SLOTS)}")
+
+        equipment = data.get("equipment", [])
+        if not equipment:
+            all_errors.append(f"{name}: must have at least one equipment tag")
+        for etag in equipment:
+            if etag not in EQUIPMENT_TAGS:
+                all_errors.append(f"{name}: equipment '{etag}' not in allowed tags")
 
         if not bio.get("metadata_tier"):
             all_errors.append(f"{name}: metadata_tier is required")

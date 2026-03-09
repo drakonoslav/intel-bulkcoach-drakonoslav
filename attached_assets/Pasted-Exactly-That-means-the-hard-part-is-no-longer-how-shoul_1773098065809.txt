@@ -1,0 +1,97 @@
+Exactly.
+
+That means the hard part is no longer “how should this be modeled?”
+You now have a good model.
+
+The next priority is:
+
+Contract discipline
+
+Lock down the Intel→Expo agreement so both apps treat the data the same way every time.
+
+That means:
+	•	freeze the biomechanics payload shape
+	•	freeze enum values
+	•	freeze nullability expectations
+	•	document which fields are safe for filtering vs advisory only
+	•	avoid silent response-shape drift
+
+In practice: make the API contract boring and predictable.
+
+Validation
+
+Make bad data hard to introduce.
+
+That means:
+	•	reject invalid enum values
+	•	reject out-of-range matrix values
+	•	require all 5 matrix tables for any new exercise
+	•	require metadata fields consistent with metadata_tier
+	•	verify new exercises sync correctly into Expo
+	•	keep proof queries/tests for regression checks
+
+In practice: every new batch should either seed cleanly and pass checks, or fail loudly.
+
+Careful Batch 2 sequencing
+
+Do not add a huge mixed bag next.
+
+Do the next batch in a controlled order, starting with movements that are:
+	•	useful
+	•	easier to author well
+	•	easy to validate
+	•	less ambiguous biomechanically
+
+Best next sequence:
+
+Batch 2A
+
+High-value, lower-complexity additions:
+	•	Dumbbell Front Raise
+	•	Dumbbell Overhead Tricep Extension
+	•	Dumbbell Fly
+	•	Incline Dumbbell Fly
+	•	Dumbbell Shrug
+	•	Cable Curl
+	•	Cable Overhead Tricep Extension
+	•	Band Pull-Apart
+	•	Band Face Pull
+	•	Band Lateral Raise
+
+Batch 2B
+
+Then somewhat more complex but still manageable:
+	•	Band Curl
+	•	Band Pushdown
+	•	Band Pallof Press
+	•	Kettlebell Goblet Squat
+	•	Kettlebell Press
+	•	Kettlebell Row
+	•	Kettlebell Swing
+
+Batch 2C
+
+Only after that:
+	•	Kettlebell Clean
+	•	Kettlebell Snatch
+	•	Turkish Get-Up
+
+Those last three are the ones most likely to create messy authoring, fuzzy phase behavior, and harder matrix decisions.
+
+So the governing mindset becomes:
+
+No more schema thrash.
+No rushed exercise dumps.
+Stable contract, strict validation, small clean batches.
+
+A good directive to Intel would be:
+
+We are now shifting from architecture work to operational discipline.
+
+Priorities:
+1. Freeze and document the Intel→Expo catalog contract.
+2. Add strict validation for future exercise rows and biomechanics metadata.
+3. Sequence Batch 2 in smaller sub-batches, starting with lower-complexity/high-value isolation and band work before advanced kettlebell ballistic movements.
+4. No large expansion batch should land without passing validation and regression checks first.
+
+That is the mature next phase.

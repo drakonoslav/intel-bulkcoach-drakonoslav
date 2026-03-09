@@ -45,7 +45,7 @@ def seed_from_csv(db: Session) -> bool:
         _seed_exercise_equipment(db)
         _seed_hands_grip_muscle(db)
         _seed_biomechanics(db)
-        _seed_batch1_exercises(db)
+        _seed_all_batches(db)
         return False
 
     with open(ACTIVATION_CSV, newline="", encoding="utf-8") as f:
@@ -88,7 +88,7 @@ def seed_from_csv(db: Session) -> bool:
     _seed_exercise_equipment(db)
     _seed_hands_grip_muscle(db)
     _seed_biomechanics(db)
-    _seed_batch1_exercises(db)
+    _seed_all_batches(db)
     return True
 
 
@@ -415,6 +415,7 @@ _EQUIPMENT_TAGS = [
     "rack", "barbell", "plates", "bench", "landmine", "dumbbell",
     "kettlebell", "pullup_bar", "cable", "sled", "tire", "yoke",
     "sandbag", "trap_bar", "machine_hack", "rings", "ghr",
+    "flat_bench", "adjustable_bench", "cable_machine", "rope_attachment", "band",
 ]
 
 _EXERCISE_EQUIPMENT = {
@@ -680,8 +681,14 @@ def _seed_biomechanics(db: Session):
     print(f"  exercise_biomechanics: seeded {added}, updated {updated} rows for {len(BIOMECHANICS_DATA)} exercises")
 
 
-def _seed_batch1_exercises(db: Session):
+def _seed_all_batches(db: Session):
     from app.batch1_seed import BATCH1_EXERCISES
+    from app.batch2a_seed import BATCH2A_EXERCISES
+    _seed_batch_exercises(db, BATCH1_EXERCISES, "batch1")
+    _seed_batch_exercises(db, BATCH2A_EXERCISES, "batch2a")
+
+
+def _seed_batch_exercises(db: Session, batch_data: dict, batch_name: str):
     from app.models import (
         Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2,
         BottleneckMatrixV4, StabilizationMatrixV5, ExerciseTag,
@@ -689,9 +696,9 @@ def _seed_batch1_exercises(db: Session):
     )
     from app.biomechanics_contract import validate_exercise_batch, CATALOG_REVISION
 
-    errs = validate_exercise_batch(BATCH1_EXERCISES)
+    errs = validate_exercise_batch(batch_data)
     if errs:
-        raise ValueError(f"Batch 1 validation failed:\n" + "\n".join(errs))
+        raise ValueError(f"{batch_name} validation failed:\n" + "\n".join(errs))
 
     muscle_map = {m.name: m.id for m in db.query(Muscle).all()}
     existing_exercises = {e.name: e.id for e in db.query(Exercise).all()}
@@ -707,16 +714,15 @@ def _seed_batch1_exercises(db: Session):
 
     added = 0
     repaired = 0
-    for ex_name, data in BATCH1_EXERCISES.items():
+    for ex_name, data in batch_data.items():
         eid = existing_exercises.get(ex_name)
+        repaired_any = False
         if eid is None:
             ex = Exercise(name=ex_name)
             db.add(ex)
             db.flush()
             eid = ex.id
             added += 1
-        else:
-            repaired_any = False
 
         has_act = db.query(ActivationMatrixV2).filter(ActivationMatrixV2.exercise_id == eid).count() > 0
         if not has_act:
@@ -789,8 +795,8 @@ def _seed_batch1_exercises(db: Session):
         elif not has_bio.updated_at:
             has_bio.updated_at = CATALOG_REVISION
 
-        if eid in existing_exercises.values() and locals().get("repaired_any"):
+        if repaired_any:
             repaired += 1
 
     db.commit()
-    print(f"  batch1_exercises: seeded {added} new, repaired {repaired} existing")
+    print(f"  {batch_name}: seeded {added} new, repaired {repaired} existing")
