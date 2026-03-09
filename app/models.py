@@ -239,6 +239,7 @@ class ExerciseBiomechanics(Base):
     pattern_class = Column(Text, nullable=True)
     biomechanics_version = Column(Integer, nullable=False, server_default="1")
     metadata_tier = Column(Text, nullable=False, server_default="core")
+    updated_at = Column(Text, nullable=True)
 
     exercise = relationship("Exercise")
 

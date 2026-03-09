@@ -48,6 +48,10 @@ with engine.connect() as conn:
         ALTER TABLE exercise_biomechanics
         ADD COLUMN IF NOT EXISTS metadata_tier TEXT NOT NULL DEFAULT 'core'
     """))
+    conn.execute(text("""
+        ALTER TABLE exercise_biomechanics
+        ADD COLUMN IF NOT EXISTS updated_at TEXT
+    """))
     conn.commit()
 
 with SessionLocal() as db:

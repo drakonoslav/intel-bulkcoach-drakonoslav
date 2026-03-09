@@ -54,7 +54,9 @@ attached_assets/
 | `lift_sets` | var | Logged lift sets with exercise_id FK, weight, reps, tonnage, notes, source |
 | `volume_logs` | var | Legacy logged training sets |
 
-## Biomechanics Field-Authoring Spec v2
+## Biomechanics Contract v2 (FROZEN)
+
+Authoritative contract defined in `app/biomechanics_contract.py`. Served at `GET /game/biomechanics-contract`.
 
 ### Field Classification
 **STRUCTURAL** (safe for hard filtering by Expo):
@@ -65,6 +67,8 @@ attached_assets/
 - `resistance_direction` — REQUIRED — vertical|horizontal|diagonal_low_high|diagonal_high_low|rotational
 - `grip_style` — NULLABLE — null when grip not defining; overhand|underhand|neutral|mixed|false|rope|handle
 - `bench_angle` — NULLABLE — null when no bench; float degrees (0=flat, 30/45=incline, -15/-30=decline, 90=seated OHP)
+
+**CATEGORICAL** (safe for filtering/display):
 - `movement_family` — REQUIRED — press|row|fly|curl|extension|raise|squat|hinge|lunge|thrust|carry|pull|dip|olympic|complex|push
 - `pattern_class` — REQUIRED — compound|isolation|carry|ballistic|olympic
 
@@ -79,11 +83,32 @@ attached_assets/
 **VERSIONING**:
 - `biomechanics_version` — INTEGER, current = 2
 - `metadata_tier` — TEXT: core|extended|full
-  - core = structural + stability_demand only
+  - core = structural + stability_demand + movement_family + pattern_class only
   - extended = core + applicable interpretive fields (existing 92 exercises)
   - full = all applicable fields authored with high confidence (Batch 1 isolation exercises)
+- `updated_at` — ISO 8601 timestamp of last authoring update
 
-**field_classification** — included in each biomechanics response for Expo to distinguish safe filtering vs advisory display
+**field_classification** — included in each biomechanics response with 3 categories: structural, categorical, interpretive
+
+### Validation
+- `app/biomechanics_contract.py` — frozen enums, validation functions, contract documentation
+- `validate_biomechanics()` — validates a single exercise's biomechanics dict against the contract
+- `validate_exercise_batch()` — validates a full batch (biomechanics + all 5 matrices + tags + equipment)
+- Both validators run at seed time — invalid data blocks startup
+
+### Proof Queries
+- `GET /game/catalog-proof` — regression check: row counts, coverage gaps, tier/version distribution
+- Returns `proof_status: PASS` when all exercises have all 5 matrices + biomechanics + movement_family + pattern_class
+
+### Manual Entry Linkage Rules (documented future behavior — not yet implemented)
+- Exact Intel catalog selection → store `intel_exercise_id` on lift_set, full matrix scoring applies
+- Free-text custom movement → `intel_exercise_id = null`, bridge-dose fallback only
+- No inferred variants: do NOT map generic input to specific exercise variants
+- Currently: `LiftSet.exercise_id` is required; custom/unlinked entries not yet supported
+
+### Future Considerations
+- `parent_exercise_id` / `variant_group` — UI grouping only, not for scoring
+- `intel_exercise_id` nullable FK on lift_sets for bridging custom vs. catalog entries
 
 ## Batch 1 Expansion (10 exercises)
 - Dumbbell Lateral Raise, Dumbbell Rear Delt Fly, Dumbbell Hammer Curl, Incline Dumbbell Curl
@@ -130,6 +155,8 @@ attached_assets/
 | GET | `/game/exercise-catalog` | Full 102-exercise list with biomechanics v2 |
 | GET | `/game/exercise-recommendations?muscle_id=&mode=&date=&top_n=&available=` | Scored exercise recommendations |
 | GET | `/game/muscle-schema` | Canonical 27-muscle schema |
+| GET | `/game/biomechanics-contract` | Frozen v2 contract: enums, nullability, tiers, field classification |
+| GET | `/game/catalog-proof` | Regression/proof queries for catalog integrity |
 | GET | `/health` | Service health check |
 | GET | `/docs` | Swagger UI |
 

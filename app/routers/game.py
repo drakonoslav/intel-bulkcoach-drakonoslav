@@ -582,3 +582,139 @@ def muscle_schema(db: Session = Depends(get_db)):
         },
         "bridge_defaults": BRIDGE_DEFAULT_TONNAGE,
     }
+
+
+@router.get("/biomechanics-contract", summary="Frozen biomechanics v2 contract: enums, nullability, tiers, field classification")
+def biomechanics_contract():
+    from app.biomechanics_contract import get_contract_documentation
+    return get_contract_documentation()
+
+
+@router.get("/catalog-proof", summary="Regression/proof queries for catalog integrity")
+def catalog_proof(db: Session = Depends(get_db)):
+    from app.models import (
+        Exercise, Muscle, ActivationMatrixV2, RoleWeightedMatrixV2,
+        BottleneckMatrixV4, StabilizationMatrixV5, ExerciseTag,
+        ExerciseEquipment, ExerciseBiomechanics,
+    )
+
+    total_ex = db.query(Exercise).count()
+    total_muscles = db.query(Muscle).count()
+    total_act = db.query(ActivationMatrixV2).count()
+    total_rw = db.query(RoleWeightedMatrixV2).count()
+    total_bn = db.query(BottleneckMatrixV4).count()
+    total_stab = db.query(StabilizationMatrixV5).count()
+    total_tags = db.query(ExerciseTag).count()
+    total_equip = db.query(ExerciseEquipment).count()
+    total_bio = db.query(ExerciseBiomechanics).count()
+
+    ex_ids_with_act = {r.exercise_id for r in db.query(ActivationMatrixV2.exercise_id).distinct().all()}
+    ex_ids_with_rw = {r.exercise_id for r in db.query(RoleWeightedMatrixV2.exercise_id).distinct().all()}
+    ex_ids_with_bn = {r.exercise_id for r in db.query(BottleneckMatrixV4.exercise_id).distinct().all()}
+    ex_ids_with_stab = {r.exercise_id for r in db.query(StabilizationMatrixV5.exercise_id).distinct().all()}
+    ex_ids_with_bio = {r.exercise_id for r in db.query(ExerciseBiomechanics.exercise_id).distinct().all()}
+    all_ex_ids = {e.id for e in db.query(Exercise.id).all()}
+
+    missing_act = sorted(all_ex_ids - ex_ids_with_act)
+    missing_rw = sorted(all_ex_ids - ex_ids_with_rw)
+    missing_bn = sorted(all_ex_ids - ex_ids_with_bn)
+    missing_stab = sorted(all_ex_ids - ex_ids_with_stab)
+    missing_bio = sorted(all_ex_ids - ex_ids_with_bio)
+
+    from app.biomechanics_contract import validate_biomechanics
+
+    stab_component_counts = {}
+    stab_rows = db.query(StabilizationMatrixV5.exercise_id, StabilizationMatrixV5.component).all()
+    for r in stab_rows:
+        stab_component_counts.setdefault(r.exercise_id, set()).add(r.component)
+    incomplete_stab = sorted([
+        eid for eid, comps in stab_component_counts.items()
+        if comps != {"dynamic", "stability"}
+    ])
+
+    bio_rows = db.query(ExerciseBiomechanics).all()
+    tier_counts = {}
+    version_counts = {}
+    missing_mf = []
+    missing_pc = []
+    missing_updated_at = []
+    not_v2 = []
+    contract_violations = []
+    for b in bio_rows:
+        t = b.metadata_tier or "unknown"
+        tier_counts[t] = tier_counts.get(t, 0) + 1
+        v = getattr(b, "biomechanics_version", 1) or 1
+        version_counts[v] = version_counts.get(v, 0) + 1
+        if not b.movement_family:
+            missing_mf.append(b.exercise_id)
+        if not b.pattern_class:
+            missing_pc.append(b.exercise_id)
+        if not getattr(b, "updated_at", None):
+            missing_updated_at.append(b.exercise_id)
+        if v < 2:
+            not_v2.append(b.exercise_id)
+        errs = validate_biomechanics(f"eid:{b.exercise_id}", {
+            "implement_type": b.implement_type,
+            "body_position": b.body_position,
+            "laterality": b.laterality,
+            "resistance_origin": b.resistance_origin,
+            "resistance_direction": b.resistance_direction,
+            "grip_style": b.grip_style,
+            "stability_demand": b.stability_demand,
+            "humeral_plane": b.humeral_plane,
+            "elbow_path": b.elbow_path,
+            "movement_family": b.movement_family,
+            "pattern_class": b.pattern_class,
+            "metadata_tier": b.metadata_tier,
+            "stretch_bias": b.stretch_bias,
+            "shortened_bias": b.shortened_bias,
+            "convergence_arc": b.convergence_arc,
+        })
+        if errs:
+            contract_violations.extend(errs)
+
+    all_pass = (
+        len(missing_act) == 0 and
+        len(missing_rw) == 0 and
+        len(missing_bn) == 0 and
+        len(missing_stab) == 0 and
+        len(missing_bio) == 0 and
+        len(missing_mf) == 0 and
+        len(missing_pc) == 0 and
+        len(missing_updated_at) == 0 and
+        len(not_v2) == 0 and
+        len(incomplete_stab) == 0 and
+        len(contract_violations) == 0
+    )
+
+    return {
+        "proof_status": "PASS" if all_pass else "FAIL",
+        "totals": {
+            "exercises": total_ex,
+            "muscles": total_muscles,
+            "activation_rows": total_act,
+            "role_weighted_rows": total_rw,
+            "bottleneck_rows": total_bn,
+            "stabilization_rows": total_stab,
+            "exercise_tags": total_tags,
+            "exercise_equipment": total_equip,
+            "biomechanics_rows": total_bio,
+        },
+        "coverage_gaps": {
+            "missing_activation": missing_act,
+            "missing_role_weighted": missing_rw,
+            "missing_bottleneck": missing_bn,
+            "missing_stabilization": missing_stab,
+            "missing_biomechanics": missing_bio,
+            "missing_movement_family": missing_mf,
+            "missing_pattern_class": missing_pc,
+            "missing_updated_at": missing_updated_at,
+            "not_v2": not_v2,
+            "incomplete_stabilization_components": incomplete_stab,
+            "contract_violations": contract_violations[:20],
+        },
+        "biomechanics_distribution": {
+            "by_tier": tier_counts,
+            "by_version": version_counts,
+        },
+    }

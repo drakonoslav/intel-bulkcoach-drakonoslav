@@ -692,6 +692,7 @@ def build_exercise_catalog(db: Session):
             "pattern_class": b.pattern_class,
             "biomechanics_version": b.biomechanics_version if hasattr(b, "biomechanics_version") else 1,
             "metadata_tier": b.metadata_tier if hasattr(b, "metadata_tier") else "core",
+            "updated_at": b.updated_at if hasattr(b, "updated_at") else None,
             "field_classification": {
                 "structural": ["implement_type", "body_position", "laterality", "resistance_origin", "resistance_direction", "grip_style", "bench_angle"],
                 "categorical": ["movement_family", "pattern_class"],

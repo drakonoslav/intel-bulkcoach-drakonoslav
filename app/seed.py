@@ -632,6 +632,7 @@ def _seed_exercise_equipment(db: Session):
 def _seed_biomechanics(db: Session):
     from app.biomechanics_seed import BIOMECHANICS_DATA
     from app.models import ExerciseBiomechanics
+    from app.biomechanics_contract import validate_biomechanics, CATALOG_REVISION
 
     ALL_FIELDS = [
         "implement_type", "body_position", "laterality",
@@ -641,6 +642,11 @@ def _seed_biomechanics(db: Session):
         "elbow_path", "movement_family", "pattern_class",
         "biomechanics_version", "metadata_tier",
     ]
+
+    for ex_name, meta in BIOMECHANICS_DATA.items():
+        errs = validate_biomechanics(ex_name, meta)
+        if errs:
+            raise ValueError(f"Biomechanics seed validation failed: {errs}")
 
     ex_map = {e.name: e.id for e in db.query(Exercise).all()}
     added = 0
@@ -659,9 +665,12 @@ def _seed_biomechanics(db: Session):
                         setattr(existing, field, meta[field])
                     elif field not in ("implement_type", "body_position", "laterality", "biomechanics_version", "metadata_tier"):
                         setattr(existing, field, None)
+                existing.updated_at = CATALOG_REVISION
                 updated += 1
+            elif not getattr(existing, "updated_at", None):
+                existing.updated_at = CATALOG_REVISION
         else:
-            row = ExerciseBiomechanics(exercise_id=eid)
+            row = ExerciseBiomechanics(exercise_id=eid, updated_at=CATALOG_REVISION)
             for field in ALL_FIELDS:
                 if field in meta:
                     setattr(row, field, meta[field])
@@ -678,6 +687,11 @@ def _seed_batch1_exercises(db: Session):
         BottleneckMatrixV4, StabilizationMatrixV5, ExerciseTag,
         ExerciseEquipment, ExerciseBiomechanics,
     )
+    from app.biomechanics_contract import validate_exercise_batch, CATALOG_REVISION
+
+    errs = validate_exercise_batch(BATCH1_EXERCISES)
+    if errs:
+        raise ValueError(f"Batch 1 validation failed:\n" + "\n".join(errs))
 
     muscle_map = {m.name: m.id for m in db.query(Muscle).all()}
     existing_exercises = {e.name: e.id for e in db.query(Exercise).all()}
@@ -763,15 +777,17 @@ def _seed_batch1_exercises(db: Session):
             for etag in data.get("equipment", []):
                 db.add(ExerciseEquipment(exercise_id=eid, equipment_tag=etag))
 
-        has_bio = db.query(ExerciseBiomechanics).filter(ExerciseBiomechanics.exercise_id == eid).count() > 0
+        has_bio = db.query(ExerciseBiomechanics).filter(ExerciseBiomechanics.exercise_id == eid).first()
         if not has_bio:
             bio = data.get("biomechanics", {})
             if bio:
-                row = ExerciseBiomechanics(exercise_id=eid)
+                row = ExerciseBiomechanics(exercise_id=eid, updated_at=CATALOG_REVISION)
                 for field in BIO_FIELDS:
                     if field in bio:
                         setattr(row, field, bio[field])
                 db.add(row)
+        elif not has_bio.updated_at:
+            has_bio.updated_at = CATALOG_REVISION
 
         if eid in existing_exercises.values() and locals().get("repaired_any"):
             repaired += 1
