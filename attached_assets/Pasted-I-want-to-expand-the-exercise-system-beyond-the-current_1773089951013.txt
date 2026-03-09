@@ -1,0 +1,67 @@
+I want to expand the exercise system beyond the current compound-heavy list by adding:
+
+1. more dumbbell isolation exercises
+2. kettlebell exercise variants
+3. resistance-band exercise variants
+4. orientation-aware variants where the same tool changes activation based on force direction or limb path
+
+The key issue is that these are not just “new names.”
+For isolation, kettlebell, and band work, activation can change substantially based on:
+- unilateral vs bilateral
+- arm path / humeral angle
+- elbow path
+- resistance origin
+- resistance direction
+- cable/band low-to-high vs high-to-low vs horizontal
+- stretch bias vs shortened-position bias
+- torso angle / bench angle
+- convergence / arc
+- stability demand
+
+I do NOT want to break the canonical 27-muscle Intel engine.
+I want to preserve the existing matrices and recommendation system.
+
+So I want to know the best architecture for this expansion.
+
+My preferred direction is:
+- keep canonical muscle outputs unchanged
+- add a secondary exercise-variant metadata layer or overlay
+- let that layer refine exercise identity and regional bias without changing the core muscle schema
+
+Please tell me:
+
+1. What is the best schema for this?
+   - new exercise rows only?
+   - or exercise row + variant metadata table?
+   - or exercise row + biomechanical feature table?
+
+2. Should we create explicit columns/tables for:
+   - implement type
+   - resistance origin
+   - resistance direction
+   - body position
+   - unilateral/bilateral
+   - bench angle
+   - grip style
+   - stretch bias
+   - shortened bias
+   - stability demand
+   - convergence arc
+
+3. For bands and cables, should “orientation” be represented as:
+   - separate exercise variants
+   - or a structured metadata field that recommendation/scoring can interpret?
+
+4. Can Intel support a model where:
+   - canonical muscle dose stays the source of truth
+   - a secondary overlay refines regional emphasis for recommendation and display
+   - without requiring changes to the canonical muscle table or existing activation engine?
+
+5. What would be the safest migration path to expand the catalog while preserving:
+   - existing exercise IDs where possible
+   - existing equipment filters
+   - Expo compatibility
+   - current recommendation logic
+
+I am aiming for compound-level rigor, but for isolation/bands/kettlebells, where line of pull and movement orientation matter much more.
+Please propose the best schema and rollout plan.
