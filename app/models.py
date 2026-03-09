@@ -218,6 +218,27 @@ class GameBridgeSet(Base):
     muscle = relationship("Muscle")
 
 
+class ExerciseBiomechanics(Base):
+    __tablename__ = "exercise_biomechanics"
+
+    exercise_id = Column(Integer, ForeignKey("exercises.id"), primary_key=True)
+    implement_type = Column(Text, nullable=False)
+    body_position = Column(Text, nullable=False)
+    laterality = Column(Text, nullable=False)
+    resistance_origin = Column(Text, nullable=True)
+    resistance_direction = Column(Text, nullable=True)
+    grip_style = Column(Text, nullable=True)
+    bench_angle = Column(Float, nullable=True)
+    stretch_bias = Column(Float, nullable=True)
+    shortened_bias = Column(Float, nullable=True)
+    stability_demand = Column(Float, nullable=True)
+    convergence_arc = Column(Integer, nullable=True)
+    humeral_plane = Column(Text, nullable=True)
+    elbow_path = Column(Text, nullable=True)
+
+    exercise = relationship("Exercise")
+
+
 class VolumeLog(Base):
     __tablename__ = "volume_logs"
 

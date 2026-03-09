@@ -44,6 +44,7 @@ def seed_from_csv(db: Session) -> bool:
         _seed_equipment(db)
         _seed_exercise_equipment(db)
         _seed_hands_grip_muscle(db)
+        _seed_biomechanics(db)
         return False
 
     with open(ACTIVATION_CSV, newline="", encoding="utf-8") as f:
@@ -85,6 +86,7 @@ def seed_from_csv(db: Session) -> bool:
     _seed_equipment(db)
     _seed_exercise_equipment(db)
     _seed_hands_grip_muscle(db)
+    _seed_biomechanics(db)
     return True
 
 
@@ -623,3 +625,41 @@ def _seed_exercise_equipment(db: Session):
             added += result.rowcount
     db.commit()
     print(f"  exercise_equipment: seeded {added} required-equipment mappings across {len(_EXERCISE_EQUIPMENT)} exercises")
+
+
+def _seed_biomechanics(db: Session):
+    from app.biomechanics_seed import BIOMECHANICS_DATA
+    from app.models import ExerciseBiomechanics
+
+    if db.query(ExerciseBiomechanics).count() >= len(BIOMECHANICS_DATA):
+        return
+
+    ex_map = {e.name: e.id for e in db.query(Exercise).all()}
+    added = 0
+    for ex_name, meta in BIOMECHANICS_DATA.items():
+        eid = ex_map.get(ex_name)
+        if eid is None:
+            continue
+        existing = db.query(ExerciseBiomechanics).filter(ExerciseBiomechanics.exercise_id == eid).first()
+        if existing:
+            continue
+        row = ExerciseBiomechanics(
+            exercise_id=eid,
+            implement_type=meta["implement_type"],
+            body_position=meta["body_position"],
+            laterality=meta["laterality"],
+            resistance_origin=meta.get("resistance_origin"),
+            resistance_direction=meta.get("resistance_direction"),
+            grip_style=meta.get("grip_style"),
+            bench_angle=meta.get("bench_angle"),
+            stretch_bias=meta.get("stretch_bias"),
+            shortened_bias=meta.get("shortened_bias"),
+            stability_demand=meta.get("stability_demand"),
+            convergence_arc=meta.get("convergence_arc"),
+            humeral_plane=meta.get("humeral_plane"),
+            elbow_path=meta.get("elbow_path"),
+        )
+        db.add(row)
+        added += 1
+    db.commit()
+    print(f"  exercise_biomechanics: seeded {added} rows for {len(BIOMECHANICS_DATA)} exercises")

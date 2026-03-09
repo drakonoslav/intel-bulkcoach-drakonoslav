@@ -157,6 +157,17 @@ attached_assets/
 - Admin re-seed endpoint: `POST /admin/reseed-matrices` (wipes + reloads matrix tables, does NOT touch lift_sets/exercises/muscles)
 - Derived groups marked in `/muscle/day` response with `derived_from: children_sum` and `children` array
 
+## Exercise Biomechanics Layer
+- **Table**: `exercise_biomechanics` — 1 row per exercise, descriptive metadata only
+- **Model**: `ExerciseBiomechanics` in `app/models.py`
+- **Seed data**: `app/biomechanics_seed.py` — 92 entries for all current exercises
+- **Seeding**: `_seed_biomechanics()` in `app/seed.py`, idempotent, called at startup
+- **Required columns**: `implement_type`, `body_position`, `laterality`
+- **Nullable columns**: `resistance_origin`, `resistance_direction`, `grip_style`, `bench_angle`, `stretch_bias`, `shortened_bias`, `stability_demand`, `convergence_arc`, `humeral_plane`, `elbow_path`
+- **API exposure**: included in `/game/exercise-catalog` as `biomechanics` sub-object per exercise
+- **Non-destructive**: no changes to existing exercise IDs, matrix values, equipment joins, or recommendation scoring
+- **Purpose**: structured metadata for filtering/display; future isolation/kettlebell/band exercises will use same pattern
+
 ## Data Floor
 - `DATA_FLOOR_DATE = date(2026, 3, 8)` and `DATA_FLOOR_TS = datetime(2026, 3, 8, 12, 38, 0, tzinfo=timezone.utc)` in `app/game_state.py`
 - All time-series endpoints enforce BOTH: `performed_at >= DATA_FLOOR_DATE` AND `created_at >= DATA_FLOOR_TS`

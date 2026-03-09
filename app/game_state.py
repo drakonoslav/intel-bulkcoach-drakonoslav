@@ -663,13 +663,32 @@ def build_exercise_catalog(db: Session):
     for t in tags_all:
         slots_by_ex[t.exercise_id].add(t.slot)
 
-    from app.models import ExerciseEquipment, Equipment
+    from app.models import ExerciseEquipment, Equipment, ExerciseBiomechanics
     equip_all = db.query(ExerciseEquipment).all()
     equip_by_ex = defaultdict(set)
     for eq in equip_all:
         equip_by_ex[eq.exercise_id].add(eq.equipment_tag)
 
     equip_universe = sorted([e.tag for e in db.query(Equipment).all()])
+
+    bio_all = db.query(ExerciseBiomechanics).all()
+    bio_by_ex = {}
+    for b in bio_all:
+        bio_by_ex[b.exercise_id] = {
+            "implement_type": b.implement_type,
+            "body_position": b.body_position,
+            "laterality": b.laterality,
+            "resistance_origin": b.resistance_origin,
+            "resistance_direction": b.resistance_direction,
+            "grip_style": b.grip_style,
+            "bench_angle": b.bench_angle,
+            "stretch_bias": b.stretch_bias,
+            "shortened_bias": b.shortened_bias,
+            "stability_demand": b.stability_demand,
+            "convergence_arc": bool(b.convergence_arc) if b.convergence_arc is not None else None,
+            "humeral_plane": b.humeral_plane,
+            "elbow_path": b.elbow_path,
+        }
 
     result = []
     for ex in exercises:
@@ -687,14 +706,18 @@ def build_exercise_catalog(db: Session):
                 })
         primary.sort(key=lambda x: -x["activation"])
 
-        result.append({
+        entry = {
             "exercise_id": ex.id,
             "exercise_name": ex.name,
             "slots": ex_slots,
             "equipment_tags": sorted(equip_by_ex.get(ex.id, set())),
             "primary_muscles": primary,
             "compound_or_isolation": "compound" if is_compound else "isolation",
-        })
+        }
+        bio = bio_by_ex.get(ex.id)
+        if bio:
+            entry["biomechanics"] = bio
+        result.append(entry)
 
     return {
         "total_exercises": len(result),
