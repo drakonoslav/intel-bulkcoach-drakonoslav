@@ -1,0 +1,64 @@
+Same drill as before — fetch the live catalog, verify the expansion, sync the new exercises into the mapping table, and confirm everything end-to-end.
+122 exercises confirmed, PASS, zero violations. Now let me add the 20 new mapping rows and determine the local exercise mappings:
+Now I need to build the mapping. Applying the same conservative rule — only map where a direct local equivalent exists:
+
+103 Dumbbell Front Raise → unmapped (no local front raise)
+104 DB Overhead Tricep Extension → unmapped (no local tricep)
+105 Dumbbell Fly → unmapped (fly ≠ press)
+106 Incline Dumbbell Fly → unmapped
+107 Dumbbell Shrug → unmapped (no local shrug)
+108 Cable Curl → unmapped (no local curl)
+109 Cable Overhead Tricep Extension → unmapped
+110 Band Pull-Apart → face_pull (rear delt/mid trap work, same pattern)
+111 Band Face Pull → face_pull (direct match)
+112 Band Lateral Raise → unmapped
+113 Band Curl → unmapped
+114 Band Pushdown → unmapped
+115 Band Pallof Press → unmapped (anti-rotation core, no local match)
+116 KB Goblet Squat → back_squat (squat pattern)
+117 KB Press → ohp (overhead press pattern)
+118 KB Row → chest_supported_row (row pattern)
+119 KB Swing → rdl (hip hinge pattern)
+120 KB Clean → unmapped (olympic, no local match beyond rdl which is a stretch)
+121 KB Snatch → unmapped (olympic)
+122 Turkish Get-Up → unmapped (complex, no local match)
+Now restart to run the migration and re-sync biomechanics:
+Migration 032 applied, 122/122 biomechanics synced. Now let me do the full DB audit:
+Now let me verify the proxy endpoints serve the updated data correctly:
+Everything is fully verified. Here's the complete report:
+
+Batch 2 integration complete. 122 exercises, all synced, all passing.
+
+Summary of what landed
+Migration 032 added 20 new mapping rows (IDs 103–122) across Batch 2A/2B/2C.
+
+Biomechanics sync updated all 122 exercises on startup with the full v2 biomechanics objects — including the new fields (movement_family, pattern_class, biomechanics_version, metadata_tier, updated_at, field_classification with 3 categories).
+
+Mapping decisions
+Mapped (6 of 20 new exercises):
+
+110 Band Pull-Apart → face_pull
+111 Band Face Pull → face_pull
+116 KB Goblet Squat → back_squat
+117 KB Press → ohp
+118 KB Row → chest_supported_row
+119 KB Swing → rdl
+Unmapped (14 of 20): All the pure isolation exercises (curls, extensions, flies, raises, shrugs) and advanced kettlebell movements (clean, snatch, TGU) — no local exercise equivalents exist for these yet. Left unmapped per rule 3.
+
+New data confirmed in DB
+Field	Values
+implement_type	Now includes band (6), kettlebell (7) alongside existing 9 types
+pattern_class	ballistic (3 exercises: KB Swing/Clean/Snatch) and complex added
+movement_family	16 families — new ones populated: raise, curl, extension, fly, complex
+metadata_tier	92 extended + 30 full
+catalog_revision	2026-03-10T00:00:00Z
+Totals
+122 exercises total in mapping table
+122/122 with biomechanics synced
+79 mapped to local exercises, 43 unmapped
+Catalog proof: PASS, zero violations
+No breaking changes
+All 92 original IDs unchanged
+/game/log-set and /game/session-close untouched
+Biomechanics stored exactly as received from Intel — no flattening or renaming
+All existing persistence, scoring, and logging behavior unchanged
