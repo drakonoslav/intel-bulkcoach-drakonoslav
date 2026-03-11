@@ -49,6 +49,9 @@ def _get_baselines(db: Session, expo_user_id: str) -> dict:
         "protein_floor_g": float(row.protein_floor_g) if row.protein_floor_g else DEFAULT_BASELINES["protein_floor_g"],
         "fat_floor_avg_g": float(row.fat_floor_avg_g) if row.fat_floor_avg_g else DEFAULT_BASELINES["fat_floor_avg_g"],
         "default_kcal": float(row.default_kcal) if row.default_kcal else DEFAULT_BASELINES["default_kcal"],
+        "base_protein_g": float(row.base_protein_g) if row.base_protein_g else None,
+        "base_carbs_g": float(row.base_carbs_g) if row.base_carbs_g else None,
+        "base_fat_g": float(row.base_fat_g) if row.base_fat_g else None,
         "cycle_start_date": row.cycle_start_date,
     }
 
@@ -261,6 +264,19 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         cardio_mode, lift_mode, macro_day, flags,
     )
 
+    base_p = baselines.get("base_protein_g")
+    base_c = baselines.get("base_carbs_g")
+    base_f = baselines.get("base_fat_g")
+    if base_p is not None and base_c is not None and base_f is not None:
+        macro_delta = {
+            "proteinDeltaG": round(macro_targets["proteinG"] - base_p, 1),
+            "carbsDeltaG": round(macro_targets["carbsG"] - base_c, 1),
+            "fatDeltaG": round(macro_targets["fatG"] - base_f, 1),
+            "kcalDelta": round(macro_targets["kcal"] - float(baselines["default_kcal"]), 0),
+        }
+    else:
+        macro_delta = None
+
     return {
         "acuteResult": acute,
         "resourceResult": resource,
@@ -273,6 +289,7 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         "recommendedLiftMode": lift_mode,
         "recommendedMacroDayType": macro_day,
         "macroTargets": macro_targets,
+        "macroDelta": macro_delta,
         "mealTimingTargets": meal_timing,
         "reasoning": reasoning,
         "refs": refs,

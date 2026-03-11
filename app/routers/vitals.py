@@ -30,6 +30,9 @@ class BaselineUpsert(BaseModel):
     protein_floor_g: Optional[float] = 170.0
     fat_floor_avg_g: Optional[float] = 55.0
     default_kcal: Optional[float] = 2695.0
+    base_protein_g: Optional[float] = None
+    base_carbs_g: Optional[float] = None
+    base_fat_g: Optional[float] = None
     cycle_start_date: Optional[DateType] = None
 
 
@@ -230,6 +233,9 @@ def get_baselines(expo_user_id: str, db: Session = Depends(get_db)):
             "protein_floor_g": float(row.protein_floor_g) if row.protein_floor_g else None,
             "fat_floor_avg_g": float(row.fat_floor_avg_g) if row.fat_floor_avg_g else None,
             "default_kcal": float(row.default_kcal) if row.default_kcal else None,
+            "base_protein_g": float(row.base_protein_g) if row.base_protein_g else None,
+            "base_carbs_g": float(row.base_carbs_g) if row.base_carbs_g else None,
+            "base_fat_g": float(row.base_fat_g) if row.base_fat_g else None,
             "cycle_start_date": str(row.cycle_start_date) if row.cycle_start_date else None,
         },
         "using_defaults": False,
@@ -292,6 +298,7 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
             "recommendedLiftMode": result["recommendedLiftMode"],
             "recommendedMacroDayType": result["recommendedMacroDayType"],
             "macroTargets": result["macroTargets"],
+            "macroDelta": result["macroDelta"],
             "mealTimingTargets": result["mealTimingTargets"],
             "reasoning": result["reasoning"],
         },
@@ -400,6 +407,7 @@ def get_recommendation(
             "recommendedLiftMode": result["recommendedLiftMode"],
             "recommendedMacroDayType": result["recommendedMacroDayType"],
             "macroTargets": result["macroTargets"],
+            "macroDelta": result["macroDelta"],
             "mealTimingTargets": result["mealTimingTargets"],
             "reasoning": result["reasoning"],
         },
