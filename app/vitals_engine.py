@@ -58,7 +58,9 @@ def _derive_flags(
     hrv_ms, hrv_7d_avg,
     resting_hr_bpm, rhr_7d_avg,
     sleep_duration_min,
+    zone2_count_7d: int,
     zone3_count_7d: int,
+    recovery_count_7d: int,
     cycle_day_28: int
 ) -> dict:
     suppressed_hrv = (
@@ -70,8 +72,8 @@ def _derive_flags(
         float(resting_hr_bpm) > float(rhr_7d_avg) + 4
     )
     low_sleep = sleep_duration_min is not None and float(sleep_duration_min) < 360
-    hard_stop = (suppressed_hrv and elevated_rhr) or low_sleep or composite_score < 40
-    cardio_monotony = zone3_count_7d >= 5
+    hard_stop = suppressed_hrv or elevated_rhr or low_sleep or composite_score < 55
+    cardio_monotony = max(zone2_count_7d, zone3_count_7d, recovery_count_7d) >= 5
     monthly_resensitize = cycle_day_28 >= 22
 
     return {
@@ -85,23 +87,17 @@ def _derive_flags(
 
 
 def _decide_cardio(composite: float, flags: dict, zone3_count_7d: int, zone2_count_7d: int) -> str:
-    if flags["hardStopFatigue"] or flags["suppressedHrv"] or flags["lowSleep"]:
+    if flags["hardStopFatigue"]:
         return "recovery_walk" if composite < 40 else "zone_2"
 
-    if flags["monthlyResensitizeOverride"]:
-        if zone3_count_7d >= 1:
-            return "zone_2"
+    if flags["monthlyResensitizeOverride"] and zone3_count_7d >= 1:
+        return "zone_2"
 
-    if composite >= 85:
-        if zone3_count_7d >= 3:
-            return "zone_2"
+    if zone3_count_7d >= 3:
+        return "zone_2"
+
+    if composite >= 70:
         return "zone_3"
-    elif composite >= 70:
-        if zone3_count_7d < 3 and not flags["elevatedRhr"]:
-            return "zone_3"
-        return "zone_2"
-    elif composite >= 55:
-        return "zone_2"
     elif composite >= 40:
         return "zone_2"
     else:
@@ -109,9 +105,9 @@ def _decide_cardio(composite: float, flags: dict, zone3_count_7d: int, zone2_cou
 
 
 def _decide_lift(composite: float, flags: dict) -> str:
-    if flags["hardStopFatigue"] or composite < 40:
-        return "mobility"
-    elif composite >= 85:
+    if flags["hardStopFatigue"]:
+        return "off" if composite < 40 else "recovery_patterning"
+    if composite >= 85:
         return "neural_tension"
     elif composite >= 70:
         return "hypertrophy_build"
@@ -120,13 +116,19 @@ def _decide_lift(composite: float, flags: dict) -> str:
     elif composite >= 40:
         return "recovery_patterning"
     else:
-        return "off"
+        return "mobility"
 
 
 def _decide_macro_day(composite: float, flags: dict, rhr_elevated: bool, soreness_high: bool) -> str:
-    if flags["hardStopFatigue"] or composite < 40:
-        return "resensitize"
-    elif composite >= 85:
+    if flags["hardStopFatigue"]:
+        return "resensitize" if composite < 40 else "reset"
+
+    if flags["monthlyResensitizeOverride"]:
+        if composite >= 85 and not flags["suppressedHrv"] and not flags["elevatedRhr"]:
+            return "build"
+        return "reset"
+
+    if composite >= 85:
         return "surge"
     elif composite >= 70:
         return "build"
@@ -142,22 +144,20 @@ def _build_reasoning(composite, oscillator_class, acute, resource, seasonal, car
     lines = [
         f"Composite score {composite} ({oscillator_class}).",
         f"Acute {acute}, Resource {resource}, Seasonal {seasonal}.",
-        f"Assigned cardio mode: {cardio}.",
-        f"Assigned lift mode: {lift}.",
-        f"Assigned macro day: {macro}.",
     ]
-    if flags["hardStopFatigue"]:
-        lines.append("Hard stop fatigue flag active — intensity reduced.")
     if flags["suppressedHrv"]:
-        lines.append("HRV suppressed vs 7d average.")
+        lines.append("HRV is suppressed versus 7-day baseline.")
     if flags["elevatedRhr"]:
-        lines.append("RHR elevated vs 7d average.")
+        lines.append("RHR is elevated versus 7-day baseline.")
     if flags["lowSleep"]:
-        lines.append("Sleep below 6 hours — recovery priority.")
+        lines.append("Sleep was below 6 hours.")
     if flags["monthlyResensitizeOverride"]:
-        lines.append("Cycle day 22–28: resensitize week active.")
+        lines.append("Monthly cycle is in resensitize week (days 22-28).")
     if flags["cardioMonotony"]:
-        lines.append("Cardio monotony detected — zone distribution imbalanced.")
+        lines.append("Recent cardio distribution is too repetitive.")
+    lines.append(f"Assigned cardio mode: {cardio}.")
+    lines.append(f"Assigned lift mode: {lift}.")
+    lines.append(f"Assigned macro day: {macro}.")
     return lines
 
 
@@ -243,7 +243,9 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         log_row.hrv_ms, refs["hrv7dAvg"],
         log_row.resting_hr_bpm, refs["rhr7dAvg"],
         log_row.sleep_duration_min,
+        refs["cardioZone2Count7d"],
         refs["cardioZone3Count7d"],
+        refs["cardioRecoveryCount7d"],
         cycle_day_28,
     )
 

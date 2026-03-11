@@ -50,6 +50,14 @@ Three-layer daily physiological scoring system for BulkCoach:
 - Hard stop fatigue rules → forced Zone 2/recovery mode
 - 4 macro day types with exact meal timing templates
 
+Decision engine rules (spec-verified, all 5 in `vitals_engine.py`):
+- `hardStopFatigue = suppressedHrv OR elevatedRhr OR lowSleep OR composite < 55` (OR logic, threshold 55)
+- `cardioMonotony = max(zone2_7d, zone3_7d, recovery_7d) >= 5` (all three zones checked)
+- hardStop + composite < 40 → lift=OFF, macro=RESENSITIZE
+- hardStop + composite >= 40 → lift=RECOVERY_PATTERNING, macro=RESET
+- monthlyResensitizeOverride (day 22-28): if composite>=85 + no HRV/RHR flags → macro=BUILD, else macro=RESET
+- Reasoning order: scores → flags → mode assignments (matches spec)
+
 Key files:
 - `app/vitals_models.py` — 6 SQLAlchemy tables (all use `expo_user_id` TEXT)
 - `app/vitals_scoring.py` — All 27 scoring functions + macro/meal timing templates
