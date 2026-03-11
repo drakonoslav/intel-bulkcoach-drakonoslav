@@ -1,0 +1,1615 @@
+Below is a full BulkCoach v1 system spec for the three-layer oscillator model.
+
+This is written as a product/logic spec, not just advice. It is meant to be implementable in your app and stable enough to refine over months and years.
+
+⸻
+
+BulkCoach Androgen Oscillator System Spec
+
+Version
+
+v1.0
+
+Purpose
+
+Use daily Apple Health data, body-composition data, waist data, subjective libido/readiness data, and training data to classify each day into a recovery-performance state and automatically govern:
+	•	cardio mode (Zone 2 / Zone 3 / recovery walk)
+	•	lifting mode (neural / hypertrophy / pump / recovery)
+	•	macro day type (surge / build / reset / resensitize)
+	•	28-day rhythm progression
+	•	long-horizon adaptation review
+
+The system has three nested layers:
+	1.	Acute Score — fast layer, 0–3 days
+	2.	Resource Score — medium layer, 1–6 weeks
+	3.	Seasonal Score — slow layer, 1–12 months
+
+Composite output:
+	•	Oscillator Composite Score (OCS) 0–100
+
+The system does not diagnose hormones.
+It models training-readiness, resource sufficiency, and re-peak capacity.
+
+⸻
+
+1. Core design philosophy
+
+Fixed anchors
+
+These should stay stable unless there is a deliberate schedule change:
+	•	wake time
+	•	sleep window
+	•	cardio start time
+	•	lift start time
+	•	meal timing anchors
+	•	protein floor
+	•	weekly review cadence
+	•	28-day cycle cadence
+
+Oscillating variables
+
+These deliberately vary to preserve sensitivity:
+	•	carb:fat ratio
+	•	Zone 2 vs Zone 3 frequency
+	•	lift density
+	•	lift intensity
+	•	deload depth
+	•	stress amplitude
+	•	surplus amplitude
+	•	recovery emphasis
+
+⸻
+
+2. Daily data inputs
+
+2.1 Apple Health inputs
+
+Collected daily where available.
+
+Sleep
+	•	sleep_duration_min
+	•	time_in_bed_min
+	•	sleep_efficiency_pct
+	•	bed_time
+	•	wake_time
+	•	sleep_midpoint_minutes
+	•	sleep_debt_7d_min
+	•	sleep_regularity_score
+
+Heart/autonomic
+	•	resting_hr_bpm
+	•	hrv_ms
+	•	walking_hr_avg_bpm
+	•	overnight_hr_avg_bpm if available
+	•	vo2_estimate if available
+
+Activity
+	•	active_energy_kcal
+	•	exercise_min
+	•	step_count
+	•	morning_cardio_duration_min
+	•	morning_cardio_avg_hr
+	•	morning_cardio_zone
+	•	lift_duration_min
+
+⸻
+
+2.2 Scale/body comp inputs
+
+Daily if available, weekly review emphasis.
+	•	body_weight_lb
+	•	body_fat_pct
+	•	fat_mass_lb
+	•	fat_free_mass_lb
+	•	skeletal_muscle_lb if available
+	•	tbw_pct if available
+	•	body_comp_confidence (0–1; lower if scale noisy)
+
+⸻
+
+2.3 Waist and manual anthropometry
+	•	waist_at_navel_in
+	•	waist_measure_confidence
+	•	waist_notes
+
+Waist should be used primarily weekly, not as a noisy daily governor.
+
+⸻
+
+2.4 Subjective state fields
+
+These matter because readiness is not fully captured by wearables.
+	•	libido_score (1–5)
+	•	morning_erection_score (0–3 or nullable)
+	•	motivation_score (1–5)
+	•	mood_stability_score (1–5)
+	•	joint_friction_score (1–5, reverse-coded)
+	•	soreness_score (1–5, reverse-coded)
+	•	mental_drive_score (1–5)
+	•	stress_load_score (1–5, reverse-coded)
+
+⸻
+
+2.5 Lift-readiness and training fields
+	•	planned_lift_type
+	•	completed_lift_type
+	•	lift_readiness_self_score (1–5)
+	•	top_set_load_index
+	•	top_set_rpe
+	•	strength_output_index
+	•	pump_quality_score (1–5)
+	•	rep_speed_subjective_score (1–5)
+	•	session_density_score
+	•	lift_strain_score
+
+⸻
+
+2.6 Nutrition fields
+	•	kcal_target
+	•	kcal_actual
+	•	protein_g_target
+	•	protein_g_actual
+	•	carbs_g_target
+	•	carbs_g_actual
+	•	fat_g_target
+	•	fat_g_actual
+
+Derived:
+	•	protein_adherence_pct
+	•	carb_adherence_pct
+	•	fat_adherence_pct
+	•	kcal_adherence_pct
+
+⸻
+
+3. Normalization framework
+
+Every variable should be converted to a 0–100 subscore or similar normalized form.
+
+Use three kinds of baseline:
+
+3.1 Fixed baseline
+
+For values with a meaningful personal long-run baseline:
+	•	yearly HRV average
+	•	yearly RHR average
+	•	target waist
+	•	target calories
+
+3.2 Rolling baseline
+
+For fast-changing signals:
+	•	7-day HRV average
+	•	7-day RHR average
+	•	7-day sleep average
+	•	7-day weight average
+
+3.3 Reference trend baseline
+
+For medium/slow signals:
+	•	14-day waist average
+	•	14-day FFM trend
+	•	28-day HRV trend
+	•	28-day sleep regularity trend
+
+⸻
+
+4. Acute Score specification
+
+4.1 Purpose
+
+Detect today’s near-term capacity to absorb stress and perform.
+
+Time horizon:
+	•	current day
+	•	previous 1–3 days
+
+Range:
+	•	0 to 100
+
+4.2 Acute Score components and weights
+
+Component	Weight
+HRV state	22
+RHR state	18
+Sleep quantity	15
+Sleep regularity	8
+Bodyweight stability	5
+Subjective drive/libido	10
+Joint/soreness state	10
+Yesterday training strain	7
+Yesterday cardio strain	5
+
+Total = 100
+
+⸻
+
+4.3 Component formulas
+
+A. HRV state (0–22)
+
+Use both yearly baseline and 7-day reference.
+
+Definitions:
+	•	hrv_today
+	•	hrv_7d_avg
+	•	hrv_year_avg
+
+Primary ratio:
+	•	hrv_ratio = hrv_today / max(hrv_7d_avg, 1)
+
+Secondary ratio:
+	•	hrv_year_ratio = hrv_today / max(hrv_year_avg, 1)
+
+Scoring:
+	•	if hrv_ratio >= 1.10, score = 22
+	•	if 1.03–1.09, score = 19
+	•	if 0.97–1.02, score = 15
+	•	if 0.90–0.96, score = 9
+	•	if <0.90, score = 4
+
+Adjustment:
+	•	if hrv_year_ratio > 1.15, add +1 capped at 22
+	•	if hrv_year_ratio < 0.85, subtract -1 floored at 0
+
+⸻
+
+B. RHR state (0–18)
+
+Definitions:
+	•	rhr_today
+	•	rhr_7d_avg
+	•	rhr_year_avg
+
+Delta:
+	•	rhr_delta = rhr_today - rhr_7d_avg
+
+Scoring:
+	•	<= -3 bpm → 18
+	•	-2 to -1 → 16
+	•	0 to +1 → 13
+	•	+2 to +3 → 8
+	•	+4 to +5 → 4
+	•	> +5 → 1
+
+Adjustment:
+	•	if rhr_today <= rhr_year_avg - 3, +1 capped 18
+	•	if rhr_today >= rhr_year_avg + 5, -1 floored 0
+
+⸻
+
+C. Sleep quantity (0–15)
+
+Target:
+	•	optimal band = 450–510 min (7.5–8.5 hr)
+	•	acceptable = 420–540 min
+
+Scoring:
+	•	450–510 → 15
+	•	420–449 or 511–540 → 12
+	•	390–419 → 8
+	•	360–389 → 4
+	•	<360 → 1
+
+Optional bonus:
+	•	if efficiency >= 90%, add +1 capped 15
+
+⸻
+
+D. Sleep regularity (0–8)
+
+Use midpoint shift from 7-day midpoint average.
+	•	midpoint_shift_min = abs(sleep_midpoint_today - sleep_midpoint_7d_avg)
+
+Scoring:
+	•	<= 20 min → 8
+	•	21–40 → 6
+	•	41–60 → 4
+	•	61–90 → 2
+	•	>90 → 0
+
+⸻
+
+E. Bodyweight stability (0–5)
+
+Purpose:
+detect abrupt dehydration/inflammation swings.
+	•	weight_delta_pct = (weight_today - weight_7d_avg) / weight_7d_avg
+
+Scoring:
+	•	abs(delta) <= 0.4% → 5
+	•	0.41–0.8% → 4
+	•	0.81–1.2% → 2
+	•	>1.2% → 0
+
+⸻
+
+F. Subjective drive/libido (0–10)
+
+Use average of:
+	•	libido_score
+	•	morning_erection_score normalized
+	•	motivation_score
+	•	mental_drive_score
+
+Normalization:
+convert each to 0–10 scale, then average.
+
+Example:
+	•	libido 1–5 becomes (value-1)/4*10
+	•	erection 0–3 becomes value/3*10
+
+Final subjective subscore capped 10.
+
+⸻
+
+G. Joint/soreness state (0–10)
+
+Use reverse-coded:
+	•	soreness_score
+	•	joint_friction_score
+
+Example:
+	•	very low soreness and low friction = 10
+	•	moderate = 6
+	•	high = 2
+
+⸻
+
+H. Yesterday lift strain (0–7)
+
+Use prior-day lift_strain_score 0–100.
+
+Scoring:
+	•	strain 0–35 → 7
+	•	36–55 → 5
+	•	56–70 → 3
+	•	70 → 1
+
+This is not “hard lift bad,” just acute recovery cost.
+
+⸻
+
+I. Yesterday cardio strain (0–5)
+
+Use prior-day cardio mode:
+	•	recovery walk → 5
+	•	zone 2 → 4
+	•	zone 3 short → 3
+	•	zone 3 full → 2
+	•	extra interval or prolonged high intensity → 1
+
+⸻
+
+4.4 Acute Score formula
+
+acute_score =
+  hrv_score
++ rhr_score
++ sleep_qty_score
++ sleep_reg_score
++ bodyweight_stability_score
++ subjective_drive_score
++ joint_soreness_score
++ yesterday_lift_score
++ yesterday_cardio_score
+
+Clamp:
+	•	min 0
+	•	max 100
+
+⸻
+
+5. Resource Score specification
+
+5.1 Purpose
+
+Detect whether the body is sufficiently fueled, recovering, and structurally trending well to continue growth.
+
+Time horizon:
+	•	7 to 42 days
+
+Range:
+	•	0 to 100
+
+5.2 Resource Score components and weights
+
+Component	Weight
+Calorie adherence 7d	10
+Protein adequacy 7d	12
+Fat floor adherence 7d	12
+Carb adequacy around training	10
+Weight trend	10
+Waist trend	12
+FFM trend	12
+Strength trend	12
+Cardio monotony penalty adjusted score	10
+
+Total = 100
+
+⸻
+
+5.3 Component formulas
+
+A. Calorie adherence 7d (0–10)
+
+Use 7-day average intake vs 7-day target.
+	•	kcal_ratio = kcal_7d_avg / kcal_target_7d_avg
+
+Scoring:
+	•	0.97–1.03 → 10
+	•	0.94–0.96 or 1.04–1.06 → 8
+	•	0.90–0.93 or 1.07–1.10 → 5
+	•	otherwise → 2
+
+⸻
+
+B. Protein adequacy 7d (0–12)
+
+Target range:
+	•	170–180 g/day average
+
+Scoring:
+	•	within target range → 12
+	•	160–169 or 181–190 → 9
+	•	145–159 → 5
+	•	below 145 → 1
+
+Could also use % adherence if dynamic targets later.
+
+⸻
+
+C. Fat floor adherence 7d (0–12)
+
+This is important for your design.
+
+Minimum preferred weekly average:
+	•	>= 55 g/day
+Better:
+	•	some days 75–95g and some days 35–45g
+
+Two checks:
+
+1. Average floor
+	•	average fat >= 55g → pass
+
+2. Oscillation presence
+	•	at least 2 days >= 75g and at least 2 days <= 50g → oscillation bonus
+
+Scoring:
+	•	floor pass + oscillation pass → 12
+	•	floor pass only → 9
+	•	average 50–54g → 6
+	•	average <50g → 2
+
+⸻
+
+D. Carb adequacy around training (0–10)
+
+Use average carbs placed in:
+	•	post-cardio meal
+	•	pre-lift meal
+	•	post-lift meal
+
+Target training-window carbs:
+	•	build day: 180–240g across those windows
+	•	reset day: 120–170g
+	•	surge day: 220–280g
+
+Score by day-type adherence averaged across 7d:
+	•	=90% adherence → 10
+	•	80–89% → 8
+	•	65–79% → 5
+	•	<65% → 2
+
+⸻
+
+E. Weight trend (0–10)
+
+Use 14-day weight trend.
+
+For recomposition / lean-gain phase:
+	•	preferred rate: +0.10 to +0.50 lb/week
+	•	maintenance phase: -0.10 to +0.20 lb/week
+This should be phase-aware.
+
+In v1, assume lean-gain default:
+	•	+0.10 to +0.50 lb/wk → 10
+	•	stable to +0.09 → 8
+	•	+0.51 to +0.80 → 6
+	•	negative trend below -0.10 → 4
+	•	+0.80 → 3
+
+⸻
+
+F. Waist trend (0–12)
+
+Use 14-day average waist trend.
+
+Target:
+	•	stable or slight decrease
+	•	small increase tolerated during expansion
+
+Scoring:
+	•	-0.25 in to +0.10 in over 14d → 12
+	•	+0.11 to +0.25 → 9
+	•	+0.26 to +0.40 → 6
+	•	+0.40 → 2
+
+If no fresh waist within 10 days:
+	•	use last known but cap score at 8
+
+⸻
+
+G. FFM trend (0–12)
+
+Use 14-day or 28-day smoothed FFM.
+
+Scoring:
+	•	+0.20 to +0.60 lb/week → 12
+	•	+0.05 to +0.19 → 9
+	•	stable → 7
+	•	negative but <= -0.20 → 3
+
+If body comp confidence is low, blend with weight+waist logic.
+
+⸻
+
+H. Strength trend (0–12)
+
+Use main-lift output trend or strength index trend.
+
+Suggested formula:
+	•	compare 14-day average strength_output_index vs prior 14-day average
+
+Scoring:
+	•	improvement >2% → 12
+	•	stable 0 to +2% → 9
+	•	slight dip -0.1 to -2% → 6
+	•	worse than -2% → 2
+
+⸻
+
+I. Cardio monotony penalty adjusted score (0–10)
+
+Purpose:
+punish doing the same intensity every day.
+
+Compute 7-day cardio distribution:
+	•	number of Zone 2 days
+	•	number of Zone 3 days
+	•	number of recovery/easy days
+
+Ideal weekly distribution:
+	•	Z2 = 3
+	•	Z3 = 3
+	•	easy = 1
+
+Scoring:
+	•	exact 3/3/1 or close 3/2/2 or 2/3/2 → 10
+	•	moderate imbalance but not flat → 7
+	•	5+ days same zone → 4
+	•	7 identical days → 1
+
+⸻
+
+5.4 Resource Score formula
+
+resource_score =
+  calorie_adherence_score
++ protein_score
++ fat_floor_score
++ carb_timing_score
++ weight_trend_score
++ waist_trend_score
++ ffm_trend_score
++ strength_trend_score
++ cardio_monotony_score
+
+Clamp 0–100.
+
+⸻
+
+6. Seasonal Score specification
+
+6.1 Purpose
+
+Detect whether the system is becoming more resilient and more re-peak capable across months.
+
+Time horizon:
+	•	28 days to 12 months
+
+Range:
+	•	0 to 100
+
+6.2 Seasonal Score components and weights
+
+Component	Weight
+HRV 28d trend	18
+RHR 28d trend	14
+Sleep regularity 28d trend	10
+Waist:weight relationship	12
+FFM 28d trend	14
+Deload compliance	10
+Training monotony index	8
+Light / outdoor consistency	6
+Motivation / virility trend	8
+
+Total = 100
+
+⸻
+
+6.3 Component formulas
+
+A. HRV 28d trend (0–18)
+
+Compare latest 28-day mean to previous 28-day mean.
+	•	improvement > +8% → 18
+	•	+3 to +8% → 15
+	•	stable ±2% → 11
+	•	-3 to -7% → 6
+	•	worse than -7% → 2
+
+⸻
+
+B. RHR 28d trend (0–14)
+
+Compare latest 28-day mean to previous 28-day mean.
+	•	improvement <= -3 bpm → 14
+	•	-1 to -2 bpm → 11
+	•	stable → 8
+	•	+1 to +2 bpm → 4
+	•	+2 bpm → 1
+
+⸻
+
+C. Sleep regularity 28d trend (0–10)
+
+Use average midpoint deviation / bedtime consistency.
+	•	markedly improved → 10
+	•	somewhat improved → 8
+	•	stable good → 7
+	•	erratic → 3
+	•	worsening → 1
+
+⸻
+
+D. Waist:weight relationship (0–12)
+
+Purpose:
+did weight gain mostly preserve shape?
+
+Compute:
+	•	waist_change_per_lb = waist_28d_change / max(weight_28d_change, 0.5)
+
+Interpretation:
+lower is better.
+
+Scoring:
+	•	gaining weight with waist stable or down → 12
+	•	slight waist rise with bodyweight rise → 9
+	•	waist rising faster than expected → 5
+	•	waist rising without productive weight trend → 2
+
+⸻
+
+E. FFM 28d trend (0–14)
+
+Compare latest 28-day FFM average to previous 28-day average.
+	•	clear positive trend → 14
+	•	mild positive → 11
+	•	stable → 8
+	•	negative → 3
+
+⸻
+
+F. Deload compliance (0–10)
+
+At least one meaningful resensitization block per 28 days:
+	•	volume down 35–50%
+	•	more Z2
+	•	fewer surge days
+	•	higher recovery emphasis
+
+Scoring:
+	•	full deload done → 10
+	•	partial → 6
+	•	none → 1
+
+⸻
+
+G. Training monotony index (0–8)
+
+Use weekly variability in:
+	•	lift types
+	•	cardio modes
+	•	macro day types
+
+Scoring:
+	•	healthy variation → 8
+	•	moderate variation → 5
+	•	flat identical weeks → 1
+
+⸻
+
+H. Light/outdoor consistency (0–6)
+
+Use Apple outdoor time or manual morning light exposure log.
+	•	consistent daily light exposure → 6
+	•	moderate → 4
+	•	low → 2
+
+⸻
+
+I. Motivation/virility trend (0–8)
+
+Use 28-day trend in:
+	•	libido_score
+	•	motivation_score
+	•	mood_stability_score
+	•	morning_erection_score if logged
+	•	positive trend → 8
+	•	stable good → 6
+	•	stable mediocre → 4
+	•	worsening → 1
+
+⸻
+
+6.4 Seasonal Score formula
+
+seasonal_score =
+  hrv_28d_score
++ rhr_28d_score
++ sleep_regularity_28d_score
++ waist_weight_relationship_score
++ ffm_28d_score
++ deload_compliance_score
++ training_monotony_variation_score
++ light_consistency_score
++ motivation_virility_trend_score
+
+Clamp 0–100.
+
+⸻
+
+7. Oscillator Composite Score
+
+7.1 Formula
+
+ocs =
+  (acute_score * 0.50)
++ (resource_score * 0.30)
++ (seasonal_score * 0.20)
+
+Round to nearest integer 0–100.
+
+7.2 Classification bands
+
+OCS	Class	Meaning
+85–100	Peak	highest-value day
+70–84	Strong Build	push is supported
+55–69	Controlled Build	productive but not maximal
+40–54	Reset	reduce neural cost
+0–39	Resensitize	recovery priority
+
+
+⸻
+
+8. Daily decision rules
+
+These convert score into action.
+
+8.1 Cardio decision
+
+If OCS >= 85
+	•	default cardio = Zone 3
+	•	unless prior 2 days already Zone 3, then switch to Zone 2
+
+If OCS 70–84
+	•	Zone 3 allowed if:
+	•	HRV subscore good
+	•	RHR not elevated
+	•	previous day not Zone 3 + heavy neural lift
+	•	otherwise Zone 2
+
+If OCS 55–69
+	•	default cardio = Zone 2
+
+If OCS 40–54
+	•	Zone 2 short or brisk walk
+
+If OCS < 40
+	•	easy walk / recovery only
+
+⸻
+
+8.2 Lift-type decision
+
+Peak (85–100)
+	•	lift_type = neural_tension
+	•	heavy compounds
+	•	lower rep
+	•	longer rest
+	•	fewer total exercises
+
+Strong Build (70–84)
+	•	lift_type = hypertrophy_build
+	•	moderate reps
+	•	full productive session
+
+Controlled Build (55–69)
+	•	lift_type = pump_or_moderate_hypertrophy
+	•	less axial fatigue
+	•	avoid grind
+
+Reset (40–54)
+	•	lift_type = recovery_patterning
+	•	lighter
+	•	technique / mobility / light pump
+
+Resensitize (<40)
+	•	lift_type = no_hard_lift
+	•	walk, mobility, optional easy blood flow
+
+⸻
+
+8.3 Macro day-type decision
+
+Peak
+	•	macro_day = surge
+
+Strong Build
+	•	macro_day = build
+
+Controlled Build
+	•	macro_day = build or reset
+	•	choose reset if RHR elevated or soreness high
+
+Reset
+	•	macro_day = reset
+
+Resensitize
+	•	macro_day = resensitize
+
+⸻
+
+9. Zone 2 / Zone 3 auto-switch logic
+
+This should not be based on OCS alone. It must also enforce weekly rhythm.
+
+9.1 Weekly target distribution
+
+Per 7 days:
+	•	Zone 3 target = 3 days
+	•	Zone 2 target = 3 days
+	•	Recovery/easy target = 1 day
+
+9.2 Rule stack
+
+Rule 1: hard stop fatigue rules
+
+Force Zone 2 or recovery if any:
+	•	HRV < 90% of 7d average
+	•	RHR > 7d average + 4 bpm
+	•	sleep < 6 hr
+	•	joint+soreness subscore low
+	•	OCS < 55
+
+Rule 2: protect weekly balance
+
+If already completed:
+	•	3 Zone 3 days in current rolling 7 days
+then next cardio defaults to Zone 2 unless OCS >= 90 and no fatigue flags.
+
+Rule 3: prevent monotony
+
+If last 4 cardio sessions were same zone:
+	•	switch next eligible session to other zone
+
+Rule 4: peak utilization
+
+If OCS >= 85 and Zone 3 count < 3 in rolling 7d:
+	•	assign Zone 3
+
+Rule 5: resensitize week override
+
+During days 22–28 of monthly cycle, cap Zone 3 to max 1 day unless OCS extremely high and recovery markers excellent.
+
+⸻
+
+10. Macro day templates
+
+These are day-type templates.
+
+10.1 Surge day
+
+Use on Peak days.
+	•	Protein: 175 g
+	•	Carbs: 390 g
+	•	Fat: 40 g
+	•	Calories: ~2680–2720
+
+Meal emphasis:
+	•	very high training-window carbs
+	•	low fat pre/post training
+
+10.2 Build day
+
+Use on Strong Build days.
+	•	Protein: 175 g
+	•	Carbs: 340 g
+	•	Fat: 55 g
+	•	Calories: ~2585–2660 depending food labels and rounding
+
+To keep near 2695, you can also use:
+	•	175 / 350 / 60
+
+10.3 Reset day
+
+Use on Reset days.
+	•	Protein: 175 g
+	•	Carbs: 280 g
+	•	Fat: 80 g
+	•	Calories: ~2580–2660 depending exact numbers
+
+Closer to 2695 option:
+	•	175 / 290 / 80
+
+10.4 Resensitize day
+
+Use on low-score or deep recovery days.
+	•	Protein: 175 g
+	•	Carbs: 230 g
+	•	Fat: 95 g
+	•	Calories: ~2515–2615
+
+Alternative closer-to-baseline version:
+	•	175 / 250 / 90
+
+⸻
+
+11. 28-day macro calendar
+
+This is the actual repeatable monthly structure.
+
+Week 1 — Prime
+
+Goal: establish rhythm, moderate amplitude
+
+Day 1
+	•	cardio: Zone 3
+	•	lift: hypertrophy_build
+	•	macros: Build
+175 / 350 / 60
+
+Day 2
+	•	cardio: Zone 2
+	•	lift: hypertrophy_build
+	•	macros: Build
+175 / 340 / 60
+
+Day 3
+	•	cardio: Zone 3
+	•	lift: neural_tension
+	•	macros: Surge
+175 / 390 / 40
+
+Day 4
+	•	cardio: Zone 2
+	•	lift: pump_or_moderate
+	•	macros: Build
+175 / 330 / 65
+
+Day 5
+	•	cardio: Zone 2
+	•	lift: recovery_patterning
+	•	macros: Reset
+175 / 290 / 80
+
+Day 6
+	•	cardio: Zone 3
+	•	lift: hypertrophy_build
+	•	macros: Build
+175 / 350 / 60
+
+Day 7
+	•	cardio: recovery walk
+	•	lift: off or mobility
+	•	macros: Resensitize
+175 / 250 / 90
+
+⸻
+
+Week 2 — Overload
+
+Goal: highest productive amplitude
+
+Day 8
+	•	Zone 3
+	•	neural_tension
+	•	Surge
+175 / 390 / 40
+
+Day 9
+	•	Zone 3
+	•	hypertrophy_build
+	•	Build
+175 / 350 / 60
+
+Day 10
+	•	Zone 2
+	•	hypertrophy_build
+	•	Build
+175 / 340 / 60
+
+Day 11
+	•	Zone 3
+	•	neural_tension or explosive emphasis
+	•	Surge
+175 / 390 / 40
+
+Day 12
+	•	Zone 2
+	•	pump_or_moderate
+	•	Reset
+175 / 290 / 80
+
+Day 13
+	•	Zone 2
+	•	hypertrophy_build light
+	•	Build
+175 / 330 / 65
+
+Day 14
+	•	recovery walk
+	•	off / mobility
+	•	Resensitize
+175 / 250 / 90
+
+⸻
+
+Week 3 — Peak
+
+Goal: highest quality, slightly less volume than overload
+
+Day 15
+	•	Zone 3
+	•	neural_tension
+	•	Surge
+175 / 390 / 40
+
+Day 16
+	•	Zone 2
+	•	hypertrophy_build
+	•	Build
+175 / 350 / 60
+
+Day 17
+	•	Zone 3
+	•	neural_tension
+	•	Surge
+175 / 390 / 40
+
+Day 18
+	•	Zone 2
+	•	pump_or_moderate
+	•	Build
+175 / 330 / 65
+
+Day 19
+	•	Zone 2
+	•	recovery_patterning
+	•	Reset
+175 / 290 / 80
+
+Day 20
+	•	Zone 3 if OCS high, else Zone 2
+	•	hypertrophy_build
+	•	Build
+175 / 340 / 60
+
+Day 21
+	•	recovery walk
+	•	off / mobility
+	•	Resensitize
+175 / 250 / 90
+
+⸻
+
+Week 4 — Resensitize
+
+Goal: restore response capacity
+
+Day 22
+	•	Zone 2
+	•	recovery_patterning
+	•	Reset
+175 / 290 / 80
+
+Day 23
+	•	Zone 2
+	•	pump light
+	•	Reset
+175 / 280 / 80
+
+Day 24
+	•	recovery walk
+	•	mobility only
+	•	Resensitize
+175 / 250 / 90
+
+Day 25
+	•	Zone 2
+	•	hypertrophy_build light
+	•	Build
+175 / 320 / 65
+
+Day 26
+	•	Zone 2
+	•	recovery_patterning
+	•	Reset
+175 / 280 / 80
+
+Day 27
+	•	recovery walk
+	•	off
+	•	Resensitize
+175 / 230 / 95
+
+Day 28
+	•	recovery walk
+	•	full review day
+	•	Resensitize
+175 / 230 / 95
+
+⸻
+
+12. Meal timing templates by macro day
+
+Surge day template
+	•	pre-cardio: 30 C
+	•	post-cardio: 40 P / 90 C / 10 F
+	•	meal 2: 30 P / 60 C / 10 F
+	•	pre-lift: 25 P / 80 C / 5 F
+	•	post-lift: 45 P / 110 C / 5 F
+	•	final meal: 35 P / 20 C / 10 F
+
+Build day template
+	•	pre-cardio: 30 C
+	•	post-cardio: 40 P / 75 C / 10 F
+	•	meal 2: 30 P / 55 C / 10 F
+	•	pre-lift: 25 P / 65 C / 5 F
+	•	post-lift: 45 P / 85 C / 5 F
+	•	final meal: 35 P / remaining carbs / remaining fats
+
+Reset day template
+	•	pre-cardio: 20–25 C
+	•	post-cardio: 40 P / 60 C / 15 F
+	•	meal 2: 30 P / 45 C / 15 F
+	•	pre-lift: 25 P / 45 C / 5–10 F
+	•	post-lift: 45 P / 55 C / 10 F
+	•	final meal: remaining protein / 30–40 C / 30+ F
+
+Resensitize day template
+	•	lower carb concentration
+	•	more evening fat
+	•	no need to force large peri-workout carbs if no hard lift
+
+⸻
+
+13. Daily action pseudocode
+
+1. ingest_today_data()
+
+2. calculate_acute_score()
+3. calculate_resource_score()
+4. calculate_seasonal_score()
+
+5. ocs = 0.5*acute + 0.3*resource + 0.2*seasonal
+
+6. if hard_stop_fatigue_rule == true:
+       cardio = zone2_or_recovery
+       lift = recovery_or_off
+       macro_day = reset_or_resensitize
+       goto output
+
+7. determine_monthly_day = cycle_day_1_to_28
+
+8. determine_weekly_distribution_state()
+   determine_recent_cardio_distribution()
+   determine_recent_lift_strain()
+
+9. assign_default_mode_by_ocs()
+
+10. apply_distribution_overrides()
+    - prevent too many zone3 days
+    - enforce resensitize week
+    - prevent too many neural sessions in a row
+
+11. assign_macro_day()
+
+12. output:
+    - score breakdown
+    - recommended cardio mode
+    - recommended lift mode
+    - macro target for day
+    - note explaining why
+
+
+⸻
+
+14. Schema fields
+
+Below is a suggested schema. Names are designed to be practical for app/db use.
+
+14.1 daily_log
+
+One row per day.
+
+daily_log
+- id
+- date
+- body_weight_lb
+- body_fat_pct
+- fat_mass_lb
+- fat_free_mass_lb
+- waist_at_navel_in
+- resting_hr_bpm
+- hrv_ms
+- sleep_duration_min
+- time_in_bed_min
+- sleep_efficiency_pct
+- bedtime_local
+- waketime_local
+- sleep_midpoint_min
+- active_energy_kcal
+- exercise_min
+- step_count
+- libido_score
+- morning_erection_score
+- motivation_score
+- mood_stability_score
+- soreness_score
+- joint_friction_score
+- mental_drive_score
+- stress_load_score
+- kcal_target
+- kcal_actual
+- protein_g_target
+- protein_g_actual
+- carbs_g_target
+- carbs_g_actual
+- fat_g_target
+- fat_g_actual
+- acute_score
+- resource_score
+- seasonal_score
+- oscillator_composite_score
+- recommended_cardio_mode
+- recommended_lift_mode
+- recommended_macro_day
+- actual_cardio_mode
+- actual_lift_mode
+- notes
+- created_at
+- updated_at
+
+
+⸻
+
+14.2 cardio_session
+
+If you track sessions separately.
+
+cardio_session
+- id
+- date
+- start_time
+- end_time
+- duration_min
+- avg_hr_bpm
+- max_hr_bpm
+- zone2_min
+- zone3_min
+- mode_enum  // zone2, zone3, recovery_walk
+- strain_score
+- source  // apple_health/manual
+
+
+⸻
+
+14.3 lift_session
+
+lift_session
+- id
+- date
+- start_time
+- end_time
+- duration_min
+- planned_lift_type
+- completed_lift_type
+- lift_readiness_self_score
+- top_set_load_index
+- top_set_rpe
+- strength_output_index
+- session_density_score
+- pump_quality_score
+- rep_speed_subjective_score
+- lift_strain_score
+- notes
+
+
+⸻
+
+14.4 nutrition_day_target
+
+Useful if the app assigns targets ahead of time.
+
+nutrition_day_target
+- id
+- date
+- macro_day_type  // surge, build, reset, resensitize
+- kcal_target
+- protein_g_target
+- carbs_g_target
+- fat_g_target
+- pre_cardio_carbs_g
+- post_cardio_protein_g
+- post_cardio_carbs_g
+- pre_lift_protein_g
+- pre_lift_carbs_g
+- post_lift_protein_g
+- post_lift_carbs_g
+- final_meal_fat_g
+
+
+⸻
+
+14.5 oscillator_state
+
+Stores rolling-calculated states.
+
+oscillator_state
+- id
+- date
+- cycle_day_28
+- acute_score
+- acute_class
+- resource_score
+- resource_class
+- seasonal_score
+- seasonal_class
+- oscillator_composite_score
+- oscillator_class
+- rolling_zone2_count_7d
+- rolling_zone3_count_7d
+- rolling_recovery_count_7d
+- rolling_neural_lift_count_7d
+- rolling_reset_day_count_28d
+- fatigue_flag
+- monotony_flag
+- deload_compliance_flag
+
+
+⸻
+
+15. Derived helper formulas
+
+15.1 Sleep regularity score helper
+
+sleep_regularity_score =
+max(0, 100 - (abs(sleep_midpoint_today - sleep_midpoint_7d_avg) / 90) * 100)
+
+Clamp 0–100.
+
+15.2 Weight trend lb/week
+
+Use linear regression over 14 days.
+
+weight_trend_lb_per_week = slope(weight over 14d) * 7
+
+15.3 FFM trend lb/week
+
+Same method:
+
+ffm_trend_lb_per_week = slope(ffm over 14d) * 7
+
+15.4 Strength output index
+
+Simple v1 option:
+
+strength_output_index =
+(top_set_load_index * 0.5)
++ (session_density_score * 0.2)
++ (rep_speed_subjective_score * 0.1)
++ (pump_quality_score * 0.2)
+
+Could later be exercise-weighted.
+
+⸻
+
+16. Review cadences
+
+Daily review
+
+Show:
+	•	Acute / Resource / Seasonal / Composite
+	•	recommended cardio
+	•	recommended lift type
+	•	macro day target
+	•	one-line explanation
+
+Example:
+“HRV above trend, RHR stable, sleep adequate, weekly Zone 3 count low: assign Surge + neural/tension + Zone 3.”
+
+Weekly review
+
+Show:
+	•	7d average calories/macros
+	•	zone2/zone3 distribution
+	•	body weight trend
+	•	FFM trend
+	•	waist
+	•	training monotony
+	•	top 3 lift outputs
+
+28-day review
+
+Show:
+	•	average Acute/Resource/Seasonal
+	•	deload compliance
+	•	waist:weight relationship
+	•	HRV/RHR trend
+	•	FFM trend
+	•	cycle map of surge/build/reset/resensitize
+	•	next month adjustment
+
+90-day review
+
+Show:
+	•	quarterly phenotype shift
+	•	best readiness weeks
+	•	worst fatigue periods
+	•	whether calorie baseline should rise, hold, or drop
+
+⸻
+
+17. Adjustment rules
+
+Raise calories by 75–100 kcal if:
+	•	Resource Score stays >75 for 3+ weeks
+	•	FFM trend flat
+	•	waist stable
+	•	strength trend positive but stalled recently
+
+Lower calories by 75–100 kcal if:
+	•	waist climbs >0.4 in over 14d
+	•	FFM not improving
+	•	weight rises too fast
+	•	Resource Score declines despite adherence
+
+Increase Zone 2 proportion if:
+	•	HRV compressed for >10 days
+	•	RHR elevated
+	•	OCS rarely exceeds 75
+	•	Zone 3 feels stale
+
+Increase surge day frequency slightly if:
+	•	Seasonal score good
+	•	recovery excellent
+	•	strength and FFM trending up
+	•	waist stable
+
+⸻
+
+18. Minimum viable UI outputs
+
+On the dashboard, show:
+
+Today
+	•	OCS
+	•	Acute / Resource / Seasonal
+	•	cardio mode
+	•	lift mode
+	•	macro day
+
+Week
+	•	Zone 2 / Zone 3 counts
+	•	body weight trend
+	•	waist last value
+	•	FFM trend
+	•	average sleep
+	•	average HRV
+
+Month
+	•	28-day cycle ring
+	•	days marked as surge/build/reset/resensitize
+	•	score trend
+	•	deload check
+
+⸻
+
+19. Practical v1 defaults for you specifically
+
+Based on the numbers you gave, I would start with these defaults:
+
+Personal baseline constants
+	•	hrv_year_avg = 36
+	•	rhr_year_avg = 60
+	•	body_weight_setpoint = 156
+	•	waist_setpoint = 31.5
+	•	protein_floor = 170
+	•	fat_floor_avg = 55
+	•	default_kcal = 2695
+
+Default macro templates
+	•	surge = 175 / 390 / 40
+	•	build = 175 / 350 / 60
+	•	reset = 175 / 290 / 80
+	•	resensitize = 175 / 250 / 90
+
+Default cardio pattern
+	•	target 3 Z3
+	•	target 3 Z2
+	•	target 1 recovery
+
+⸻
+
+20. Recommended v1 implementation order
+
+Build this in stages.
+
+Phase 1
+	•	schema fields
+	•	Acute Score
+	•	dashboard with daily recommendation
+
+Phase 2
+	•	Resource Score
+	•	7d/14d trends
+	•	macro day assignment
+	•	zone auto-switch logic
+
+Phase 3
+	•	Seasonal Score
+	•	28-day calendar
+	•	deload compliance
+	•	phenotype review
+
+Phase 4
+	•	personalized thresholds from your own history
+	•	confidence weighting for noisy scale data
+	•	more advanced strength index
+
+⸻
+
+21. Decision summary table
+
+Composite	Cardio	Lift	Macro
+85+	Zone 3	Neural/Tension	Surge
+70–84	Zone 3 or Zone 2	Hypertrophy Build	Build
+55–69	Zone 2	Pump/Moderate	Build or Reset
+40–54	Zone 2 short	Recovery/Pattern	Reset
+<40	Walk only	Off/Mobility	Resensitize
+
+
+⸻
+
+22. The real long-horizon aim
+
+The point of this system over years is not just higher numbers.
+
+It is to preserve:
+	•	contrast between hard and easy days
+	•	contrast between high-carb and high-fat days
+	•	contrast between output and repair
+	•	contrast between expansion and re-sensitization
+
+That contrast is what keeps the organism from going flat.
+
+If you want the next step, I’ll turn this into a developer-ready build packet with:
+	•	TypeScript interfaces
+	•	enum definitions
+	•	scoring functions
+	•	SQL table definitions
+	•	API response shape for the dashboard and daily recommendation engine.
