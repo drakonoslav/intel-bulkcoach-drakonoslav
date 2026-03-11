@@ -35,6 +35,40 @@ attached_assets/
   V5_Stability_Matrix_*.csv             — Stability component (float 0–1)
 ```
 
+## System Architecture: Two Independent Engines
+
+### 1. Biomechanical Catalog (muscle activation system)
+122 exercises with 9-layer activation matrices. Completely isolated — no shared tables with Vitals.
+
+### 2. Vitals Engine / Androgen Oscillator (NEW)
+Three-layer daily physiological scoring system for BulkCoach:
+- **Acute score** (50%) — HRV, RHR, sleep, bodyweight stability, subjective drive, recovery state
+- **Resource score** (30%) — 7d nutrition, 14d body composition + strength trends, cardio distribution
+- **Seasonal score** (20%) — 28d HRV/RHR/sleep/body composition trends, deload compliance, virility trend
+- **OCS composite** (0–100): peak≥85, strong_build≥70, controlled_build≥55, reset≥40, resensitize<40
+- 28-day cycle: prime(1-7), overload(8-14), peak(15-21), resensitize(22-28)
+- Hard stop fatigue rules → forced Zone 2/recovery mode
+- 4 macro day types with exact meal timing templates
+
+Key files:
+- `app/vitals_models.py` — 6 SQLAlchemy tables (all use `expo_user_id` TEXT)
+- `app/vitals_scoring.py` — All 27 scoring functions + macro/meal timing templates
+- `app/vitals_rolling.py` — 7d/14d/28d rolling reference computation
+- `app/vitals_engine.py` — Orchestration: load baselines → compute rolling refs → all 3 scores → flags → recommendation
+- `app/routers/vitals.py` — 9 REST endpoints under `/vitals/`
+
+Vitals API endpoints:
+- `GET /vitals/baselines/{expo_user_id}` — get user baselines
+- `PUT /vitals/baselines/{expo_user_id}` — create/update baselines
+- `POST /vitals/daily-log` — ingest vitals + compute all scores + recommendation
+- `GET /vitals/dashboard?expo_user_id=&date=` — full dashboard payload
+- `GET /vitals/recommendation?expo_user_id=&date=` — recommendation payload
+- `POST /vitals/cardio-session` — log cardio session
+- `POST /vitals/lift-session` — log lift session
+- `POST /vitals/nutrition-target` — set daily nutrition targets
+- `POST /vitals/recompute?expo_user_id=&date=` — re-run scoring for historical date
+- `GET /vitals/history?expo_user_id=&days=` — last N days of daily logs
+
 ## Database Tables
 | Table | Rows | Description |
 |-------|------|-------------|
@@ -53,6 +87,12 @@ attached_assets/
 | `exercise_equipment` | 192 | Exercise-to-equipment required mappings, PK (exercise_id, equipment_tag) |
 | `lift_sets` | var | Logged lift sets with exercise_id FK, weight, reps, tonnage, notes, source |
 | `volume_logs` | var | Legacy logged training sets |
+| `vitals_user_baselines` | var | Per-user physiological baselines + 28-day cycle start date (`expo_user_id` PK) |
+| `vitals_daily_log` | var | Per-user per-day vitals ingestion — all raw inputs + computed OCS scores + recommendations |
+| `vitals_cardio_session` | var | Individual cardio sessions (mode, duration, HR zones, strain) |
+| `vitals_lift_session` | var | Individual lift sessions (mode, RPE, strength index, strain) |
+| `vitals_nutrition_day_target` | var | Daily macro targets + full meal timing breakdown per day type |
+| `vitals_oscillator_state` | var | Computed oscillator state + rolling counts + flag booleans + JSONB breakdowns |
 
 ## Biomechanics Contract v2 (FROZEN)
 

@@ -1,0 +1,244 @@
+from sqlalchemy import (
+    Column, Integer, String, Float, Numeric, Date, Text, Boolean,
+    UniqueConstraint, CheckConstraint
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.sql import func
+from sqlalchemy import DateTime
+from app.database import Base
+
+
+CARDIO_MODES = ("recovery_walk", "zone_2", "zone_3")
+LIFT_MODES = ("off", "mobility", "recovery_patterning", "pump", "hypertrophy_build", "neural_tension")
+MACRO_DAY_TYPES = ("surge", "build", "reset", "resensitize")
+OSCILLATOR_CLASSES = ("peak", "strong_build", "controlled_build", "reset", "resensitize")
+CYCLE_WEEK_TYPES = ("prime", "overload", "peak", "resensitize")
+SESSION_SOURCES = ("apple_health", "manual", "imported")
+
+
+class VitalsUserBaselines(Base):
+    __tablename__ = "vitals_user_baselines"
+
+    expo_user_id = Column(String, primary_key=True)
+    hrv_year_avg = Column(Numeric(8, 2))
+    rhr_year_avg = Column(Numeric(8, 2))
+    body_weight_setpoint_lb = Column(Numeric(8, 2))
+    waist_setpoint_in = Column(Numeric(8, 2))
+    protein_floor_g = Column(Numeric(8, 2), nullable=False, default=170)
+    fat_floor_avg_g = Column(Numeric(8, 2), nullable=False, default=55)
+    default_kcal = Column(Numeric(8, 2), nullable=False, default=2695)
+    cycle_start_date = Column(Date)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class VitalsDailyLog(Base):
+    __tablename__ = "vitals_daily_log"
+    __table_args__ = (
+        UniqueConstraint("expo_user_id", "date", name="uq_vitals_daily_log_user_date"),
+        CheckConstraint("libido_score IS NULL OR libido_score BETWEEN 1 AND 5", name="chk_vdl_libido"),
+        CheckConstraint("morning_erection_score IS NULL OR morning_erection_score BETWEEN 0 AND 3", name="chk_vdl_erection"),
+        CheckConstraint("motivation_score IS NULL OR motivation_score BETWEEN 1 AND 5", name="chk_vdl_motivation"),
+        CheckConstraint("mood_stability_score IS NULL OR mood_stability_score BETWEEN 1 AND 5", name="chk_vdl_mood"),
+        CheckConstraint("soreness_score IS NULL OR soreness_score BETWEEN 1 AND 5", name="chk_vdl_soreness"),
+        CheckConstraint("joint_friction_score IS NULL OR joint_friction_score BETWEEN 1 AND 5", name="chk_vdl_joint"),
+        CheckConstraint("mental_drive_score IS NULL OR mental_drive_score BETWEEN 1 AND 5", name="chk_vdl_drive"),
+        CheckConstraint("stress_load_score IS NULL OR stress_load_score BETWEEN 1 AND 5", name="chk_vdl_stress"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    expo_user_id = Column(String, nullable=False, index=True)
+    date = Column(Date, nullable=False)
+
+    sleep_duration_min = Column(Numeric(8, 2))
+    time_in_bed_min = Column(Numeric(8, 2))
+    sleep_efficiency_pct = Column(Numeric(5, 2))
+    bedtime_local = Column(DateTime(timezone=True))
+    waketime_local = Column(DateTime(timezone=True))
+    sleep_midpoint_min = Column(Numeric(8, 2))
+
+    resting_hr_bpm = Column(Numeric(8, 2))
+    hrv_ms = Column(Numeric(8, 2))
+    walking_hr_avg_bpm = Column(Numeric(8, 2))
+    overnight_hr_avg_bpm = Column(Numeric(8, 2))
+    vo2_estimate = Column(Numeric(8, 2))
+
+    active_energy_kcal = Column(Numeric(8, 2))
+    exercise_min = Column(Numeric(8, 2))
+    step_count = Column(Integer)
+
+    cardio_duration_min = Column(Numeric(8, 2))
+    cardio_avg_hr_bpm = Column(Numeric(8, 2))
+    cardio_zone2_min = Column(Numeric(8, 2))
+    cardio_zone3_min = Column(Numeric(8, 2))
+    actual_cardio_mode = Column(String(30))
+    cardio_strain_score = Column(Numeric(8, 2))
+
+    body_weight_lb = Column(Numeric(8, 2))
+    body_fat_pct = Column(Numeric(8, 2))
+    fat_mass_lb = Column(Numeric(8, 2))
+    fat_free_mass_lb = Column(Numeric(8, 2))
+    skeletal_muscle_lb = Column(Numeric(8, 2))
+    tbw_pct = Column(Numeric(8, 2))
+    body_comp_confidence = Column(Numeric(4, 3))
+
+    waist_at_navel_in = Column(Numeric(8, 2))
+    waist_measure_confidence = Column(Numeric(4, 3))
+    waist_notes = Column(Text)
+
+    libido_score = Column(Integer)
+    morning_erection_score = Column(Integer)
+    motivation_score = Column(Integer)
+    mood_stability_score = Column(Integer)
+    soreness_score = Column(Integer)
+    joint_friction_score = Column(Integer)
+    mental_drive_score = Column(Integer)
+    stress_load_score = Column(Integer)
+
+    planned_lift_mode = Column(String(30))
+    completed_lift_mode = Column(String(30))
+    lift_readiness_self_score = Column(Integer)
+    top_set_load_index = Column(Numeric(8, 2))
+    top_set_rpe = Column(Numeric(8, 2))
+    strength_output_index = Column(Numeric(8, 2))
+    pump_quality_score = Column(Integer)
+    rep_speed_subjective_score = Column(Integer)
+    session_density_score = Column(Numeric(8, 2))
+    lift_strain_score = Column(Numeric(8, 2))
+
+    kcal_target = Column(Numeric(8, 2))
+    kcal_actual = Column(Numeric(8, 2))
+    protein_g_target = Column(Numeric(8, 2))
+    protein_g_actual = Column(Numeric(8, 2))
+    carbs_g_target = Column(Numeric(8, 2))
+    carbs_g_actual = Column(Numeric(8, 2))
+    fat_g_target = Column(Numeric(8, 2))
+    fat_g_actual = Column(Numeric(8, 2))
+
+    acute_score = Column(Numeric(8, 2))
+    resource_score = Column(Numeric(8, 2))
+    seasonal_score = Column(Numeric(8, 2))
+    oscillator_composite_score = Column(Numeric(8, 2))
+    oscillator_class = Column(String(30))
+
+    recommended_cardio_mode = Column(String(30))
+    recommended_lift_mode = Column(String(30))
+    recommended_macro_day = Column(String(30))
+
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class VitalsCardioSession(Base):
+    __tablename__ = "vitals_cardio_session"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    expo_user_id = Column(String, nullable=False, index=True)
+    date = Column(Date, nullable=False)
+    start_time = Column(DateTime(timezone=True))
+    end_time = Column(DateTime(timezone=True))
+    duration_min = Column(Numeric(8, 2))
+    avg_hr_bpm = Column(Numeric(8, 2))
+    max_hr_bpm = Column(Numeric(8, 2))
+    zone2_min = Column(Numeric(8, 2))
+    zone3_min = Column(Numeric(8, 2))
+    mode = Column(String(30), nullable=False)
+    strain_score = Column(Numeric(8, 2))
+    source = Column(String(20), nullable=False, default="manual")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class VitalsLiftSession(Base):
+    __tablename__ = "vitals_lift_session"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    expo_user_id = Column(String, nullable=False, index=True)
+    date = Column(Date, nullable=False)
+    start_time = Column(DateTime(timezone=True))
+    end_time = Column(DateTime(timezone=True))
+    duration_min = Column(Numeric(8, 2))
+    planned_lift_mode = Column(String(30))
+    completed_lift_mode = Column(String(30))
+    lift_readiness_self_score = Column(Integer)
+    top_set_load_index = Column(Numeric(8, 2))
+    top_set_rpe = Column(Numeric(8, 2))
+    strength_output_index = Column(Numeric(8, 2))
+    session_density_score = Column(Numeric(8, 2))
+    pump_quality_score = Column(Integer)
+    rep_speed_subjective_score = Column(Integer)
+    lift_strain_score = Column(Numeric(8, 2))
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class VitalsNutritionDayTarget(Base):
+    __tablename__ = "vitals_nutrition_day_target"
+    __table_args__ = (
+        UniqueConstraint("expo_user_id", "date", name="uq_vitals_nutrition_user_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    expo_user_id = Column(String, nullable=False, index=True)
+    date = Column(Date, nullable=False)
+    macro_day_type = Column(String(20), nullable=False)
+    kcal_target = Column(Numeric(8, 2), nullable=False)
+    protein_g_target = Column(Numeric(8, 2), nullable=False)
+    carbs_g_target = Column(Numeric(8, 2), nullable=False)
+    fat_g_target = Column(Numeric(8, 2), nullable=False)
+
+    pre_cardio_carbs_g = Column(Numeric(8, 2))
+    post_cardio_protein_g = Column(Numeric(8, 2))
+    post_cardio_carbs_g = Column(Numeric(8, 2))
+    post_cardio_fat_g = Column(Numeric(8, 2))
+    meal2_protein_g = Column(Numeric(8, 2))
+    meal2_carbs_g = Column(Numeric(8, 2))
+    meal2_fat_g = Column(Numeric(8, 2))
+    pre_lift_protein_g = Column(Numeric(8, 2))
+    pre_lift_carbs_g = Column(Numeric(8, 2))
+    pre_lift_fat_g = Column(Numeric(8, 2))
+    post_lift_protein_g = Column(Numeric(8, 2))
+    post_lift_carbs_g = Column(Numeric(8, 2))
+    post_lift_fat_g = Column(Numeric(8, 2))
+    final_meal_protein_g = Column(Numeric(8, 2))
+    final_meal_carbs_g = Column(Numeric(8, 2))
+    final_meal_fat_g = Column(Numeric(8, 2))
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class VitalsOscillatorState(Base):
+    __tablename__ = "vitals_oscillator_state"
+    __table_args__ = (
+        UniqueConstraint("expo_user_id", "date", name="uq_vitals_oscillator_user_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    expo_user_id = Column(String, nullable=False, index=True)
+    date = Column(Date, nullable=False)
+    cycle_day_28 = Column(Integer)
+    cycle_week_type = Column(String(20))
+
+    acute_score = Column(Numeric(8, 2))
+    resource_score = Column(Numeric(8, 2))
+    seasonal_score = Column(Numeric(8, 2))
+    oscillator_composite_score = Column(Numeric(8, 2))
+    oscillator_class = Column(String(30))
+
+    rolling_zone2_count_7d = Column(Integer, default=0)
+    rolling_zone3_count_7d = Column(Integer, default=0)
+    rolling_recovery_count_7d = Column(Integer, default=0)
+    rolling_neural_lift_count_7d = Column(Integer, default=0)
+    rolling_reset_day_count_28d = Column(Integer, default=0)
+
+    fatigue_flag = Column(Boolean, default=False)
+    monotony_flag = Column(Boolean, default=False)
+    deload_compliance_flag = Column(Boolean, default=False)
+
+    acute_breakdown = Column(JSONB)
+    resource_breakdown = Column(JSONB)
+    seasonal_breakdown = Column(JSONB)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

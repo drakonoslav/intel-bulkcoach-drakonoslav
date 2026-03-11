@@ -1,0 +1,2036 @@
+Below is a developer-ready BulkCoach build packet v1 for the Vitals Dashboard + Vitals Daily Recommendation Engine.
+
+It includes:
+	•	TypeScript interfaces
+	•	enums
+	•	scoring functions
+	•	SQL table definitions
+	•	API response shapes
+	•	implementation notes
+
+I’m keeping naming practical and app-oriented so it can drop into a React Native + Node/Express + Postgres stack without drama.
+
+⸻
+
+BulkCoach Vitals Engine Build Packet
+
+Version
+
+v1.0.0
+
+Scope
+
+Implements:
+	•	daily physiological ingestion
+	•	Acute / Resource / Seasonal scoring
+	•	Oscillator Composite Score
+	•	cardio recommendation
+	•	lift recommendation
+	•	macro day recommendation
+	•	vitals dashboard payload
+	•	daily recommendation payload
+
+⸻
+
+1. Core enums
+
+export enum CardioMode {
+  RECOVERY_WALK = "recovery_walk",
+  ZONE_2 = "zone_2",
+  ZONE_3 = "zone_3",
+}
+
+export enum LiftMode {
+  OFF = "off",
+  MOBILITY = "mobility",
+  RECOVERY_PATTERNING = "recovery_patterning",
+  PUMP = "pump",
+  HYPERTROPHY_BUILD = "hypertrophy_build",
+  NEURAL_TENSION = "neural_tension",
+}
+
+export enum MacroDayType {
+  SURGE = "surge",
+  BUILD = "build",
+  RESET = "reset",
+  RESENSITIZE = "resensitize",
+}
+
+export enum OscillatorClass {
+  PEAK = "peak",
+  STRONG_BUILD = "strong_build",
+  CONTROLLED_BUILD = "controlled_build",
+  RESET = "reset",
+  RESENSITIZE = "resensitize",
+}
+
+export enum CycleWeekType {
+  PRIME = "prime",
+  OVERLOAD = "overload",
+  PEAK = "peak",
+  RESENSITIZE = "resensitize",
+}
+
+export enum SessionSource {
+  APPLE_HEALTH = "apple_health",
+  MANUAL = "manual",
+  IMPORTED = "imported",
+}
+
+export enum ConfidenceLevel {
+  LOW = "low",
+  MEDIUM = "medium",
+  HIGH = "high",
+}
+
+
+⸻
+
+2. Core TypeScript interfaces
+
+2.1 Primitive helpers
+
+export interface NumericRange {
+  min: number;
+  max: number;
+}
+
+export interface TrendValue {
+  current: number | null;
+  previous: number | null;
+  delta: number | null;
+  deltaPct: number | null;
+}
+
+export interface ScoreBreakdownItem {
+  key: string;
+  label: string;
+  score: number;
+  maxScore: number;
+  note?: string;
+}
+
+
+⸻
+
+2.2 Daily raw inputs
+
+export interface DailySleepInput {
+  sleepDurationMin: number | null;
+  timeInBedMin: number | null;
+  sleepEfficiencyPct: number | null;
+  bedTimeLocal: string | null;   // ISO datetime
+  wakeTimeLocal: string | null;  // ISO datetime
+  sleepMidpointMin: number | null;
+}
+
+export interface DailyHeartInput {
+  restingHrBpm: number | null;
+  hrvMs: number | null;
+  walkingHrAvgBpm: number | null;
+  overnightHrAvgBpm: number | null;
+  vo2Estimate: number | null;
+}
+
+export interface DailyActivityInput {
+  activeEnergyKcal: number | null;
+  exerciseMin: number | null;
+  stepCount: number | null;
+}
+
+export interface DailyCardioInput {
+  durationMin: number | null;
+  avgHrBpm: number | null;
+  zone2Min: number | null;
+  zone3Min: number | null;
+  actualMode: CardioMode | null;
+  strainScore: number | null; // 0-100
+}
+
+export interface DailyBodyCompInput {
+  bodyWeightLb: number | null;
+  bodyFatPct: number | null;
+  fatMassLb: number | null;
+  fatFreeMassLb: number | null;
+  skeletalMuscleLb: number | null;
+  tbwPct: number | null;
+  bodyCompConfidence: number | null; // 0-1
+}
+
+export interface DailyAnthroInput {
+  waistAtNavelIn: number | null;
+  waistMeasureConfidence: number | null; // 0-1
+  waistNotes: string | null;
+}
+
+export interface DailySubjectiveInput {
+  libidoScore: number | null; // 1-5
+  morningErectionScore: number | null; // 0-3
+  motivationScore: number | null; // 1-5
+  moodStabilityScore: number | null; // 1-5
+  sorenessScore: number | null; // 1-5 reverse-coded in engine
+  jointFrictionScore: number | null; // 1-5 reverse-coded
+  mentalDriveScore: number | null; // 1-5
+  stressLoadScore: number | null; // 1-5 reverse-coded
+}
+
+export interface DailyLiftInput {
+  plannedLiftMode: LiftMode | null;
+  completedLiftMode: LiftMode | null;
+  liftReadinessSelfScore: number | null; // 1-5
+  topSetLoadIndex: number | null; // app-defined normalized value
+  topSetRpe: number | null; // 1-10
+  strengthOutputIndex: number | null; // 0-100
+  pumpQualityScore: number | null; // 1-5
+  repSpeedSubjectiveScore: number | null; // 1-5
+  sessionDensityScore: number | null; // 0-100
+  liftStrainScore: number | null; // 0-100
+}
+
+export interface DailyNutritionInput {
+  kcalTarget: number | null;
+  kcalActual: number | null;
+  proteinGTarget: number | null;
+  proteinGActual: number | null;
+  carbsGTarget: number | null;
+  carbsGActual: number | null;
+  fatGTarget: number | null;
+  fatGActual: number | null;
+}
+
+
+⸻
+
+2.3 Combined daily record
+
+export interface DailyVitalsRecord {
+  userId: string;
+  date: string; // YYYY-MM-DD
+  sleep: DailySleepInput;
+  heart: DailyHeartInput;
+  activity: DailyActivityInput;
+  cardio: DailyCardioInput;
+  bodyComp: DailyBodyCompInput;
+  anthro: DailyAnthroInput;
+  subjective: DailySubjectiveInput;
+  lift: DailyLiftInput;
+  nutrition: DailyNutritionInput;
+  notes?: string | null;
+}
+
+
+⸻
+
+2.4 Baselines and rolling references
+
+export interface UserVitalsBaselines {
+  hrvYearAvg: number | null;
+  rhrYearAvg: number | null;
+  bodyWeightSetpointLb: number | null;
+  waistSetpointIn: number | null;
+  proteinFloorG: number;
+  fatFloorAvgG: number;
+  defaultKcal: number;
+}
+
+export interface RollingReferences {
+  hrv7dAvg: number | null;
+  rhr7dAvg: number | null;
+  sleepDuration7dAvg: number | null;
+  sleepMidpoint7dAvg: number | null;
+  bodyWeight7dAvg: number | null;
+
+  kcal7dAvg: number | null;
+  protein7dAvg: number | null;
+  carbs7dAvg: number | null;
+  fat7dAvg: number | null;
+
+  weightTrend14dLbPerWeek: number | null;
+  ffmTrend14dLbPerWeek: number | null;
+  waistChange14dIn: number | null;
+  strengthTrend14dPct: number | null;
+
+  hrv28dAvg: number | null;
+  hrvPrev28dAvg: number | null;
+  rhr28dAvg: number | null;
+  rhrPrev28dAvg: number | null;
+
+  sleepRegularity28dScore: number | null;
+  sleepRegularityPrev28dScore: number | null;
+
+  ffm28dAvg: number | null;
+  ffmPrev28dAvg: number | null;
+
+  weight28dChangeLb: number | null;
+  waist28dChangeIn: number | null;
+
+  cardioZone2Count7d: number;
+  cardioZone3Count7d: number;
+  cardioRecoveryCount7d: number;
+
+  neuralLiftCount7d: number;
+  resetOrResensitizeDayCount28d: number;
+  deloadCompliance28d: boolean;
+  trainingMonotonyIndex28d: number | null; // 0-100 higher = more monotony
+  lightExposureConsistency28d: number | null; // 0-100
+  virilityTrend28d: number | null; // 0-100
+}
+
+
+⸻
+
+3. Score output interfaces
+
+export interface AcuteScoreResult {
+  score: number;
+  breakdown: ScoreBreakdownItem[];
+}
+
+export interface ResourceScoreResult {
+  score: number;
+  breakdown: ScoreBreakdownItem[];
+}
+
+export interface SeasonalScoreResult {
+  score: number;
+  breakdown: ScoreBreakdownItem[];
+}
+
+export interface OscillatorScoreResult {
+  acuteScore: number;
+  resourceScore: number;
+  seasonalScore: number;
+  compositeScore: number;
+  oscillatorClass: OscillatorClass;
+}
+
+
+⸻
+
+4. Recommendation interfaces
+
+export interface DailyRecommendationFlags {
+  hardStopFatigue: boolean;
+  lowSleep: boolean;
+  elevatedRhr: boolean;
+  suppressedHrv: boolean;
+  cardioMonotony: boolean;
+  monthlyResensitizeOverride: boolean;
+}
+
+export interface MacroTargets {
+  kcal: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+}
+
+export interface MealTimingTargets {
+  preCardioCarbsG: number;
+  postCardioProteinG: number;
+  postCardioCarbsG: number;
+  postCardioFatG: number;
+  meal2ProteinG: number;
+  meal2CarbsG: number;
+  meal2FatG: number;
+  preLiftProteinG: number;
+  preLiftCarbsG: number;
+  preLiftFatG: number;
+  postLiftProteinG: number;
+  postLiftCarbsG: number;
+  postLiftFatG: number;
+  finalMealProteinG: number;
+  finalMealCarbsG: number;
+  finalMealFatG: number;
+}
+
+export interface DailyRecommendation {
+  date: string;
+  cycleDay28: number;
+  cycleWeekType: CycleWeekType;
+  scores: OscillatorScoreResult;
+  flags: DailyRecommendationFlags;
+  recommendedCardioMode: CardioMode;
+  recommendedLiftMode: LiftMode;
+  recommendedMacroDayType: MacroDayType;
+  macroTargets: MacroTargets;
+  mealTimingTargets: MealTimingTargets;
+  reasoning: string[];
+}
+
+
+⸻
+
+5. Utility functions
+
+export function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+export function round(value: number, digits = 0): number {
+  const factor = Math.pow(10, digits);
+  return Math.round(value * factor) / factor;
+}
+
+export function safeRatio(a: number | null, b: number | null): number | null {
+  if (a == null || b == null || b === 0) return null;
+  return a / b;
+}
+
+export function avg(values: Array<number | null | undefined>): number | null {
+  const valid = values.filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
+  if (!valid.length) return null;
+  return valid.reduce((s, v) => s + v, 0) / valid.length;
+}
+
+export function scoreBand(
+  value: number | null,
+  bands: Array<{ min?: number; max?: number; score: number }>
+): number {
+  if (value == null) return 0;
+  for (const band of bands) {
+    const minOk = band.min == null || value >= band.min;
+    const maxOk = band.max == null || value <= band.max;
+    if (minOk && maxOk) return band.score;
+  }
+  return 0;
+}
+
+export function normalizeFivePoint(value: number | null): number | null {
+  if (value == null) return null;
+  return clamp(((value - 1) / 4) * 10, 0, 10);
+}
+
+export function normalizeThreePointZeroBased(value: number | null): number | null {
+  if (value == null) return null;
+  return clamp((value / 3) * 10, 0, 10);
+}
+
+export function reverseFivePoint(value: number | null): number | null {
+  if (value == null) return null;
+  return clamp(((5 - value) / 4) * 10, 0, 10);
+}
+
+
+⸻
+
+6. Acute score scoring functions
+
+export interface AcuteScoreContext {
+  today: DailyVitalsRecord;
+  refs: RollingReferences;
+  baselines: UserVitalsBaselines;
+  yesterdayLiftStrainScore: number | null;
+  yesterdayCardioMode: CardioMode | null;
+}
+
+export function scoreHrvState(ctx: AcuteScoreContext): ScoreBreakdownItem {
+  const hrvToday = ctx.today.heart.hrvMs;
+  const hrv7 = ctx.refs.hrv7dAvg;
+  const hrvYear = ctx.baselines.hrvYearAvg;
+
+  const ratio = safeRatio(hrvToday, hrv7);
+  const yearRatio = safeRatio(hrvToday, hrvYear);
+
+  let score = 0;
+  if (ratio == null) score = 0;
+  else if (ratio >= 1.10) score = 22;
+  else if (ratio >= 1.03) score = 19;
+  else if (ratio >= 0.97) score = 15;
+  else if (ratio >= 0.90) score = 9;
+  else score = 4;
+
+  if (yearRatio != null) {
+    if (yearRatio > 1.15) score += 1;
+    if (yearRatio < 0.85) score -= 1;
+  }
+
+  return {
+    key: "hrv_state",
+    label: "HRV State",
+    score: clamp(score, 0, 22),
+    maxScore: 22,
+    note: ratio == null ? "Missing HRV" : `HRV ratio vs 7d avg: ${round(ratio, 2)}`,
+  };
+}
+
+export function scoreRhrState(ctx: AcuteScoreContext): ScoreBreakdownItem {
+  const rhrToday = ctx.today.heart.restingHrBpm;
+  const rhr7 = ctx.refs.rhr7dAvg;
+  const rhrYear = ctx.baselines.rhrYearAvg;
+
+  let score = 0;
+  if (rhrToday == null || rhr7 == null) {
+    score = 0;
+  } else {
+    const delta = rhrToday - rhr7;
+    if (delta <= -3) score = 18;
+    else if (delta <= -1) score = 16;
+    else if (delta <= 1) score = 13;
+    else if (delta <= 3) score = 8;
+    else if (delta <= 5) score = 4;
+    else score = 1;
+
+    if (rhrYear != null) {
+      if (rhrToday <= rhrYear - 3) score += 1;
+      if (rhrToday >= rhrYear + 5) score -= 1;
+    }
+  }
+
+  return {
+    key: "rhr_state",
+    label: "RHR State",
+    score: clamp(score, 0, 18),
+    maxScore: 18,
+    note:
+      rhrToday == null || rhr7 == null
+        ? "Missing RHR"
+        : `RHR delta vs 7d avg: ${round(rhrToday - rhr7, 1)} bpm`,
+  };
+}
+
+export function scoreSleepQuantity(ctx: AcuteScoreContext): ScoreBreakdownItem {
+  const sleep = ctx.today.sleep.sleepDurationMin;
+  let score = 0;
+
+  if (sleep == null) score = 0;
+  else if (sleep >= 450 && sleep <= 510) score = 15;
+  else if ((sleep >= 420 && sleep <= 449) || (sleep >= 511 && sleep <= 540)) score = 12;
+  else if (sleep >= 390 && sleep <= 419) score = 8;
+  else if (sleep >= 360 && sleep <= 389) score = 4;
+  else score = 1;
+
+  const eff = ctx.today.sleep.sleepEfficiencyPct;
+  if (eff != null && eff >= 90) score += 1;
+
+  return {
+    key: "sleep_quantity",
+    label: "Sleep Quantity",
+    score: clamp(score, 0, 15),
+    maxScore: 15,
+    note: sleep == null ? "Missing sleep duration" : `${sleep} min sleep`,
+  };
+}
+
+export function scoreSleepRegularity(ctx: AcuteScoreContext): ScoreBreakdownItem {
+  const midpoint = ctx.today.sleep.sleepMidpointMin;
+  const midpoint7 = ctx.refs.sleepMidpoint7dAvg;
+
+  let score = 0;
+  let note = "Missing midpoint data";
+
+  if (midpoint != null && midpoint7 != null) {
+    const shift = Math.abs(midpoint - midpoint7);
+    note = `Midpoint shift: ${round(shift, 0)} min`;
+
+    if (shift <= 20) score = 8;
+    else if (shift <= 40) score = 6;
+    else if (shift <= 60) score = 4;
+    else if (shift <= 90) score = 2;
+    else score = 0;
+  }
+
+  return {
+    key: "sleep_regularity",
+    label: "Sleep Regularity",
+    score,
+    maxScore: 8,
+    note,
+  };
+}
+
+export function scoreBodyweightStability(ctx: AcuteScoreContext): ScoreBreakdownItem {
+  const weight = ctx.today.bodyComp.bodyWeightLb;
+  const weight7 = ctx.refs.bodyWeight7dAvg;
+  let score = 0;
+  let note = "Missing body weight";
+
+  if (weight != null && weight7 != null && weight7 > 0) {
+    const deltaPct = ((weight - weight7) / weight7) * 100;
+    const absPct = Math.abs(deltaPct);
+    note = `Weight delta vs 7d avg: ${round(deltaPct, 2)}%`;
+
+    if (absPct <= 0.4) score = 5;
+    else if (absPct <= 0.8) score = 4;
+    else if (absPct <= 1.2) score = 2;
+    else score = 0;
+  }
+
+  return {
+    key: "bodyweight_stability",
+    label: "Bodyweight Stability",
+    score,
+    maxScore: 5,
+    note,
+  };
+}
+
+export function scoreSubjectiveDrive(ctx: AcuteScoreContext): ScoreBreakdownItem {
+  const values = [
+    normalizeFivePoint(ctx.today.subjective.libidoScore),
+    normalizeThreePointZeroBased(ctx.today.subjective.morningErectionScore),
+    normalizeFivePoint(ctx.today.subjective.motivationScore),
+    normalizeFivePoint(ctx.today.subjective.mentalDriveScore),
+  ];
+
+  const value = avg(values);
+  return {
+    key: "subjective_drive",
+    label: "Subjective Drive",
+    score: clamp(round(value ?? 0, 0), 0, 10),
+    maxScore: 10,
+    note: value == null ? "Missing subjective entries" : `Average subjective drive ${round(value, 1)}/10`,
+  };
+}
+
+export function scoreJointSoreness(ctx: AcuteScoreContext): ScoreBreakdownItem {
+  const values = [
+    reverseFivePoint(ctx.today.subjective.sorenessScore),
+    reverseFivePoint(ctx.today.subjective.jointFrictionScore),
+  ];
+  const value = avg(values);
+
+  return {
+    key: "joint_soreness",
+    label: "Joint / Soreness State",
+    score: clamp(round(value ?? 0, 0), 0, 10),
+    maxScore: 10,
+    note: value == null ? "Missing soreness/joint data" : `Recovery comfort ${round(value, 1)}/10`,
+  };
+}
+
+export function scoreYesterdayLiftStrain(ctx: AcuteScoreContext): ScoreBreakdownItem {
+  const strain = ctx.yesterdayLiftStrainScore;
+  let score = 0;
+
+  if (strain == null) score = 0;
+  else if (strain <= 35) score = 7;
+  else if (strain <= 55) score = 5;
+  else if (strain <= 70) score = 3;
+  else score = 1;
+
+  return {
+    key: "yesterday_lift_strain",
+    label: "Yesterday Lift Strain",
+    score,
+    maxScore: 7,
+    note: strain == null ? "Missing yesterday lift strain" : `Yesterday lift strain ${strain}`,
+  };
+}
+
+export function scoreYesterdayCardioStrain(ctx: AcuteScoreContext): ScoreBreakdownItem {
+  let score = 0;
+
+  switch (ctx.yesterdayCardioMode) {
+    case CardioMode.RECOVERY_WALK:
+      score = 5;
+      break;
+    case CardioMode.ZONE_2:
+      score = 4;
+      break;
+    case CardioMode.ZONE_3:
+      score = 2;
+      break;
+    default:
+      score = 0;
+  }
+
+  return {
+    key: "yesterday_cardio_strain",
+    label: "Yesterday Cardio Strain",
+    score,
+    maxScore: 5,
+    note: ctx.yesterdayCardioMode ?? "Missing yesterday cardio mode",
+  };
+}
+
+export function calculateAcuteScore(ctx: AcuteScoreContext): AcuteScoreResult {
+  const breakdown = [
+    scoreHrvState(ctx),
+    scoreRhrState(ctx),
+    scoreSleepQuantity(ctx),
+    scoreSleepRegularity(ctx),
+    scoreBodyweightStability(ctx),
+    scoreSubjectiveDrive(ctx),
+    scoreJointSoreness(ctx),
+    scoreYesterdayLiftStrain(ctx),
+    scoreYesterdayCardioStrain(ctx),
+  ];
+
+  const score = clamp(
+    breakdown.reduce((sum, item) => sum + item.score, 0),
+    0,
+    100
+  );
+
+  return { score, breakdown };
+}
+
+
+⸻
+
+7. Resource score functions
+
+export interface ResourceScoreContext {
+  today: DailyVitalsRecord;
+  refs: RollingReferences;
+  baselines: UserVitalsBaselines;
+  recentMacroDayTypes7d: MacroDayType[];
+}
+
+export function scoreCalorieAdherence7d(ctx: ResourceScoreContext): ScoreBreakdownItem {
+  const ratio = safeRatio(ctx.refs.kcal7dAvg, ctx.today.nutrition.kcalTarget ?? ctx.baselines.defaultKcal);
+  let score = 0;
+
+  if (ratio == null) score = 0;
+  else if (ratio >= 0.97 && ratio <= 1.03) score = 10;
+  else if ((ratio >= 0.94 && ratio < 0.97) || (ratio > 1.03 && ratio <= 1.06)) score = 8;
+  else if ((ratio >= 0.90 && ratio < 0.94) || (ratio > 1.06 && ratio <= 1.10)) score = 5;
+  else score = 2;
+
+  return {
+    key: "calorie_adherence_7d",
+    label: "Calorie Adherence 7d",
+    score,
+    maxScore: 10,
+    note: ratio == null ? "Missing 7d kcal average" : `7d kcal ratio ${round(ratio, 2)}`,
+  };
+}
+
+export function scoreProteinAdequacy7d(ctx: ResourceScoreContext): ScoreBreakdownItem {
+  const protein = ctx.refs.protein7dAvg;
+  let score = 0;
+
+  if (protein == null) score = 0;
+  else if (protein >= 170 && protein <= 180) score = 12;
+  else if ((protein >= 160 && protein < 170) || (protein > 180 && protein <= 190)) score = 9;
+  else if (protein >= 145 && protein < 160) score = 5;
+  else score = 1;
+
+  return {
+    key: "protein_adequacy_7d",
+    label: "Protein Adequacy 7d",
+    score,
+    maxScore: 12,
+    note: protein == null ? "Missing 7d protein avg" : `${round(protein, 1)} g/day`,
+  };
+}
+
+export function scoreFatFloorAdherence7d(ctx: ResourceScoreContext): ScoreBreakdownItem {
+  const fat = ctx.refs.fat7dAvg;
+  const hasHighDays = ctx.recentMacroDayTypes7d.filter((d) => d === MacroDayType.RESET || d === MacroDayType.RESENSITIZE).length >= 2;
+  const hasLowDays = ctx.recentMacroDayTypes7d.filter((d) => d === MacroDayType.SURGE).length >= 2;
+
+  let score = 0;
+  if (fat == null) score = 0;
+  else if (fat >= 55 && hasHighDays && hasLowDays) score = 12;
+  else if (fat >= 55) score = 9;
+  else if (fat >= 50) score = 6;
+  else score = 2;
+
+  return {
+    key: "fat_floor_7d",
+    label: "Fat Floor / Oscillation 7d",
+    score,
+    maxScore: 12,
+    note: fat == null ? "Missing 7d fat avg" : `${round(fat, 1)} g/day`,
+  };
+}
+
+export function scoreCarbAdequacyAroundTraining(ctx: ResourceScoreContext): ScoreBreakdownItem {
+  const actual = ctx.refs.carbs7dAvg;
+  const target = ctx.today.nutrition.carbsGTarget ?? 330;
+  const ratio = safeRatio(actual, target);
+  let score = 0;
+
+  if (ratio == null) score = 0;
+  else if (ratio >= 0.9) score = 10;
+  else if (ratio >= 0.8) score = 8;
+  else if (ratio >= 0.65) score = 5;
+  else score = 2;
+
+  return {
+    key: "carb_adequacy_training",
+    label: "Carb Adequacy Around Training",
+    score,
+    maxScore: 10,
+    note: ratio == null ? "Missing carb averages" : `Carb adherence ratio ${round(ratio, 2)}`,
+  };
+}
+
+export function scoreWeightTrend(ctx: ResourceScoreContext): ScoreBreakdownItem {
+  const trend = ctx.refs.weightTrend14dLbPerWeek;
+  let score = 0;
+
+  if (trend == null) score = 0;
+  else if (trend >= 0.10 && trend <= 0.50) score = 10;
+  else if (trend >= 0.0 && trend < 0.10) score = 8;
+  else if (trend > 0.50 && trend <= 0.80) score = 6;
+  else if (trend < -0.10) score = 4;
+  else score = 3;
+
+  return {
+    key: "weight_trend",
+    label: "Weight Trend 14d",
+    score,
+    maxScore: 10,
+    note: trend == null ? "Missing weight trend" : `${round(trend, 2)} lb/week`,
+  };
+}
+
+export function scoreWaistTrend(ctx: ResourceScoreContext): ScoreBreakdownItem {
+  const change = ctx.refs.waistChange14dIn;
+  let score = 0;
+
+  if (change == null) score = 0;
+  else if (change >= -0.25 && change <= 0.10) score = 12;
+  else if (change > 0.10 && change <= 0.25) score = 9;
+  else if (change > 0.25 && change <= 0.40) score = 6;
+  else score = 2;
+
+  return {
+    key: "waist_trend",
+    label: "Waist Trend 14d",
+    score,
+    maxScore: 12,
+    note: change == null ? "Missing waist trend" : `${round(change, 2)} in`,
+  };
+}
+
+export function scoreFfmTrend(ctx: ResourceScoreContext): ScoreBreakdownItem {
+  const trend = ctx.refs.ffmTrend14dLbPerWeek;
+  let score = 0;
+
+  if (trend == null) score = 0;
+  else if (trend >= 0.20 && trend <= 0.60) score = 12;
+  else if (trend >= 0.05 && trend < 0.20) score = 9;
+  else if (trend >= -0.04 && trend < 0.05) score = 7;
+  else score = 3;
+
+  return {
+    key: "ffm_trend",
+    label: "FFM Trend 14d",
+    score,
+    maxScore: 12,
+    note: trend == null ? "Missing FFM trend" : `${round(trend, 2)} lb/week`,
+  };
+}
+
+export function scoreStrengthTrend(ctx: ResourceScoreContext): ScoreBreakdownItem {
+  const trend = ctx.refs.strengthTrend14dPct;
+  let score = 0;
+
+  if (trend == null) score = 0;
+  else if (trend > 2) score = 12;
+  else if (trend >= 0) score = 9;
+  else if (trend >= -2) score = 6;
+  else score = 2;
+
+  return {
+    key: "strength_trend",
+    label: "Strength Trend 14d",
+    score,
+    maxScore: 12,
+    note: trend == null ? "Missing strength trend" : `${round(trend, 2)}%`,
+  };
+}
+
+export function scoreCardioMonotony(ctx: ResourceScoreContext): ScoreBreakdownItem {
+  const z2 = ctx.refs.cardioZone2Count7d;
+  const z3 = ctx.refs.cardioZone3Count7d;
+  const easy = ctx.refs.cardioRecoveryCount7d;
+
+  let score = 0;
+  const identicalMax = Math.max(z2, z3, easy);
+
+  if ((z2 === 3 && z3 === 3 && easy === 1) || identicalMax <= 3) score = 10;
+  else if (identicalMax <= 4) score = 7;
+  else if (identicalMax <= 5) score = 4;
+  else score = 1;
+
+  return {
+    key: "cardio_monotony",
+    label: "Cardio Distribution 7d",
+    score,
+    maxScore: 10,
+    note: `Z2:${z2} Z3:${z3} Easy:${easy}`,
+  };
+}
+
+export function calculateResourceScore(ctx: ResourceScoreContext): ResourceScoreResult {
+  const breakdown = [
+    scoreCalorieAdherence7d(ctx),
+    scoreProteinAdequacy7d(ctx),
+    scoreFatFloorAdherence7d(ctx),
+    scoreCarbAdequacyAroundTraining(ctx),
+    scoreWeightTrend(ctx),
+    scoreWaistTrend(ctx),
+    scoreFfmTrend(ctx),
+    scoreStrengthTrend(ctx),
+    scoreCardioMonotony(ctx),
+  ];
+
+  const score = clamp(
+    breakdown.reduce((sum, item) => sum + item.score, 0),
+    0,
+    100
+  );
+
+  return { score, breakdown };
+}
+
+
+⸻
+
+8. Seasonal score functions
+
+export interface SeasonalScoreContext {
+  today: DailyVitalsRecord;
+  refs: RollingReferences;
+}
+
+export function scoreHrv28dTrend(ctx: SeasonalScoreContext): ScoreBreakdownItem {
+  const current = ctx.refs.hrv28dAvg;
+  const previous = ctx.refs.hrvPrev28dAvg;
+  const pct = current != null && previous != null && previous !== 0
+    ? ((current - previous) / previous) * 100
+    : null;
+
+  let score = 0;
+  if (pct == null) score = 0;
+  else if (pct > 8) score = 18;
+  else if (pct >= 3) score = 15;
+  else if (pct >= -2) score = 11;
+  else if (pct >= -7) score = 6;
+  else score = 2;
+
+  return {
+    key: "hrv_28d_trend",
+    label: "HRV 28d Trend",
+    score,
+    maxScore: 18,
+    note: pct == null ? "Missing HRV 28d trend" : `${round(pct, 2)}%`,
+  };
+}
+
+export function scoreRhr28dTrend(ctx: SeasonalScoreContext): ScoreBreakdownItem {
+  const current = ctx.refs.rhr28dAvg;
+  const previous = ctx.refs.rhrPrev28dAvg;
+  const delta = current != null && previous != null ? current - previous : null;
+
+  let score = 0;
+  if (delta == null) score = 0;
+  else if (delta <= -3) score = 14;
+  else if (delta <= -1) score = 11;
+  else if (delta <= 0.99) score = 8;
+  else if (delta <= 2) score = 4;
+  else score = 1;
+
+  return {
+    key: "rhr_28d_trend",
+    label: "RHR 28d Trend",
+    score,
+    maxScore: 14,
+    note: delta == null ? "Missing RHR 28d trend" : `${round(delta, 2)} bpm`,
+  };
+}
+
+export function scoreSleepRegularity28d(ctx: SeasonalScoreContext): ScoreBreakdownItem {
+  const current = ctx.refs.sleepRegularity28dScore;
+  const prev = ctx.refs.sleepRegularityPrev28dScore;
+  const delta = current != null && prev != null ? current - prev : null;
+
+  let score = 0;
+  if (delta == null) score = 0;
+  else if (delta >= 8) score = 10;
+  else if (delta >= 3) score = 8;
+  else if (delta >= -2) score = 7;
+  else if (delta >= -8) score = 3;
+  else score = 1;
+
+  return {
+    key: "sleep_regularity_28d",
+    label: "Sleep Regularity 28d",
+    score,
+    maxScore: 10,
+    note: delta == null ? "Missing sleep regularity trend" : `${round(delta, 1)} pts`,
+  };
+}
+
+export function scoreWaistWeightRelationship(ctx: SeasonalScoreContext): ScoreBreakdownItem {
+  const waist = ctx.refs.waist28dChangeIn;
+  const weight = ctx.refs.weight28dChangeLb;
+
+  let score = 0;
+  let note = "Missing waist/weight relationship";
+
+  if (waist != null && weight != null) {
+    const denom = Math.max(Math.abs(weight), 0.5);
+    const ratio = waist / denom;
+    note = `Waist per lb ratio ${round(ratio, 3)}`;
+
+    if (weight > 0 && waist <= 0) score = 12;
+    else if (ratio <= 0.10) score = 9;
+    else if (ratio <= 0.20) score = 5;
+    else score = 2;
+  }
+
+  return {
+    key: "waist_weight_relationship",
+    label: "Waist:Weight Relationship",
+    score,
+    maxScore: 12,
+    note,
+  };
+}
+
+export function scoreFfm28dTrend(ctx: SeasonalScoreContext): ScoreBreakdownItem {
+  const current = ctx.refs.ffm28dAvg;
+  const prev = ctx.refs.ffmPrev28dAvg;
+  const delta = current != null && prev != null ? current - prev : null;
+
+  let score = 0;
+  if (delta == null) score = 0;
+  else if (delta > 0.75) score = 14;
+  else if (delta > 0.25) score = 11;
+  else if (delta >= -0.1) score = 8;
+  else score = 3;
+
+  return {
+    key: "ffm_28d_trend",
+    label: "FFM 28d Trend",
+    score,
+    maxScore: 14,
+    note: delta == null ? "Missing FFM 28d trend" : `${round(delta, 2)} lb`,
+  };
+}
+
+export function scoreDeloadCompliance(ctx: SeasonalScoreContext): ScoreBreakdownItem {
+  const score = ctx.refs.deloadCompliance28d ? 10 : 1;
+  return {
+    key: "deload_compliance",
+    label: "Deload Compliance",
+    score,
+    maxScore: 10,
+    note: ctx.refs.deloadCompliance28d ? "Deload/resensitize block completed" : "No meaningful deload block found",
+  };
+}
+
+export function scoreTrainingVariation(ctx: SeasonalScoreContext): ScoreBreakdownItem {
+  const monotony = ctx.refs.trainingMonotonyIndex28d;
+  let score = 0;
+
+  if (monotony == null) score = 0;
+  else if (monotony <= 30) score = 8;
+  else if (monotony <= 50) score = 5;
+  else score = 1;
+
+  return {
+    key: "training_variation",
+    label: "Training Variation",
+    score,
+    maxScore: 8,
+    note: monotony == null ? "Missing training monotony index" : `Monotony ${round(monotony, 1)}`,
+  };
+}
+
+export function scoreLightConsistency(ctx: SeasonalScoreContext): ScoreBreakdownItem {
+  const value = ctx.refs.lightExposureConsistency28d;
+  let score = 0;
+
+  if (value == null) score = 0;
+  else if (value >= 85) score = 6;
+  else if (value >= 65) score = 4;
+  else score = 2;
+
+  return {
+    key: "light_consistency",
+    label: "Light / Outdoor Consistency",
+    score,
+    maxScore: 6,
+    note: value == null ? "Missing light exposure consistency" : `${round(value, 1)}/100`,
+  };
+}
+
+export function scoreVirilityTrend(ctx: SeasonalScoreContext): ScoreBreakdownItem {
+  const value = ctx.refs.virilityTrend28d;
+  let score = 0;
+
+  if (value == null) score = 0;
+  else if (value >= 75) score = 8;
+  else if (value >= 55) score = 6;
+  else if (value >= 40) score = 4;
+  else score = 1;
+
+  return {
+    key: "virility_trend",
+    label: "Virility / Motivation Trend",
+    score,
+    maxScore: 8,
+    note: value == null ? "Missing virility trend" : `${round(value, 1)}/100`,
+  };
+}
+
+export function calculateSeasonalScore(ctx: SeasonalScoreContext): SeasonalScoreResult {
+  const breakdown = [
+    scoreHrv28dTrend(ctx),
+    scoreRhr28dTrend(ctx),
+    scoreSleepRegularity28d(ctx),
+    scoreWaistWeightRelationship(ctx),
+    scoreFfm28dTrend(ctx),
+    scoreDeloadCompliance(ctx),
+    scoreTrainingVariation(ctx),
+    scoreLightConsistency(ctx),
+    scoreVirilityTrend(ctx),
+  ];
+
+  const score = clamp(
+    breakdown.reduce((sum, item) => sum + item.score, 0),
+    0,
+    100
+  );
+
+  return { score, breakdown };
+}
+
+
+⸻
+
+9. Composite score and classification
+
+export function classifyOscillator(composite: number): OscillatorClass {
+  if (composite >= 85) return OscillatorClass.PEAK;
+  if (composite >= 70) return OscillatorClass.STRONG_BUILD;
+  if (composite >= 55) return OscillatorClass.CONTROLLED_BUILD;
+  if (composite >= 40) return OscillatorClass.RESET;
+  return OscillatorClass.RESENSITIZE;
+}
+
+export function calculateCompositeScores(
+  acute: AcuteScoreResult,
+  resource: ResourceScoreResult,
+  seasonal: SeasonalScoreResult
+): OscillatorScoreResult {
+  const compositeScore = round(
+    acute.score * 0.5 + resource.score * 0.3 + seasonal.score * 0.2,
+    0
+  );
+
+  return {
+    acuteScore: acute.score,
+    resourceScore: resource.score,
+    seasonalScore: seasonal.score,
+    compositeScore,
+    oscillatorClass: classifyOscillator(compositeScore),
+  };
+}
+
+
+⸻
+
+10. Macro templates
+
+export const MACRO_TEMPLATES: Record<MacroDayType, MacroTargets> = {
+  [MacroDayType.SURGE]: {
+    kcal: 2700,
+    proteinG: 175,
+    carbsG: 390,
+    fatG: 40,
+  },
+  [MacroDayType.BUILD]: {
+    kcal: 2695,
+    proteinG: 175,
+    carbsG: 350,
+    fatG: 60,
+  },
+  [MacroDayType.RESET]: {
+    kcal: 2695,
+    proteinG: 175,
+    carbsG: 290,
+    fatG: 80,
+  },
+  [MacroDayType.RESENSITIZE]: {
+    kcal: 2610,
+    proteinG: 175,
+    carbsG: 250,
+    fatG: 90,
+  },
+};
+
+export const MEAL_TIMING_TEMPLATES: Record<MacroDayType, MealTimingTargets> = {
+  [MacroDayType.SURGE]: {
+    preCardioCarbsG: 30,
+    postCardioProteinG: 40,
+    postCardioCarbsG: 90,
+    postCardioFatG: 10,
+    meal2ProteinG: 30,
+    meal2CarbsG: 60,
+    meal2FatG: 10,
+    preLiftProteinG: 25,
+    preLiftCarbsG: 80,
+    preLiftFatG: 5,
+    postLiftProteinG: 45,
+    postLiftCarbsG: 110,
+    postLiftFatG: 5,
+    finalMealProteinG: 35,
+    finalMealCarbsG: 20,
+    finalMealFatG: 10,
+  },
+  [MacroDayType.BUILD]: {
+    preCardioCarbsG: 30,
+    postCardioProteinG: 40,
+    postCardioCarbsG: 75,
+    postCardioFatG: 10,
+    meal2ProteinG: 30,
+    meal2CarbsG: 55,
+    meal2FatG: 10,
+    preLiftProteinG: 25,
+    preLiftCarbsG: 65,
+    preLiftFatG: 5,
+    postLiftProteinG: 45,
+    postLiftCarbsG: 85,
+    postLiftFatG: 5,
+    finalMealProteinG: 35,
+    finalMealCarbsG: 40,
+    finalMealFatG: 30,
+  },
+  [MacroDayType.RESET]: {
+    preCardioCarbsG: 25,
+    postCardioProteinG: 40,
+    postCardioCarbsG: 60,
+    postCardioFatG: 15,
+    meal2ProteinG: 30,
+    meal2CarbsG: 45,
+    meal2FatG: 15,
+    preLiftProteinG: 25,
+    preLiftCarbsG: 45,
+    preLiftFatG: 10,
+    postLiftProteinG: 45,
+    postLiftCarbsG: 55,
+    postLiftFatG: 10,
+    finalMealProteinG: 35,
+    finalMealCarbsG: 35,
+    finalMealFatG: 30,
+  },
+  [MacroDayType.RESENSITIZE]: {
+    preCardioCarbsG: 20,
+    postCardioProteinG: 40,
+    postCardioCarbsG: 45,
+    postCardioFatG: 15,
+    meal2ProteinG: 30,
+    meal2CarbsG: 35,
+    meal2FatG: 20,
+    preLiftProteinG: 25,
+    preLiftCarbsG: 30,
+    preLiftFatG: 10,
+    postLiftProteinG: 40,
+    postLiftCarbsG: 40,
+    postLiftFatG: 10,
+    finalMealProteinG: 40,
+    finalMealCarbsG: 40,
+    finalMealFatG: 35,
+  },
+};
+
+
+⸻
+
+11. Cycle day helpers
+
+export function getCycleDay28(startDateIso: string, currentDateIso: string): number {
+  const start = new Date(startDateIso + "T00:00:00");
+  const current = new Date(currentDateIso + "T00:00:00");
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const diffDays = Math.floor((current.getTime() - start.getTime()) / msPerDay);
+  return (diffDays % 28 + 28) % 28 + 1;
+}
+
+export function getCycleWeekType(cycleDay28: number): CycleWeekType {
+  if (cycleDay28 >= 1 && cycleDay28 <= 7) return CycleWeekType.PRIME;
+  if (cycleDay28 >= 8 && cycleDay28 <= 14) return CycleWeekType.OVERLOAD;
+  if (cycleDay28 >= 15 && cycleDay28 <= 21) return CycleWeekType.PEAK;
+  return CycleWeekType.RESENSITIZE;
+}
+
+
+⸻
+
+12. Daily decision engine
+
+export interface RecommendationEngineContext {
+  today: DailyVitalsRecord;
+  refs: RollingReferences;
+  baselines: UserVitalsBaselines;
+  acute: AcuteScoreResult;
+  resource: ResourceScoreResult;
+  seasonal: SeasonalScoreResult;
+  composite: OscillatorScoreResult;
+  cycleDay28: number;
+  cycleWeekType: CycleWeekType;
+}
+
+export function deriveFlags(ctx: RecommendationEngineContext): DailyRecommendationFlags {
+  const hrvToday = ctx.today.heart.hrvMs;
+  const hrv7 = ctx.refs.hrv7dAvg;
+  const rhrToday = ctx.today.heart.restingHrBpm;
+  const rhr7 = ctx.refs.rhr7dAvg;
+  const sleep = ctx.today.sleep.sleepDurationMin;
+
+  const suppressedHrv = hrvToday != null && hrv7 != null ? hrvToday < hrv7 * 0.9 : false;
+  const elevatedRhr = rhrToday != null && rhr7 != null ? rhrToday > rhr7 + 4 : false;
+  const lowSleep = sleep != null ? sleep < 360 : false;
+  const cardioMonotony =
+    Math.max(ctx.refs.cardioZone2Count7d, ctx.refs.cardioZone3Count7d, ctx.refs.cardioRecoveryCount7d) >= 5;
+  const monthlyResensitizeOverride = ctx.cycleDay28 >= 22;
+  const hardStopFatigue =
+    suppressedHrv || elevatedRhr || lowSleep || ctx.composite.compositeScore < 55;
+
+  return {
+    hardStopFatigue,
+    lowSleep,
+    elevatedRhr,
+    suppressedHrv,
+    cardioMonotony,
+    monthlyResensitizeOverride,
+  };
+}
+
+export function recommendCardioMode(ctx: RecommendationEngineContext, flags: DailyRecommendationFlags): CardioMode {
+  if (flags.hardStopFatigue) {
+    if (ctx.composite.compositeScore < 40) return CardioMode.RECOVERY_WALK;
+    return CardioMode.ZONE_2;
+  }
+
+  if (flags.monthlyResensitizeOverride && ctx.refs.cardioZone3Count7d >= 1) {
+    return CardioMode.ZONE_2;
+  }
+
+  if (ctx.refs.cardioZone3Count7d >= 3) return CardioMode.ZONE_2;
+
+  if (ctx.composite.compositeScore >= 85) return CardioMode.ZONE_3;
+  if (ctx.composite.compositeScore >= 70) return CardioMode.ZONE_3;
+  if (ctx.composite.compositeScore >= 55) return CardioMode.ZONE_2;
+  if (ctx.composite.compositeScore >= 40) return CardioMode.ZONE_2;
+  return CardioMode.RECOVERY_WALK;
+}
+
+export function recommendLiftMode(ctx: RecommendationEngineContext, flags: DailyRecommendationFlags): LiftMode {
+  if (flags.hardStopFatigue) {
+    return ctx.composite.compositeScore < 40 ? LiftMode.OFF : LiftMode.RECOVERY_PATTERNING;
+  }
+
+  switch (ctx.composite.oscillatorClass) {
+    case OscillatorClass.PEAK:
+      return LiftMode.NEURAL_TENSION;
+    case OscillatorClass.STRONG_BUILD:
+      return LiftMode.HYPERTROPHY_BUILD;
+    case OscillatorClass.CONTROLLED_BUILD:
+      return LiftMode.PUMP;
+    case OscillatorClass.RESET:
+      return LiftMode.RECOVERY_PATTERNING;
+    case OscillatorClass.RESENSITIZE:
+    default:
+      return LiftMode.MOBILITY;
+  }
+}
+
+export function recommendMacroDayType(
+  ctx: RecommendationEngineContext,
+  flags: DailyRecommendationFlags
+): MacroDayType {
+  if (flags.hardStopFatigue) {
+    return ctx.composite.compositeScore < 40 ? MacroDayType.RESENSITIZE : MacroDayType.RESET;
+  }
+
+  if (flags.monthlyResensitizeOverride) {
+    if (ctx.composite.compositeScore >= 85 && !flags.suppressedHrv && !flags.elevatedRhr) {
+      return MacroDayType.BUILD;
+    }
+    return MacroDayType.RESET;
+  }
+
+  switch (ctx.composite.oscillatorClass) {
+    case OscillatorClass.PEAK:
+      return MacroDayType.SURGE;
+    case OscillatorClass.STRONG_BUILD:
+      return MacroDayType.BUILD;
+    case OscillatorClass.CONTROLLED_BUILD:
+      return flags.elevatedRhr ? MacroDayType.RESET : MacroDayType.BUILD;
+    case OscillatorClass.RESET:
+      return MacroDayType.RESET;
+    case OscillatorClass.RESENSITIZE:
+    default:
+      return MacroDayType.RESENSITIZE;
+  }
+}
+
+export function buildReasoning(
+  ctx: RecommendationEngineContext,
+  flags: DailyRecommendationFlags,
+  cardio: CardioMode,
+  lift: LiftMode,
+  macro: MacroDayType
+): string[] {
+  const reasons: string[] = [];
+
+  reasons.push(`Composite score ${ctx.composite.compositeScore} (${ctx.composite.oscillatorClass}).`);
+  reasons.push(`Acute ${ctx.acute.score}, Resource ${ctx.resource.score}, Seasonal ${ctx.seasonal.score}.`);
+
+  if (flags.suppressedHrv) reasons.push("HRV is suppressed versus 7-day baseline.");
+  if (flags.elevatedRhr) reasons.push("RHR is elevated versus 7-day baseline.");
+  if (flags.lowSleep) reasons.push("Sleep was below 6 hours.");
+  if (flags.monthlyResensitizeOverride) reasons.push("Monthly cycle is in resensitize week (days 22-28).");
+  if (flags.cardioMonotony) reasons.push("Recent cardio distribution is too repetitive.");
+
+  reasons.push(`Assigned cardio mode: ${cardio}.`);
+  reasons.push(`Assigned lift mode: ${lift}.`);
+  reasons.push(`Assigned macro day: ${macro}.`);
+
+  return reasons;
+}
+
+export function generateDailyRecommendation(ctx: RecommendationEngineContext): DailyRecommendation {
+  const flags = deriveFlags(ctx);
+  const recommendedCardioMode = recommendCardioMode(ctx, flags);
+  const recommendedLiftMode = recommendLiftMode(ctx, flags);
+  const recommendedMacroDayType = recommendMacroDayType(ctx, flags);
+  const macroTargets = MACRO_TEMPLATES[recommendedMacroDayType];
+  const mealTimingTargets = MEAL_TIMING_TEMPLATES[recommendedMacroDayType];
+  const reasoning = buildReasoning(ctx, flags, recommendedCardioMode, recommendedLiftMode, recommendedMacroDayType);
+
+  return {
+    date: ctx.today.date,
+    cycleDay28: ctx.cycleDay28,
+    cycleWeekType: ctx.cycleWeekType,
+    scores: ctx.composite,
+    flags,
+    recommendedCardioMode,
+    recommendedLiftMode,
+    recommendedMacroDayType,
+    macroTargets,
+    mealTimingTargets,
+    reasoning,
+  };
+}
+
+
+⸻
+
+13. SQL table definitions
+
+Using Postgres.
+
+13.1 enum types
+
+CREATE TYPE cardio_mode AS ENUM (
+  'recovery_walk',
+  'zone_2',
+  'zone_3'
+);
+
+CREATE TYPE lift_mode AS ENUM (
+  'off',
+  'mobility',
+  'recovery_patterning',
+  'pump',
+  'hypertrophy_build',
+  'neural_tension'
+);
+
+CREATE TYPE macro_day_type AS ENUM (
+  'surge',
+  'build',
+  'reset',
+  'resensitize'
+);
+
+CREATE TYPE oscillator_class AS ENUM (
+  'peak',
+  'strong_build',
+  'controlled_build',
+  'reset',
+  'resensitize'
+);
+
+CREATE TYPE cycle_week_type AS ENUM (
+  'prime',
+  'overload',
+  'peak',
+  'resensitize'
+);
+
+CREATE TYPE session_source AS ENUM (
+  'apple_health',
+  'manual',
+  'imported'
+);
+
+
+⸻
+
+13.2 user_vitals_baseline
+
+CREATE TABLE user_vitals_baseline (
+  user_id UUID PRIMARY KEY,
+  hrv_year_avg NUMERIC(8,2),
+  rhr_year_avg NUMERIC(8,2),
+  body_weight_setpoint_lb NUMERIC(8,2),
+  waist_setpoint_in NUMERIC(8,2),
+  protein_floor_g NUMERIC(8,2) NOT NULL DEFAULT 170,
+  fat_floor_avg_g NUMERIC(8,2) NOT NULL DEFAULT 55,
+  default_kcal NUMERIC(8,2) NOT NULL DEFAULT 2695,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+⸻
+
+13.3 daily_vitals_log
+
+CREATE TABLE daily_vitals_log (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL,
+  date DATE NOT NULL,
+
+  sleep_duration_min INTEGER,
+  time_in_bed_min INTEGER,
+  sleep_efficiency_pct NUMERIC(5,2),
+  bedtime_local TIMESTAMPTZ,
+  waketime_local TIMESTAMPTZ,
+  sleep_midpoint_min INTEGER,
+
+  resting_hr_bpm NUMERIC(8,2),
+  hrv_ms NUMERIC(8,2),
+  walking_hr_avg_bpm NUMERIC(8,2),
+  overnight_hr_avg_bpm NUMERIC(8,2),
+  vo2_estimate NUMERIC(8,2),
+
+  active_energy_kcal NUMERIC(8,2),
+  exercise_min NUMERIC(8,2),
+  step_count INTEGER,
+
+  cardio_duration_min NUMERIC(8,2),
+  cardio_avg_hr_bpm NUMERIC(8,2),
+  cardio_zone2_min NUMERIC(8,2),
+  cardio_zone3_min NUMERIC(8,2),
+  actual_cardio_mode cardio_mode,
+  cardio_strain_score NUMERIC(8,2),
+
+  body_weight_lb NUMERIC(8,2),
+  body_fat_pct NUMERIC(8,2),
+  fat_mass_lb NUMERIC(8,2),
+  fat_free_mass_lb NUMERIC(8,2),
+  skeletal_muscle_lb NUMERIC(8,2),
+  tbw_pct NUMERIC(8,2),
+  body_comp_confidence NUMERIC(4,3),
+
+  waist_at_navel_in NUMERIC(8,2),
+  waist_measure_confidence NUMERIC(4,3),
+  waist_notes TEXT,
+
+  libido_score INTEGER,
+  morning_erection_score INTEGER,
+  motivation_score INTEGER,
+  mood_stability_score INTEGER,
+  soreness_score INTEGER,
+  joint_friction_score INTEGER,
+  mental_drive_score INTEGER,
+  stress_load_score INTEGER,
+
+  planned_lift_mode lift_mode,
+  completed_lift_mode lift_mode,
+  lift_readiness_self_score INTEGER,
+  top_set_load_index NUMERIC(8,2),
+  top_set_rpe NUMERIC(8,2),
+  strength_output_index NUMERIC(8,2),
+  pump_quality_score INTEGER,
+  rep_speed_subjective_score INTEGER,
+  session_density_score NUMERIC(8,2),
+  lift_strain_score NUMERIC(8,2),
+
+  kcal_target NUMERIC(8,2),
+  kcal_actual NUMERIC(8,2),
+  protein_g_target NUMERIC(8,2),
+  protein_g_actual NUMERIC(8,2),
+  carbs_g_target NUMERIC(8,2),
+  carbs_g_actual NUMERIC(8,2),
+  fat_g_target NUMERIC(8,2),
+  fat_g_actual NUMERIC(8,2),
+
+  acute_score NUMERIC(8,2),
+  resource_score NUMERIC(8,2),
+  seasonal_score NUMERIC(8,2),
+  oscillator_composite_score NUMERIC(8,2),
+  oscillator_class oscillator_class,
+
+  recommended_cardio_mode cardio_mode,
+  recommended_lift_mode lift_mode,
+  recommended_macro_day macro_day_type,
+
+  notes TEXT,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT uq_daily_vitals_log_user_date UNIQUE (user_id, date),
+  CONSTRAINT chk_libido_score CHECK (libido_score IS NULL OR libido_score BETWEEN 1 AND 5),
+  CONSTRAINT chk_morning_erection_score CHECK (morning_erection_score IS NULL OR morning_erection_score BETWEEN 0 AND 3),
+  CONSTRAINT chk_motivation_score CHECK (motivation_score IS NULL OR motivation_score BETWEEN 1 AND 5),
+  CONSTRAINT chk_mood_stability_score CHECK (mood_stability_score IS NULL OR mood_stability_score BETWEEN 1 AND 5),
+  CONSTRAINT chk_soreness_score CHECK (soreness_score IS NULL OR soreness_score BETWEEN 1 AND 5),
+  CONSTRAINT chk_joint_friction_score CHECK (joint_friction_score IS NULL OR joint_friction_score BETWEEN 1 AND 5),
+  CONSTRAINT chk_mental_drive_score CHECK (mental_drive_score IS NULL OR mental_drive_score BETWEEN 1 AND 5),
+  CONSTRAINT chk_stress_load_score CHECK (stress_load_score IS NULL OR stress_load_score BETWEEN 1 AND 5)
+);
+
+
+⸻
+
+13.4 cardio_session
+
+CREATE TABLE cardio_session (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL,
+  date DATE NOT NULL,
+  start_time TIMESTAMPTZ,
+  end_time TIMESTAMPTZ,
+  duration_min NUMERIC(8,2),
+  avg_hr_bpm NUMERIC(8,2),
+  max_hr_bpm NUMERIC(8,2),
+  zone2_min NUMERIC(8,2),
+  zone3_min NUMERIC(8,2),
+  mode cardio_mode NOT NULL,
+  strain_score NUMERIC(8,2),
+  source session_source NOT NULL DEFAULT 'manual',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+⸻
+
+13.5 lift_session
+
+CREATE TABLE lift_session (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL,
+  date DATE NOT NULL,
+  start_time TIMESTAMPTZ,
+  end_time TIMESTAMPTZ,
+  duration_min NUMERIC(8,2),
+  planned_lift_mode lift_mode,
+  completed_lift_mode lift_mode,
+  lift_readiness_self_score INTEGER,
+  top_set_load_index NUMERIC(8,2),
+  top_set_rpe NUMERIC(8,2),
+  strength_output_index NUMERIC(8,2),
+  session_density_score NUMERIC(8,2),
+  pump_quality_score INTEGER,
+  rep_speed_subjective_score INTEGER,
+  lift_strain_score NUMERIC(8,2),
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+⸻
+
+13.6 nutrition_day_target
+
+CREATE TABLE nutrition_day_target (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL,
+  date DATE NOT NULL,
+  macro_day_type macro_day_type NOT NULL,
+  kcal_target NUMERIC(8,2) NOT NULL,
+  protein_g_target NUMERIC(8,2) NOT NULL,
+  carbs_g_target NUMERIC(8,2) NOT NULL,
+  fat_g_target NUMERIC(8,2) NOT NULL,
+
+  pre_cardio_carbs_g NUMERIC(8,2),
+  post_cardio_protein_g NUMERIC(8,2),
+  post_cardio_carbs_g NUMERIC(8,2),
+  post_cardio_fat_g NUMERIC(8,2),
+
+  meal2_protein_g NUMERIC(8,2),
+  meal2_carbs_g NUMERIC(8,2),
+  meal2_fat_g NUMERIC(8,2),
+
+  pre_lift_protein_g NUMERIC(8,2),
+  pre_lift_carbs_g NUMERIC(8,2),
+  pre_lift_fat_g NUMERIC(8,2),
+
+  post_lift_protein_g NUMERIC(8,2),
+  post_lift_carbs_g NUMERIC(8,2),
+  post_lift_fat_g NUMERIC(8,2),
+
+  final_meal_protein_g NUMERIC(8,2),
+  final_meal_carbs_g NUMERIC(8,2),
+  final_meal_fat_g NUMERIC(8,2),
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT uq_nutrition_day_target_user_date UNIQUE (user_id, date)
+);
+
+
+⸻
+
+13.7 oscillator_state
+
+CREATE TABLE oscillator_state (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL,
+  date DATE NOT NULL,
+  cycle_day_28 INTEGER NOT NULL,
+  cycle_week_type cycle_week_type NOT NULL,
+
+  acute_score NUMERIC(8,2) NOT NULL,
+  resource_score NUMERIC(8,2) NOT NULL,
+  seasonal_score NUMERIC(8,2) NOT NULL,
+  oscillator_composite_score NUMERIC(8,2) NOT NULL,
+  oscillator_class oscillator_class NOT NULL,
+
+  rolling_zone2_count_7d INTEGER NOT NULL DEFAULT 0,
+  rolling_zone3_count_7d INTEGER NOT NULL DEFAULT 0,
+  rolling_recovery_count_7d INTEGER NOT NULL DEFAULT 0,
+  rolling_neural_lift_count_7d INTEGER NOT NULL DEFAULT 0,
+  rolling_reset_day_count_28d INTEGER NOT NULL DEFAULT 0,
+
+  fatigue_flag BOOLEAN NOT NULL DEFAULT FALSE,
+  monotony_flag BOOLEAN NOT NULL DEFAULT FALSE,
+  deload_compliance_flag BOOLEAN NOT NULL DEFAULT FALSE,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT uq_oscillator_state_user_date UNIQUE (user_id, date)
+);
+
+
+⸻
+
+14. API response shapes
+
+14.1 Vitals Dashboard response
+
+export interface VitalsDashboardResponse {
+  date: string;
+  userId: string;
+
+  scores: {
+    acute: number;
+    resource: number;
+    seasonal: number;
+    composite: number;
+    oscillatorClass: OscillatorClass;
+  };
+
+  today: {
+    bodyWeightLb: number | null;
+    bodyFatPct: number | null;
+    fatFreeMassLb: number | null;
+    waistAtNavelIn: number | null;
+    restingHrBpm: number | null;
+    hrvMs: number | null;
+    sleepDurationMin: number | null;
+    kcalActual: number | null;
+    proteinGActual: number | null;
+    carbsGActual: number | null;
+    fatGActual: number | null;
+  };
+
+  trends: {
+    weightTrend14dLbPerWeek: number | null;
+    ffmTrend14dLbPerWeek: number | null;
+    strengthTrend14dPct: number | null;
+    waistChange14dIn: number | null;
+    hrv28dAvg: number | null;
+    rhr28dAvg: number | null;
+  };
+
+  weeklyDistribution: {
+    zone2Count7d: number;
+    zone3Count7d: number;
+    recoveryCount7d: number;
+    neuralLiftCount7d: number;
+  };
+
+  recommendation: {
+    cardioMode: CardioMode;
+    liftMode: LiftMode;
+    macroDayType: MacroDayType;
+    macroTargets: MacroTargets;
+  };
+
+  breakdowns: {
+    acute: ScoreBreakdownItem[];
+    resource: ScoreBreakdownItem[];
+    seasonal: ScoreBreakdownItem[];
+  };
+}
+
+Example JSON
+
+{
+  "date": "2026-03-11",
+  "userId": "user_123",
+  "scores": {
+    "acute": 78,
+    "resource": 74,
+    "seasonal": 69,
+    "composite": 75,
+    "oscillatorClass": "strong_build"
+  },
+  "today": {
+    "bodyWeightLb": 156.2,
+    "bodyFatPct": 16.9,
+    "fatFreeMassLb": 131.5,
+    "waistAtNavelIn": 31.4,
+    "restingHrBpm": 58,
+    "hrvMs": 39,
+    "sleepDurationMin": 474,
+    "kcalActual": 2695,
+    "proteinGActual": 173.9,
+    "carbsGActual": 330.9,
+    "fatGActual": 54.4
+  },
+  "trends": {
+    "weightTrend14dLbPerWeek": 0.28,
+    "ffmTrend14dLbPerWeek": 0.21,
+    "strengthTrend14dPct": 1.4,
+    "waistChange14dIn": -0.1,
+    "hrv28dAvg": 37.4,
+    "rhr28dAvg": 59.2
+  },
+  "weeklyDistribution": {
+    "zone2Count7d": 3,
+    "zone3Count7d": 2,
+    "recoveryCount7d": 1,
+    "neuralLiftCount7d": 2
+  },
+  "recommendation": {
+    "cardioMode": "zone_3",
+    "liftMode": "hypertrophy_build",
+    "macroDayType": "build",
+    "macroTargets": {
+      "kcal": 2695,
+      "proteinG": 175,
+      "carbsG": 350,
+      "fatG": 60
+    }
+  },
+  "breakdowns": {
+    "acute": [],
+    "resource": [],
+    "seasonal": []
+  }
+}
+
+
+⸻
+
+14.2 Daily recommendation engine response
+
+export interface VitalsDailyRecommendationResponse {
+  date: string;
+  userId: string;
+  recommendation: DailyRecommendation;
+  scoreBreakdowns: {
+    acute: ScoreBreakdownItem[];
+    resource: ScoreBreakdownItem[];
+    seasonal: ScoreBreakdownItem[];
+  };
+}
+
+Example JSON
+
+{
+  "date": "2026-03-11",
+  "userId": "user_123",
+  "recommendation": {
+    "date": "2026-03-11",
+    "cycleDay28": 10,
+    "cycleWeekType": "overload",
+    "scores": {
+      "acuteScore": 78,
+      "resourceScore": 74,
+      "seasonalScore": 69,
+      "compositeScore": 75,
+      "oscillatorClass": "strong_build"
+    },
+    "flags": {
+      "hardStopFatigue": false,
+      "lowSleep": false,
+      "elevatedRhr": false,
+      "suppressedHrv": false,
+      "cardioMonotony": false,
+      "monthlyResensitizeOverride": false
+    },
+    "recommendedCardioMode": "zone_3",
+    "recommendedLiftMode": "hypertrophy_build",
+    "recommendedMacroDayType": "build",
+    "macroTargets": {
+      "kcal": 2695,
+      "proteinG": 175,
+      "carbsG": 350,
+      "fatG": 60
+    },
+    "mealTimingTargets": {
+      "preCardioCarbsG": 30,
+      "postCardioProteinG": 40,
+      "postCardioCarbsG": 75,
+      "postCardioFatG": 10,
+      "meal2ProteinG": 30,
+      "meal2CarbsG": 55,
+      "meal2FatG": 10,
+      "preLiftProteinG": 25,
+      "preLiftCarbsG": 65,
+      "preLiftFatG": 5,
+      "postLiftProteinG": 45,
+      "postLiftCarbsG": 85,
+      "postLiftFatG": 5,
+      "finalMealProteinG": 35,
+      "finalMealCarbsG": 40,
+      "finalMealFatG": 30
+    },
+    "reasoning": [
+      "Composite score 75 (strong_build).",
+      "Acute 78, Resource 74, Seasonal 69.",
+      "Assigned cardio mode: zone_3.",
+      "Assigned lift mode: hypertrophy_build.",
+      "Assigned macro day: build."
+    ]
+  },
+  "scoreBreakdowns": {
+    "acute": [],
+    "resource": [],
+    "seasonal": []
+  }
+}
+
+
+⸻
+
+15. Suggested API endpoints
+
+GET  /api/vitals/dashboard?date=YYYY-MM-DD
+GET  /api/vitals/recommendation?date=YYYY-MM-DD
+POST /api/vitals/daily-log
+POST /api/vitals/cardio-session
+POST /api/vitals/lift-session
+POST /api/vitals/nutrition-target
+POST /api/vitals/recompute?date=YYYY-MM-DD
+
+
+⸻
+
+16. Express route skeleton
+
+import { Request, Response } from "express";
+
+export async function getVitalsDashboard(req: Request, res: Response) {
+  const userId = req.user!.id;
+  const date = String(req.query.date);
+
+  // 1. load today daily_vitals_log
+  // 2. load rolling references
+  // 3. compute scores
+  // 4. compute recommendation
+  // 5. return dashboard response
+
+  return res.json({
+    ok: true,
+    data: {} as VitalsDashboardResponse,
+  });
+}
+
+export async function getVitalsRecommendation(req: Request, res: Response) {
+  const userId = req.user!.id;
+  const date = String(req.query.date);
+
+  return res.json({
+    ok: true,
+    data: {} as VitalsDailyRecommendationResponse,
+  });
+}
+
+
+⸻
+
+17. Practical implementation notes
+
+The most important engineering choices:
+
+Use smoothed trends
+
+Do not use raw single-day smart-scale body fat or FFM to drive big decisions.
+
+Use:
+	•	7-day averages
+	•	14-day linear slopes
+	•	28-day rolling means
+
+Confidence-weight noisy scale data
+
+If body comp confidence is low, down-weight:
+	•	BF%
+	•	fat mass
+	•	FFM
+
+and rely more on:
+	•	weight trend
+	•	waist trend
+	•	lift trend
+
+Do not let one bad night nuke the system
+
+Use hard-stop rules only when:
+	•	multiple red flags
+	•	or one severe flag
+
+Keep recommendation deterministic
+
+Same input should always produce same output.
+
+That will matter a lot when you debug app behavior.
+
+⸻
+
+18. Recommended file structure
+
+src/
+  modules/
+    vitals/
+      enums.ts
+      interfaces.ts
+      utils.ts
+      acute-score.ts
+      resource-score.ts
+      seasonal-score.ts
+      composite-score.ts
+      macro-templates.ts
+      cycle-helpers.ts
+      recommendation-engine.ts
+      vitals.service.ts
+      vitals.controller.ts
+      vitals.routes.ts
+  db/
+    migrations/
+      001_create_vitals_enums.sql
+      002_create_vitals_tables.sql
+
+
+⸻
+
+19. Suggested next refinement after v1
+
+The next meaningful upgrade would be:
+	•	confidence-weighted scoring
+	•	exercise-weighted strength output index
+	•	actual Apple Health import mapper
+	•	SQL view for 7d / 14d / 28d derived metrics
+	•	exact dashboard card contract for Expo
+
+The best next move is to turn this into actual drop-in files.

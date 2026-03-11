@@ -13,8 +13,10 @@ from urllib.parse import urlparse
 from sqlalchemy import text
 from app.database import engine, SessionLocal, DATABASE_URL
 from app.models import Base
+import app.vitals_models  # register vitals tables with ORM Base
 from app.seed import seed_from_csv
 from app.routers import datasets, matrix, volume, reports, optimizer, composite, presets, weekly_optimizer, lifts, weekly_muscles, muscle_dose, coach, admin, muscle_day, strength, pec_zones, game
+from app.routers import vitals as vitals_router
 
 _parsed = urlparse(DATABASE_URL)
 _dialect = _parsed.scheme.split("+")[0] if "+" in _parsed.scheme else _parsed.scheme
@@ -108,6 +110,7 @@ app.include_router(muscle_day.router)
 app.include_router(strength.router)
 app.include_router(pec_zones.router)
 app.include_router(game.router)
+app.include_router(vitals_router.router)
 
 
 @app.get("/health", tags=["system"], summary="Service health check")
