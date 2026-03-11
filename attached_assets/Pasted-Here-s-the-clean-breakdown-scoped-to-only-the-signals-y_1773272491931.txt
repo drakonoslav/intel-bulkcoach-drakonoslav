@@ -1,0 +1,35 @@
+Here's the clean breakdown, scoped to only the signals you care about:
+
+Currently rigged — oscillator reads these from your existing log entries:
+
+Signal	How you log it	Which layer uses it
+HRV	HRV field in log	Acute (primary driver)
+Resting HR	RHR field in log	Acute (secondary)
+Sleep start / end	Actual Bed + Actual Wake fields	Acute (sleep duration & regularity)
+Sleep stages (Core/Deep/REM)	Sleep stage duration fields	Acute (sleep quality proxy)
+Morning weight	Morning Weight field	Acute (7d stability) + Resource (14d trend) + Seasonal (indirect via FFM)
+Waist	Waist at Navel field	Resource (14d trend) + Seasonal
+Fat-free mass	Fat-Free Mass field	Resource (14d trend) + Seasonal (28d/56d)
+Zone 2 minutes	Cardio zone fields	Resource (7d cardio volume) + Seasonal
+Zone 3 minutes	Cardio zone fields	Resource + Seasonal
+Cardio skipped	Cardio skipped toggle	Resource + Seasonal
+Lift skipped	Lift skipped toggle	Resource + Seasonal
+Steps	Steps field	Acute (NEAT/activity proxy)
+Calories consumed	Calories Consumed field	Resource (7d adequacy)
+Dietary adherence	Adherence button strip	Resource (7d adherence ratio)
+Pain level	Pain 0–10 slider	Acute (joint/soreness fallback)
+Not yet rigged — fields exist in the database but no log form entry:
+
+Signal	Column in DB	Which layer would use it
+Libido score	libido_score	Acute (subjective drive — currently defaults neutral)
+Motivation score	motivation_score	Acute (subjective drive — currently defaults neutral)
+Mood stability	mood_stability_score	Acute (currently defaults neutral)
+Mental drive	mental_drive_score	Acute (currently defaults neutral)
+Soreness score	soreness_score	Acute (joint/soreness — falls back to pain_0_10 currently)
+Joint friction	joint_friction_score	Acute (joint/soreness — falls back to pain_0_10 currently)
+Actual macros	protein_g_actual, carbs_g_actual, fat_g_actual	Resource (vs targets)
+Meals checkmarks	no dedicated column yet	Resource (stable caloric load signal you mentioned)
+Erection score (manual)	nocturnal_erection_score or similar	Acute (you log count/duration/firmness via the erection section, but the oscillator doesn't read it yet)
+Key gap worth noting: Erection data is already logged (count, duration, firmness) but the oscillator engine doesn't read it yet — it was marked as a future input. That and the 4 subjective drive scores (libido, motivation, mood, mental drive) are the biggest Acute layer gaps. The Seasonal layer is the thinnest right now purely because it depends on long windows (28–56 days) where you simply don't have much data yet.
+
+Want me to wire erection score into the Acute layer, or add any of the subjective fields first?

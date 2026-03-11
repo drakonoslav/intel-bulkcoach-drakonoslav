@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "2bdWj5iahilKn8Yy53sMf"
+uri = "file://EXPO_INTEL_INTEGRATION_SPEC.md"
+type = "text"
+title = "BulkCoach × Lifting-Intel — Daily Log Submission Spec"
