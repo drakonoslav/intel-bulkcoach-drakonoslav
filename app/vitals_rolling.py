@@ -319,6 +319,55 @@ def compute_rolling_references(db: Session, expo_user_id: str, target_date: date
     soreness_7d_avg = avg_field(rows_7d, "soreness_score")
     joint_friction_7d_avg = avg_field(rows_7d, "joint_friction_score")
 
+    # ── SLEEP DEBT ACCUMULATION ─────────────────────────────────────────────────
+    # 7h (420 min) is the minimum adequate floor per the infradian arc spec.
+    # 3+ deficit nights in 7d qualifies as accumulated sleep debt — a resensitize
+    # entry trigger alongside virility decline and monotony.
+    _SLEEP_FLOOR_MIN = 420
+    sleep_debt_nights_7d = sum(
+        1 for r in rows_7d
+        if r["sleep_duration_min"] is not None and float(r["sleep_duration_min"]) < _SLEEP_FLOOR_MIN
+    )
+    sleep_debt_accumulated = sleep_debt_nights_7d >= 3
+
+    # ── CROSS-GEAR DIAGNOSTIC FLAGS ─────────────────────────────────────────────
+    # Detect biological gear mismatches that signal training/nutrition misalignment.
+
+    # Active (non-off) lift sessions in 7d — required for FFM load context
+    lift_count_active_7d = sum(
+        1 for r in rows_7d
+        if r["completed_lift_mode"] and r["completed_lift_mode"] not in ("off",)
+    )
+
+    # Waist slope (in/day) — needed to compare against FFM slope
+    waist_slope_14d = _linear_slope(
+        [(i, float(r["waist_at_navel_in"])) for i, r in enumerate(rows_14d)
+         if r["waist_at_navel_in"] is not None]
+    )
+
+    # strength_without_ffm: strength signal rising but lean mass not keeping up.
+    # Indicates neural/technique adaptation rather than hypertrophic gain.
+    # Requires FFM confidence < 0.30 OR flat/negative FFM slope.
+    strength_without_ffm = bool(
+        strength_slope_14d is not None and strength_slope_14d > 0
+        and (ffm_slope_14d is None or ffm_slope_14d <= 0 or ffm_trend_14d_confidence < 0.30)
+    )
+
+    # ffm_falling_under_load: lean mass declining despite active training presence.
+    # Threshold: ≥ 0.02 lb/day decline (≈ 0.14 lb/week) with ≥ 2 lift sessions in 7d.
+    # Signals overreach, protein deficit, or sleep-driven catabolism.
+    ffm_falling_under_load = bool(
+        ffm_slope_14d is not None and ffm_slope_14d < -0.02
+        and lift_count_active_7d >= 2
+    )
+
+    # waist_rising_faster_than_ffm: visceral drift — waist gaining while FFM flat/falling.
+    # Threshold: > 0.005 in/day waist slope (≈ 0.035 in/week) + FFM not rising.
+    waist_rising_faster_than_ffm = bool(
+        waist_slope_14d is not None and waist_slope_14d > 0.005
+        and (ffm_slope_14d is None or ffm_slope_14d <= 0)
+    )
+
     return {
         "hrv7dAvg": hrv_7d,
         "rhr7dAvg": rhr_7d,
@@ -372,4 +421,13 @@ def compute_rolling_references(db: Session, expo_user_id: str, target_date: date
         "sleepMidpointDrift14d": sleep_midpoint_drift_14d,
         "soreness7dAvg": soreness_7d_avg,
         "jointFriction7dAvg": joint_friction_7d_avg,
+        # Sleep debt
+        "sleepDebtNights7d": sleep_debt_nights_7d,
+        "sleepDebtAccumulated": sleep_debt_accumulated,
+        # Cross-gear diagnostics
+        "liftCountActive7d": lift_count_active_7d,
+        "waistSlope14d": waist_slope_14d,
+        "strengthWithoutFfm": strength_without_ffm,
+        "ffmFallingUnderLoad": ffm_falling_under_load,
+        "waistRisingFasterThanFfm": waist_rising_faster_than_ffm,
     }

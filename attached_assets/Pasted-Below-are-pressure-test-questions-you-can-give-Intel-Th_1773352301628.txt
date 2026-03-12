@@ -1,0 +1,249 @@
+Below are pressure-test questions you can give Intel.
+They are written to expose mathematical shortcuts, missing data paths, weak schema design, and hidden assumptions that would break the oscillator over months or years.
+
+These are not casual questions — they force the system to prove:
+	•	the math is correct
+	•	the data exists to support the math
+	•	the architecture can sustain long-term fractal cycles
+	•	nothing is relying on placeholders or implied logic
+
+If Intel cannot answer one of these clearly, that part of the oscillator is incomplete.
+
+⸻
+
+Tier 1 — Raw Data Fidelity (the foundation)
+
+These questions verify that the engine actually has the data needed to compute what it claims.
+
+Sampling integrity
+	1.	Where in the schema is the timestamp of HRV measurement stored, and what code enforces the “first 30 minutes post-wake” validity window?
+	2.	If HRV is recorded outside the valid window, is the sample rejected, down-weighted, or silently accepted? Show the exact code path.
+	3.	What happens if HRV has only 2 samples in a 7-day window?
+	•	Is hrv7dAvg still computed?
+	•	What confidence weight does it receive?
+	4.	Is RHR taken from the lowest overnight value or the mean of the overnight window?
+	•	Show the exact formula used.
+	5.	Where is the sleep midpoint calculated, and how is it normalized to the user’s anchor midpoint?
+
+⸻
+
+Subjective signal integrity
+	6.	How many subjective inputs are required for the virility composite to be considered “complete”?
+	7.	If libido and erection are present but mood and motivation are missing, what confidence weight is applied to the virility score?
+	8.	Is the erection score normalized consistently (0–3 → 0–10) across every layer of the engine?
+	9.	Is the morning erection score treated as a same-day readiness signal or a slow-trend endocrine proxy?
+
+⸻
+
+Body composition fidelity
+	10.	How does the engine detect unrealistic body composition jumps?
+
+	•	Example: FFM increases 4 lb in one day.
+
+	11.	What is the exact rule that reduces body composition confidence when weight variance is high?
+	12.	What is the maximum allowed BF% day-to-day change before confidence drops?
+	13.	How many FFM measurements are required before a 14-day trend can influence the Resource score?
+
+⸻
+
+Tier 2 — Mathematical Integrity
+
+These questions verify that every score and trend is computed correctly.
+
+Rolling averages
+	14.	Does hrv7dAvg exclude missing days or treat them as zero?
+	15.	If HRV is logged on days 1, 3, and 7 only, what exactly is the denominator of the average?
+
+⸻
+
+Trend detection
+	16.	Show the code for the linear regression used for:
+
+	•	ffm_trend_14d
+	•	strength_trend_14d
+	•	hrv_28d_trend
+
+	17.	Is regression weighted by measurement confidence or equally weighted?
+	18.	What happens when fewer than 4 points exist in a 14-day window?
+
+⸻
+
+Weighted scoring math
+	19.	Show the exact implementation of:
+
+Score = 100 * ( Σ(si * ci) / Σ(mi * ci) )
+
+	20.	If all confidence values are 0.2, does the score collapse or normalize correctly?
+	21.	How are max scores stored for each metric?
+
+	•	hard-coded
+	•	enum
+	•	schema field
+
+⸻
+
+Tier 3 — Training Output Fidelity
+
+These questions verify whether strength tracking is real or superficial.
+
+Exercise-level modeling
+	22.	Where is movement_pattern stored for each exercise?
+	23.	How does the system differentiate a squat from a leg extension mathematically?
+	24.	Is regional_weight stored in the database or hard-coded in the engine?
+	25.	How is exercise importance assigned when a new exercise is entered?
+
+⸻
+
+Strength output math
+	26.	Show the exact implementation of the estimated 1RM calculation.
+	27.	Is performance calculated using:
+
+Performance = 
+0.45 Strength
++ 0.20 Volume
++ 0.15 Effort
++ 0.20 Completion
+
+	28.	Where is weighted_max stored for each exercise contribution?
+	29.	What prevents a session with 15 small isolation exercises from appearing stronger than a squat session?
+
+⸻
+
+Trend stability
+	30.	Is strength trend calculated from session strength output or from individual lift progression?
+	31.	How does the system prevent a single PR session from distorting the 14-day strength slope?
+
+⸻
+
+Tier 4 — Resource Model Integrity
+
+These questions verify that nutrition logic matches physiology.
+
+Carb timing
+	32.	Is carb adequacy calculated from total daily carbs or peri-training carbs?
+	33.	Show the exact calculation of:
+
+PeriCarbs = postCardio + preLift + postLift
+
+	34.	What happens if the user trains fasted?
+
+⸻
+
+Fat oscillation
+	35.	Are fat oscillation scores calculated from actual intake or recommended macros?
+	36.	How many high-fat and low-fat days must exist in 7 days for oscillation to be considered valid?
+
+⸻
+
+Caloric adequacy
+	37.	Is calorie adequacy based on 7-day average or daily compliance?
+	38.	Does calorie adequacy penalize small overages the same way it penalizes underfeeding?
+
+⸻
+
+Tier 5 — Autonomic System Integrity
+
+These questions verify cardio and fatigue control logic.
+
+Zone 3 gating
+	39.	Where in the code is the hard gate that forces Zone 2 when HRV < 90% of the 7-day average?
+	40.	Is this evaluated before or after composite score calculation?
+
+⸻
+
+Sequential fatigue control
+	41.	How does the engine detect two consecutive Zone 3 sessions?
+	42.	Does the check use scheduled sessions or actual sessions?
+
+⸻
+
+Resensitize override
+	43.	Where is the code that caps Zone 3 during the resensitize phase?
+
+⸻
+
+Tier 6 — Adaptive Arc Integrity
+
+These questions verify that the system is truly state-driven, not calendar-driven.
+	44.	Is the adaptive arc phase determined by date or by signal state?
+	45.	Which signals trigger entry into deload phase?
+	46.	What exact thresholds determine entry into resensitize phase?
+	47.	Can the arc extend beyond 35 days?
+	48.	What happens if FFM and strength are still rising after 35 days?
+
+⸻
+
+Tier 7 — Long-Term Stability
+
+These questions verify fractal development tracking.
+	49.	Where is arc length stored historically?
+	50.	Can the system calculate arc length variance over time?
+
+⸻
+
+Long-term metrics
+	51.	Does the engine track:
+
+	•	Arc Stability Index
+	•	Peak Contrast Index
+	•	Resensitization Effect Size
+
+⸻
+
+Annual recalibration
+	52.	When does the system update the annual HRV baseline?
+	53.	Is the annual baseline recalculated continuously or only on anniversaries?
+
+⸻
+
+Tier 8 — Data Loss Resilience
+
+These questions test real-world reliability.
+	54.	If the user stops logging macros for 10 days, what happens to Resource score confidence?
+	55.	If waist measurements are missing for 30 days, does the system still compute body composition trends?
+	56.	If HRV is missing for 5 days, does the Acute score still function?
+
+⸻
+
+Tier 9 — Emergent Cycle Math
+
+These questions test whether the fractal oscillator actually exists mathematically.
+	57.	Is the adaptive arc length stored and analyzed historically?
+	58.	Does the system calculate average arc length across quarters?
+	59.	Can the engine show how many arcs occurred in a 91-day quarter?
+
+⸻
+
+Recurrence analysis
+	60.	Does the engine detect when peaks cluster too closely together across arcs?
+
+⸻
+
+Tier 10 — Architecture Integrity
+
+These questions test whether the engine is deterministic and auditable.
+	61.	Can the engine reproduce yesterday’s recommendation deterministically from stored data?
+	62.	Are all derived metrics stored or recomputed every request?
+	63.	Is there a full audit log of:
+
+	•	inputs
+	•	derived metrics
+	•	decisions
+	•	recommendations
+
+⸻
+
+The Ultimate Pressure Question
+
+This is the one that exposes everything.
+
+If I gave you the entire raw dataset for 365 days, could the engine deterministically reconstruct every recommendation the system produced each day — including cardio mode, lift mode, macro targets, and oscillator class — without referencing any external state?
+
+If the answer is not an immediate yes, then something in the architecture is either:
+	•	implicit
+	•	non-deterministic
+	•	or missing from the schema.
+
+⸻
+
+If you’d like, I can also give you 10 even more brutal mathematical stress tests that reveal whether Intel truly implemented the oscillator correctly or merely approximated it. Those are the kinds of tests that immediately reveal whether a system will hold up over 5–10 years of data.

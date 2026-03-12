@@ -88,7 +88,7 @@ def _detect_arc_phase(
                 "strength_flat" if strength_flat else "soreness_burden"
             )
         elif prev_phase == "accumulation" and prev_arc_day >= 7:
-            ffm_positive = ffm_slope is not None and ffm_slope > 0 and ffm_confidence >= 0.30
+            ffm_positive = ffm_slope is not None and ffm_slope > 0 and ffm_confidence >= 0.50
             strength_positive = strength_slope is not None and strength_slope > 0
             virility_stable = virility_slope is None or virility_slope >= -0.005
             hrv_stable = hrv_slope is None or hrv_slope >= 0
@@ -102,12 +102,16 @@ def _detect_arc_phase(
         virility_declining = virility_slope is not None and virility_slope < 0
         monotony_high = monotony is not None and monotony > 60
         sleep_drifting = sleep_drift is not None and sleep_drift > 45
+        sleep_debt = refs.get("sleepDebtAccumulated", False)
 
-        if virility_declining and (monotony_high or sleep_drifting):
-            new_phase = "resensitize"
-            transition_reason = "virility_declining+" + (
-                "monotony_high" if monotony_high else "sleep_drifting"
+        if virility_declining and (monotony_high or sleep_drifting or sleep_debt):
+            resensitize_trigger = (
+                "monotony_high" if monotony_high
+                else "sleep_drifting" if sleep_drifting
+                else "sleep_debt_accumulated"
             )
+            new_phase = "resensitize"
+            transition_reason = f"virility_declining+{resensitize_trigger}"
         elif prev_arc_day >= 7:
             hrv_still_falling = hrv_slope is not None and hrv_slope < 0
             rhr_still_rising = rhr_slope is not None and rhr_slope > 0
@@ -508,7 +512,7 @@ def _macro_intent(macro_day: str, macro_delta: dict) -> dict:
 def _build_cycles_block(
     acute, resource, adaptation, composite, cycle_day_28,
     arc_phase, arc_day, arc_start_date, flags, cardio_mode, lift_mode,
-    macro_day, macro_targets, macro_delta, meal_timing,
+    macro_day, macro_targets, macro_delta, meal_timing, refs,
 ) -> dict:
     """
     Build per-cycle independent output channels for Expo to route to each screen.
@@ -614,6 +618,13 @@ def _build_cycles_block(
                     f"Arc day {arc_day} of {arc_phase} phase. "
                     f"{arc_phase_label}."
                 ),
+                "crossGearDiagnostics": {
+                    "strengthWithoutFfm":       refs.get("strengthWithoutFfm", False),
+                    "ffmFallingUnderLoad":       refs.get("ffmFallingUnderLoad", False),
+                    "waistRisingFasterThanFfm":  refs.get("waistRisingFasterThanFfm", False),
+                    "sleepDebtAccumulated":      refs.get("sleepDebtAccumulated", False),
+                    "sleepDebtNights7d":         refs.get("sleepDebtNights7d", 0),
+                },
             },
         },
         "circadian_24h": {
@@ -783,6 +794,16 @@ def _build_raw_inputs(log_row: VitalsDailyLog, refs: dict, baselines: dict,
             "virility_slope_14d":             _r(refs.get("virility_slope_14d"), 4),
             "sleep_midpoint_drift_14d":       _r(refs.get("sleepMidpointDrift14d"), 1),
             "soreness_7d_avg":                _r(refs.get("soreness7dAvg"), 2),
+            "joint_friction_7d_avg":          _r(refs.get("jointFriction7dAvg"), 2),
+            # Sleep debt
+            "sleep_debt_nights_7d":           refs.get("sleepDebtNights7d"),
+            "sleep_debt_accumulated":         refs.get("sleepDebtAccumulated", False),
+            # Cross-gear diagnostics (raw signals for Expo diagnostic display)
+            "lift_count_active_7d":           refs.get("liftCountActive7d"),
+            "waist_slope_14d":                _r(refs.get("waistSlope14d"), 5),
+            "strength_without_ffm":           refs.get("strengthWithoutFfm", False),
+            "ffm_falling_under_load":         refs.get("ffmFallingUnderLoad", False),
+            "waist_rising_faster_than_ffm":   refs.get("waistRisingFasterThanFfm", False),
         },
     }
 
@@ -937,6 +958,7 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         flags=flags, cardio_mode=cardio_mode, lift_mode=lift_mode,
         macro_day=macro_day, macro_targets=macro_targets,
         macro_delta=macro_delta, meal_timing=meal_timing,
+        refs=refs,
     )
 
     raw_inputs = _build_raw_inputs(log_row, refs, baselines, yesterday_lift_strain, yesterday_cardio)
@@ -960,6 +982,13 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         "mealTimingTargets": meal_timing,
         "reasoning": reasoning,
         "cycles": cycles,
+        "crossGearDiagnostics": {
+            "strengthWithoutFfm":      refs.get("strengthWithoutFfm", False),
+            "ffmFallingUnderLoad":     refs.get("ffmFallingUnderLoad", False),
+            "waistRisingFasterThanFfm": refs.get("waistRisingFasterThanFfm", False),
+            "sleepDebtAccumulated":    refs.get("sleepDebtAccumulated", False),
+            "sleepDebtNights7d":       refs.get("sleepDebtNights7d", 0),
+        },
         "rawInputs": raw_inputs,
         "refs": refs,
     }

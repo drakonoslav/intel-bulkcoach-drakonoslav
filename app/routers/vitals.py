@@ -378,6 +378,7 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
             "reasoning": result["reasoning"],
         },
         "cycles": result["cycles"],
+        "crossGearDiagnostics": result.get("crossGearDiagnostics", {}),
         "scoreBreakdowns": {
             "acute": result["acuteResult"]["breakdown"],
             "resource": result["resourceResult"]["breakdown"],
@@ -496,6 +497,7 @@ def get_recommendation(
             "reasoning": result["reasoning"],
         },
         "cycles": result["cycles"],
+        "crossGearDiagnostics": result.get("crossGearDiagnostics", {}),
         "scoreBreakdowns": {
             "acute": result["acuteResult"]["breakdown"],
             "resource": result["resourceResult"]["breakdown"],
