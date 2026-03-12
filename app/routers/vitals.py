@@ -109,7 +109,11 @@ class DailyLogIn(BaseModel):
 
     @validator("actual_cardio_mode")
     def validate_cardio_mode(cls, v):
-        if v is not None and v not in CARDIO_MODES:
+        if v is None:
+            return v
+        _normalize = {"zone1": "recovery_walk", "zone2": "zone_2", "zone3": "zone_3"}
+        v = _normalize.get(v, v)
+        if v not in CARDIO_MODES:
             raise ValueError(f"actual_cardio_mode must be one of {CARDIO_MODES}")
         return v
 
@@ -136,6 +140,8 @@ class CardioSessionIn(BaseModel):
 
     @validator("mode")
     def validate_mode(cls, v):
+        _normalize = {"zone1": "recovery_walk", "zone2": "zone_2", "zone3": "zone_3"}
+        v = _normalize.get(v, v)
         if v not in CARDIO_MODES:
             raise ValueError(f"mode must be one of {CARDIO_MODES}")
         return v
