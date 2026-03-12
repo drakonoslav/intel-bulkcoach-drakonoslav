@@ -164,6 +164,205 @@ def _build_reasoning(composite, oscillator_class, acute, resource, seasonal, car
     return lines
 
 
+# Ingredient priority order: least → most disruptive to routine
+# Each entry maps its primary macro and a secondary macro it also moves
+_INGREDIENT_PRIORITY = [
+    {"ingredient": "MCT Powder",  "unit": "g",   "primaryMacro": "fat",     "secondaryMacro": None},
+    {"ingredient": "Dextrin",     "unit": "g",   "primaryMacro": "carbs",   "secondaryMacro": None},
+    {"ingredient": "Oats",        "unit": "g",   "primaryMacro": "carbs",   "secondaryMacro": "fat",
+     "carbsPerG": 0.67, "fatPerG": 0.06, "proteinPerG": 0.17},
+    {"ingredient": "Bananas",     "unit": "each","primaryMacro": "carbs",   "secondaryMacro": None,
+     "carbsPerUnit": 27, "proteinPerUnit": 1, "fatPerUnit": 0},
+    {"ingredient": "Eggs",        "unit": "each","primaryMacro": "protein", "secondaryMacro": "fat",
+     "proteinPerUnit": 6, "fatPerUnit": 5, "carbsPerUnit": 0},
+    {"ingredient": "Flaxseed",    "unit": "g",   "primaryMacro": "fat",     "secondaryMacro": "carbs",
+     "fatPerG": 0.40, "carbsPerG": 0.27, "proteinPerG": 0.20},
+    {"ingredient": "Whey",        "unit": "g",   "primaryMacro": "protein", "secondaryMacro": None,
+     "proteinPerG": 0.80, "carbsPerG": 0.08, "fatPerG": 0.05},
+    {"ingredient": "Greek Yogurt","unit": "cup", "primaryMacro": "protein", "secondaryMacro": None},
+]
+
+
+def _compute_ingredient_adjustments(macro_day: str, macro_delta: dict) -> list:
+    """Walk through ingredient priority order and assign macro delta to ingredients."""
+    if not macro_delta:
+        return []
+
+    remaining = {
+        "fat":     float(macro_delta.get("fatDeltaG", 0) or 0),
+        "carbs":   float(macro_delta.get("carbsDeltaG", 0) or 0),
+        "protein": float(macro_delta.get("proteinDeltaG", 0) or 0),
+    }
+
+    adjustments = []
+    for item in _INGREDIENT_PRIORITY:
+        primary = item["primaryMacro"]
+        delta = remaining.get(primary, 0)
+        if abs(delta) < 0.5:
+            continue
+
+        action = "increase" if delta > 0 else "decrease"
+        unit = item["unit"]
+
+        if unit == "g":
+            per_g = item.get(f"{primary}PerG", 1.0)
+            grams = round(delta / per_g, 0) if per_g else delta
+            if abs(grams) < 1:
+                continue
+            display = f"{abs(int(grams))}g"
+            qty = int(grams)
+        elif unit == "each":
+            per_unit = item.get(f"{primary}PerUnit", 1)
+            units_qty = round(delta / per_unit) if per_unit else 1
+            if abs(units_qty) < 1:
+                continue
+            display = f"{abs(int(units_qty))} unit(s)"
+            qty = int(units_qty)
+        else:
+            display = f"1 {unit}"
+            qty = 1
+
+        adjustments.append({
+            "priority":      len(adjustments) + 1,
+            "ingredient":    item["ingredient"],
+            "unit":          unit,
+            "action":        action,
+            "primaryMacro":  primary,
+            "deltaG":        round(delta, 1),
+            "qty":           abs(qty),
+            "display":       f"{action} {display}",
+        })
+
+        remaining[primary] = 0
+
+        if all(abs(v) < 0.5 for v in remaining.values()):
+            break
+
+    return adjustments
+
+
+def _build_cycles_block(
+    acute, resource, seasonal, composite, cycle_day_28,
+    cycle_week_type, flags, cardio_mode, lift_mode,
+    macro_day, macro_targets, macro_delta, meal_timing,
+) -> dict:
+    """Build per-cycle independent output channels for Expo to route to each screen."""
+
+    acute_score = acute["score"]
+    resource_score = resource["score"]
+    seasonal_score = seasonal["score"]
+    active_flags = [k for k, v in flags.items() if v]
+
+    # Acute state label
+    if acute_score >= 71:
+        acute_state = "peaking"
+    elif acute_score >= 51:
+        acute_state = "stable"
+    elif acute_score >= 31:
+        acute_state = "recovering"
+    else:
+        acute_state = "suppressed"
+
+    # Resource state label
+    if resource_score >= 76:
+        resource_state = "peak"
+    elif resource_score >= 56:
+        resource_state = "strong"
+    elif resource_score >= 31:
+        resource_state = "building"
+    else:
+        resource_state = "depleted"
+
+    # Seasonal phase
+    if cycle_day_28 <= 7:
+        seasonal_phase = "prime"
+    elif cycle_day_28 <= 14:
+        seasonal_phase = "build"
+    elif cycle_day_28 <= 21:
+        seasonal_phase = "sustain"
+    else:
+        seasonal_phase = "deload"
+
+    # Virility trend value from seasonal breakdown
+    virility_trend = None
+    import re
+    for b in seasonal.get("breakdown", []):
+        if b.get("key") == "virility_trend":
+            m = re.search(r"([\d.]+)/100", b.get("note", ""))
+            if m:
+                virility_trend = float(m.group(1))
+
+    ingredient_adjustments = _compute_ingredient_adjustments(macro_day, macro_delta)
+
+    # Key drivers for acute — top 3 breakdown items by abs(score)
+    acute_breakdown = sorted(
+        acute.get("breakdown", []),
+        key=lambda b: abs(b.get("score", 0)),
+        reverse=True,
+    )[:3]
+
+    return {
+        "acute_7d": {
+            "score":       acute_score,
+            "maxScore":    100,
+            "state":       acute_state,
+            "governor":    "vitals_tab",
+            "activeFlags": active_flags,
+            "keyDrivers":  [{"key": b["key"], "score": b["score"], "note": b.get("note", "")} for b in acute_breakdown],
+            "output": {
+                "cardioMode": cardio_mode,
+                "liftMode":   lift_mode,
+            },
+        },
+        "resource_14d": {
+            "score":     resource_score,
+            "maxScore":  100,
+            "state":     resource_state,
+            "governor":  "nutrition_targets",
+            "output": {
+                "macroDay":              macro_day,
+                "macroTargets":          macro_targets,
+                "macroDelta":            macro_delta,
+                "ingredientAdjustments": ingredient_adjustments,
+            },
+        },
+        "seasonal_28d": {
+            "score":      seasonal_score,
+            "maxScore":   100,
+            "cycleDay":   cycle_day_28,
+            "weekType":   cycle_week_type,
+            "phase":      seasonal_phase,
+            "governor":   "report_monthly",
+            "output": {
+                "deloadActive":   flags.get("monthlyResensitizeOverride", False),
+                "virilityTrend":  virility_trend,
+                "narrative":      (
+                    f"Day {cycle_day_28} of 28 — {seasonal_phase} window. "
+                    f"{cycle_week_type.replace('_', ' ').title()} prescription active."
+                ),
+            },
+        },
+        "circadian_24h": {
+            "governor": "plan_tab",
+            "output": {
+                "cardioWindow": {"mode": cardio_mode, "anchor": "06:00"},
+                "liftWindow":   {"mode": lift_mode,   "anchor": "17:00"},
+                "mealTiming":   meal_timing,
+            },
+        },
+        "ultradian_90min": {
+            "governor": "game_timing",
+            "status":   "not_yet_implemented",
+            "note":     "Grip/CNS check-in layer pending. Will govern within-day nudges and game timing.",
+        },
+        "macro_block_90d": {
+            "governor": "report_longrange",
+            "status":   "not_yet_implemented",
+            "note":     "Strength arc / recomp phase tracking pending. Will govern Report screen long-range view.",
+        },
+    }
+
+
 def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: VitalsDailyLog) -> dict:
     target_date = log_row.date
     baselines = _get_baselines(db, expo_user_id)
@@ -277,6 +476,15 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
     else:
         macro_delta = None
 
+    cycles = _build_cycles_block(
+        acute=acute, resource=resource, seasonal=seasonal,
+        composite=composite, cycle_day_28=cycle_day_28,
+        cycle_week_type=cycle_week_type, flags=flags,
+        cardio_mode=cardio_mode, lift_mode=lift_mode,
+        macro_day=macro_day, macro_targets=macro_targets,
+        macro_delta=macro_delta, meal_timing=meal_timing,
+    )
+
     return {
         "acuteResult": acute,
         "resourceResult": resource,
@@ -292,6 +500,7 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         "macroDelta": macro_delta,
         "mealTimingTargets": meal_timing,
         "reasoning": reasoning,
+        "cycles": cycles,
         "refs": refs,
     }
 

@@ -40,8 +40,22 @@ attached_assets/
 ### 1. Biomechanical Catalog (muscle activation system)
 122 exercises with 9-layer activation matrices. Completely isolated — no shared tables with Vitals.
 
-### 2. Vitals Engine / Androgen Oscillator (NEW)
-Three-layer daily physiological scoring system for BulkCoach:
+### 2. Vitals Engine / Androgen Oscillator — Grand System Architecture
+
+Six **independent cycle governors**, each with its own time signature and output channel:
+
+| Cycle | Period | Governor | Expo Screen | Status |
+|-------|--------|----------|-------------|--------|
+| Acute | 7d | HRV/sleep/soreness arc | Vitals tab daily recommendation | ✅ Live |
+| Resource | 14d | Macro adherence, body comp, training load | Nutrition targets + ingredient adjustments | ✅ Live |
+| Seasonal | 28d | FFM, virility, waist:weight arc | Monthly cycle, deload triggers, Report | ✅ Live |
+| Circadian | 24h | Meal timing, cardio window, sleep anchoring | Plan screen, daily schedule | ✅ Live |
+| Ultradian | 90-120 min | CNS readiness (grip, HR, focus) | Within-day nudges, game timing | 🔲 Planned |
+| Macro block | 90d+ | Strength arc, recomp phase | Report screen long-range view | 🔲 Planned |
+
+Each cycle has its own output in the `cycles` block of every recommendation response. Cycles do NOT collapse — each speaks directly to the system it governs.
+
+**Scoring layers:**
 - **Acute score** (50%) — HRV, RHR, sleep, bodyweight stability, subjective drive, recovery state
 - **Resource score** (30%) — 7d nutrition, 14d body composition + strength trends, cardio distribution
 - **Seasonal score** (20%) — 28d HRV/RHR/sleep/body composition trends, deload compliance, virility trend
@@ -50,27 +64,33 @@ Three-layer daily physiological scoring system for BulkCoach:
 - Hard stop fatigue rules → forced Zone 2/recovery mode
 - 4 macro day types with exact meal timing templates
 
-Decision engine rules (spec-verified, all 5 in `vitals_engine.py`):
-- `hardStopFatigue = suppressedHrv OR elevatedRhr OR lowSleep OR composite < 55` (OR logic, threshold 55)
-- `cardioMonotony = max(zone2_7d, zone3_7d, recovery_7d) >= 5` (all three zones checked)
+**Ingredient adjustment system (Resource governor):**
+Macro delta is translated to ingredient-level adjustments using priority order (least → most disruptive):
+MCT Powder → Dextrin → Oats → Bananas → Eggs → Flaxseed → Whey → Greek Yogurt
+
+**Decision engine rules:**
+- `hardStopFatigue = suppressedHrv OR elevatedRhr OR lowSleep OR composite < 55`
+- `cardioMonotony = max(zone2_7d, zone3_7d, recovery_7d) >= 5`
 - hardStop + composite < 40 → lift=OFF, macro=RESENSITIZE
 - hardStop + composite >= 40 → lift=RECOVERY_PATTERNING, macro=RESET
 - monthlyResensitizeOverride (day 22-28): if composite>=85 + no HRV/RHR flags → macro=BUILD, else macro=RESET
-- Reasoning order: scores → flags → mode assignments (matches spec)
+
+**User baselines (local_default):** hrv_year_avg=36, rhr_year_avg=60, weight_setpoint=156lb, waist_setpoint=31.5in, default_kcal=2695, protein=173.9/carbs=330.9/fat=54.4g, cycle_start_date=2026-02-17
 
 Key files:
 - `app/vitals_models.py` — 6 SQLAlchemy tables (all use `expo_user_id` TEXT)
 - `app/vitals_scoring.py` — All 27 scoring functions + macro/meal timing templates
 - `app/vitals_rolling.py` — 7d/14d/28d rolling reference computation
-- `app/vitals_engine.py` — Orchestration: load baselines → compute rolling refs → all 3 scores → flags → recommendation
-- `app/routers/vitals.py` — 9 REST endpoints under `/vitals/`
+- `app/vitals_engine.py` — Orchestration + `_build_cycles_block()` + `_compute_ingredient_adjustments()`
+- `app/routers/vitals.py` — 10 REST endpoints under `/vitals/`
 
 Vitals API endpoints:
 - `GET /vitals/baselines/{expo_user_id}` — get user baselines
 - `PUT /vitals/baselines/{expo_user_id}` — create/update baselines
-- `POST /vitals/daily-log` — ingest vitals + compute all scores + recommendation
+- `POST /vitals/daily-log` — ingest vitals + compute all scores + recommendation (includes `cycles` block)
 - `GET /vitals/dashboard?expo_user_id=&date=` — full dashboard payload
-- `GET /vitals/recommendation?expo_user_id=&date=` — recommendation payload
+- `GET /vitals/recommendation?expo_user_id=&date=` — recommendation payload (includes `cycles` block)
+- `GET /vitals/recommendation/latest?expo_user_id=` — most recent computed recommendation, no date needed (includes `cycles` block)
 - `POST /vitals/cardio-session` — log cardio session
 - `POST /vitals/lift-session` — log lift session
 - `POST /vitals/nutrition-target` — set daily nutrition targets

@@ -388,6 +388,7 @@ def get_dashboard(
         },
         "flags": result["flags"],
         "reasoning": result["reasoning"],
+        "cycles": result["cycles"],
         "breakdowns": {
             "acute": result["acuteResult"]["breakdown"],
             "resource": result["resourceResult"]["breakdown"],
@@ -429,6 +430,7 @@ def get_recommendation(
             "mealTimingTargets": result["mealTimingTargets"],
             "reasoning": result["reasoning"],
         },
+        "cycles": result["cycles"],
         "scoreBreakdowns": {
             "acute": result["acuteResult"]["breakdown"],
             "resource": result["resourceResult"]["breakdown"],
@@ -589,6 +591,7 @@ def get_latest_recommendation(
             "mealTimingTargets": result["mealTimingTargets"],
             "reasoning": result["reasoning"],
         },
+        "cycles": result["cycles"],
         "scoreBreakdowns": {
             "acute": result["acuteResult"]["breakdown"],
             "resource": result["resourceResult"]["breakdown"],
