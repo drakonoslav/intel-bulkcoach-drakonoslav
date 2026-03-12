@@ -274,6 +274,51 @@ def compute_rolling_references(db: Session, expo_user_id: str, target_date: date
 
     recent_macro_types_7d = [r["recommended_macro_day"] for r in rows_7d if r["recommended_macro_day"]]
 
+    # ── ARC PHASE SLOPES (14d linear regression for phase state machine) ────────
+    hrv_slope_14d = _linear_slope(
+        [(i, float(r["hrv_ms"])) for i, r in enumerate(rows_14d) if r["hrv_ms"] is not None]
+    )
+    rhr_slope_14d = _linear_slope(
+        [(i, float(r["resting_hr_bpm"])) for i, r in enumerate(rows_14d) if r["resting_hr_bpm"] is not None]
+    )
+    strength_slope_14d = _linear_slope(
+        [(i, float(r["strength_output_index"])) for i, r in enumerate(rows_14d) if r["strength_output_index"] is not None]
+    )
+    ffm_slope_14d = _linear_slope(
+        [(i, float(r["fat_free_mass_lb"])) for i, r in enumerate(rows_14d) if r["fat_free_mass_lb"] is not None]
+    )
+
+    def _virility_score_from_row(r):
+        lib = _norm_1_5(r["libido_score"])
+        ere = _norm_0_3(r["morning_erection_score"])
+        mnd = _norm_1_5(r["mental_drive_score"])
+        moo = _norm_1_5(r["mood_stability_score"])
+        parts = [(lib, 0.40), (ere, 0.35), (mnd, 0.15), (moo, 0.10)]
+        available = [(val, w) for val, w in parts if val is not None]
+        if not available:
+            return None
+        total_w = sum(w for _, w in available)
+        return sum(val * w for val, w in available) / total_w
+
+    virility_14d_pairs = [
+        (i, v) for i, v in
+        ((i, _virility_score_from_row(r)) for i, r in enumerate(rows_14d))
+        if v is not None
+    ]
+    virility_slope_14d = _linear_slope(virility_14d_pairs) if len(virility_14d_pairs) >= 2 else None
+
+    midpoints_14d = [float(r["sleep_midpoint_min"]) for r in rows_14d if r["sleep_midpoint_min"] is not None]
+    if len(midpoints_14d) >= 3:
+        _mean_mid = sum(midpoints_14d) / len(midpoints_14d)
+        sleep_midpoint_drift_14d = (
+            sum((m - _mean_mid) ** 2 for m in midpoints_14d) / len(midpoints_14d)
+        ) ** 0.5
+    else:
+        sleep_midpoint_drift_14d = None
+
+    soreness_7d_avg = avg_field(rows_7d, "soreness_score")
+    joint_friction_7d_avg = avg_field(rows_7d, "joint_friction_score")
+
     return {
         "hrv7dAvg": hrv_7d,
         "rhr7dAvg": rhr_7d,
@@ -318,4 +363,13 @@ def compute_rolling_references(db: Session, expo_user_id: str, target_date: date
         "fatDailyValues7d": fat_daily_values_7d,
         "carbDayTypeAdherence7d": carb_day_type_adherence_7d,
         "recentMacroDayTypes7d": recent_macro_types_7d,
+        # Arc phase slope signals
+        "hrv_slope_14d": hrv_slope_14d,
+        "rhr_slope_14d": rhr_slope_14d,
+        "strength_slope_14d": strength_slope_14d,
+        "ffm_slope_14d": ffm_slope_14d,
+        "virility_slope_14d": virility_slope_14d,
+        "sleepMidpointDrift14d": sleep_midpoint_drift_14d,
+        "soreness7dAvg": soreness_7d_avg,
+        "jointFriction7dAvg": joint_friction_7d_avg,
     }

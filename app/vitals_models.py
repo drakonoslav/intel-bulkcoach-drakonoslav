@@ -46,6 +46,9 @@ class VitalsUserBaselines(Base):
     base_carbs_g = Column(Numeric(8, 2))
     base_fat_g = Column(Numeric(8, 2))
     cycle_start_date = Column(Date)
+    # Age-mode governs oscillator thresholds across developmental eras:
+    # early_adult | mature_adult | preservation
+    age_mode = Column(String(20), default="early_adult")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -235,12 +238,19 @@ class VitalsOscillatorState(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     expo_user_id = Column(String, nullable=False, index=True)
     date = Column(Date, nullable=False)
-    cycle_day_28 = Column(Integer)
-    cycle_week_type = Column(String(20))
+    cycle_day_28 = Column(Integer)        # reporting only — not phase authority
+    cycle_week_type = Column(String(20))  # legacy reporting field
+
+    # Adaptive Infradian Arc — state-driven phase (replaces calendar week mandate)
+    arc_phase = Column(String(20))        # accumulation | expansion | deload | resensitize
+    arc_day = Column(Integer, default=1)  # day within current phase
+    arc_start_date = Column(Date)         # date current phase began
+    arc_transition_reason = Column(String(80))  # why phase changed (diagnostic)
 
     acute_score = Column(Numeric(8, 2))
     resource_score = Column(Numeric(8, 2))
-    seasonal_score = Column(Numeric(8, 2))
+    adaptation_score = Column(Numeric(8, 2))   # renamed from seasonal_score
+    seasonal_score = Column(Numeric(8, 2))     # kept for backward compat — mirrors adaptation_score
     oscillator_composite_score = Column(Numeric(8, 2))
     oscillator_class = Column(String(30))
 
@@ -253,6 +263,7 @@ class VitalsOscillatorState(Base):
     fatigue_flag = Column(Boolean, default=False)
     monotony_flag = Column(Boolean, default=False)
     deload_compliance_flag = Column(Boolean, default=False)
+    resensitize_phase_flag = Column(Boolean, default=False)
 
     acute_breakdown = Column(JSONB)
     resource_breakdown = Column(JSONB)

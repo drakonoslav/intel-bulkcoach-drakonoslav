@@ -21,18 +21,121 @@ DEFAULT_BASELINES = {
 
 
 def _get_cycle_day_28(start_date: date, current_date: date) -> int:
+    """Reporting-only counter. cycle_start_date no longer governs phase assignment."""
     diff = (current_date - start_date).days
     return (diff % 28) + 1
 
 
-def _get_cycle_week_type(cycle_day_28: int) -> str:
-    if 1 <= cycle_day_28 <= 7:
-        return "prime"
-    if 8 <= cycle_day_28 <= 14:
-        return "overload"
-    if 15 <= cycle_day_28 <= 21:
-        return "peak"
-    return "resensitize"
+def _detect_arc_phase(
+    db: Session,
+    expo_user_id: str,
+    target_date: date,
+    refs: dict,
+) -> tuple:
+    """
+    Signal-driven Adaptive Infradian Arc phase detection.
+
+    Reads yesterday's persisted arc state, evaluates 14d slope signals,
+    and returns (arc_phase, arc_day, arc_start_date, transition_reason).
+
+    Phases: accumulation | expansion | deload | resensitize
+    Entry/exit is governed by HRV/RHR/strength/virility/monotony slopes —
+    not by any calendar date or cycle counter.
+
+    Circadian gates (HRV suppression, RHR elevation) run separately in
+    _derive_flags() and always override phase recommendations.
+    """
+    yesterday = target_date - timedelta(days=1)
+    prev_state = db.query(VitalsOscillatorState).filter(
+        VitalsOscillatorState.expo_user_id == expo_user_id,
+        VitalsOscillatorState.date == yesterday,
+    ).first()
+
+    prev_phase = (
+        prev_state.arc_phase
+        if prev_state and prev_state.arc_phase
+        else "accumulation"
+    )
+    prev_arc_day = int(prev_state.arc_day) if prev_state and prev_state.arc_day else 0
+    prev_arc_start = (
+        prev_state.arc_start_date
+        if prev_state and prev_state.arc_start_date
+        else yesterday
+    )
+
+    hrv_slope = refs.get("hrv_slope_14d")
+    rhr_slope = refs.get("rhr_slope_14d")
+    strength_slope = refs.get("strength_slope_14d")
+    ffm_slope = refs.get("ffm_slope_14d")
+    virility_slope = refs.get("virility_slope_14d")
+    monotony = refs.get("trainingMonotonyIndex28d")
+    sleep_drift = refs.get("sleepMidpointDrift14d")
+    soreness_avg = refs.get("soreness7dAvg")
+    ffm_confidence = refs.get("ffmTrend14dConfidence", 0.0) or 0.0
+
+    new_phase = prev_phase
+    transition_reason = None
+
+    if prev_phase in ("accumulation", "expansion"):
+        hrv_falling = hrv_slope is not None and hrv_slope < 0
+        rhr_rising = rhr_slope is not None and rhr_slope > 0
+        strength_flat = strength_slope is not None and strength_slope <= 0
+        soreness_burden = soreness_avg is not None and soreness_avg >= 3.5
+
+        if hrv_falling and rhr_rising and (strength_flat or soreness_burden):
+            new_phase = "deload"
+            transition_reason = "hrv_falling+rhr_rising+" + (
+                "strength_flat" if strength_flat else "soreness_burden"
+            )
+        elif prev_phase == "accumulation" and prev_arc_day >= 7:
+            ffm_positive = ffm_slope is not None and ffm_slope > 0 and ffm_confidence >= 0.30
+            strength_positive = strength_slope is not None and strength_slope > 0
+            virility_stable = virility_slope is None or virility_slope >= -0.005
+            hrv_stable = hrv_slope is None or hrv_slope >= 0
+            rhr_stable = rhr_slope is None or rhr_slope <= 0
+
+            if ffm_positive and strength_positive and virility_stable and hrv_stable and rhr_stable:
+                new_phase = "expansion"
+                transition_reason = "ffm_rising+strength_rising+virility_stable"
+
+    elif prev_phase == "deload":
+        virility_declining = virility_slope is not None and virility_slope < 0
+        monotony_high = monotony is not None and monotony > 60
+        sleep_drifting = sleep_drift is not None and sleep_drift > 45
+
+        if virility_declining and (monotony_high or sleep_drifting):
+            new_phase = "resensitize"
+            transition_reason = "virility_declining+" + (
+                "monotony_high" if monotony_high else "sleep_drifting"
+            )
+        elif prev_arc_day >= 7:
+            hrv_still_falling = hrv_slope is not None and hrv_slope < 0
+            rhr_still_rising = rhr_slope is not None and rhr_slope > 0
+            if not (hrv_still_falling and rhr_still_rising):
+                new_phase = "resensitize"
+                transition_reason = "deload_conditions_resolved"
+
+    elif prev_phase == "resensitize":
+        hrv_stable = hrv_slope is None or hrv_slope >= 0
+        rhr_normal = rhr_slope is None or rhr_slope <= 0
+        virility_stable = virility_slope is None or virility_slope >= 0
+        monotony_ok = monotony is None or monotony < 55
+
+        if prev_arc_day >= 3 and hrv_stable and rhr_normal and virility_stable and monotony_ok:
+            new_phase = "accumulation"
+            transition_reason = "hrv_stabilized+rhr_normalized+virility_stable"
+        elif prev_arc_day >= 12:
+            new_phase = "accumulation"
+            transition_reason = "resensitize_max_duration_reached"
+
+    if new_phase == prev_phase:
+        arc_day = prev_arc_day + 1
+        arc_start = prev_arc_start
+    else:
+        arc_day = 1
+        arc_start = target_date
+
+    return new_phase, arc_day, arc_start, transition_reason
 
 
 def _get_baselines(db: Session, expo_user_id: str) -> dict:
@@ -64,8 +167,13 @@ def _derive_flags(
     zone2_count_7d: int,
     zone3_count_7d: int,
     recovery_count_7d: int,
-    cycle_day_28: int
+    arc_phase: str = "accumulation",
 ) -> dict:
+    """
+    Circadian fidelity gates run first and always override arc phase authority.
+    HRV suppression, RHR elevation, and low sleep are hard stops that clear
+    before arc phase has any influence on recommendations.
+    """
     suppressed_hrv = (
         hrv_ms is not None and hrv_7d_avg is not None and
         float(hrv_ms) < float(hrv_7d_avg) * 0.90
@@ -77,7 +185,9 @@ def _derive_flags(
     low_sleep = sleep_duration_min is not None and float(sleep_duration_min) < 360
     hard_stop = suppressed_hrv or elevated_rhr or low_sleep or composite_score < 55
     cardio_monotony = max(zone2_count_7d, zone3_count_7d, recovery_count_7d) >= 5
-    monthly_resensitize = cycle_day_28 >= 22
+
+    resensitize_active = arc_phase in ("resensitize", "deload")
+    deload_active = arc_phase == "deload"
 
     return {
         "hardStopFatigue": hard_stop,
@@ -85,7 +195,10 @@ def _derive_flags(
         "elevatedRhr": elevated_rhr,
         "suppressedHrv": suppressed_hrv,
         "cardioMonotony": cardio_monotony,
-        "monthlyResensitizeOverride": monthly_resensitize,
+        "resensitizePhaseActive": resensitize_active,
+        "deloadPhaseActive": deload_active,
+        # Legacy alias — kept so existing Expo callers reading this key still work
+        "monthlyResensitizeOverride": resensitize_active,
     }
 
 
@@ -111,15 +224,11 @@ def _decide_cardio(
     if flags["hardStopFatigue"]:
         return "recovery_walk" if composite < 40 else "zone_2"
 
-    if flags["monthlyResensitizeOverride"] and zone3_count_7d >= 1:
+    if flags["resensitizePhaseActive"] and zone3_count_7d >= 1:
         return "zone_2"
 
     # Rolling cap — 3+ zone3 sessions in 7 days
     if zone3_count_7d >= 3:
-        return "zone_2"
-
-    # Resensitize week — limit zone3 to at most 1 per week
-    if flags["monthlyResensitizeOverride"] and zone3_count_7d >= 1:
         return "zone_2"
 
     if composite >= 70:
@@ -149,7 +258,8 @@ def _decide_macro_day(composite: float, flags: dict, rhr_elevated: bool, sorenes
     if flags["hardStopFatigue"]:
         return "resensitize" if composite < 40 else "reset"
 
-    if flags["monthlyResensitizeOverride"]:
+    # Arc deload/resensitize phase limits surge days — circadian gates already cleared above
+    if flags["resensitizePhaseActive"]:
         if composite >= 85 and not flags["suppressedHrv"] and not flags["elevatedRhr"]:
             return "build"
         return "reset"
@@ -177,8 +287,10 @@ def _build_reasoning(composite, oscillator_class, acute, resource, seasonal, car
         lines.append("RHR is elevated versus 7-day baseline.")
     if flags["lowSleep"]:
         lines.append("Sleep was below 6 hours.")
-    if flags["monthlyResensitizeOverride"]:
-        lines.append("Monthly cycle is in resensitize week (days 22-28).")
+    if flags.get("deloadPhaseActive"):
+        lines.append("Arc is in deload phase — signal-driven, not calendar-based.")
+    elif flags.get("resensitizePhaseActive"):
+        lines.append("Arc is in resensitize phase — intensity cap active.")
     if flags["cardioMonotony"]:
         lines.append("Recent cardio distribution is too repetitive.")
     lines.append(f"Assigned cardio mode: {cardio}.")
@@ -394,18 +506,24 @@ def _macro_intent(macro_day: str, macro_delta: dict) -> dict:
 
 
 def _build_cycles_block(
-    acute, resource, seasonal, composite, cycle_day_28,
-    cycle_week_type, flags, cardio_mode, lift_mode,
+    acute, resource, adaptation, composite, cycle_day_28,
+    arc_phase, arc_day, arc_start_date, flags, cardio_mode, lift_mode,
     macro_day, macro_targets, macro_delta, meal_timing,
 ) -> dict:
-    """Build per-cycle independent output channels for Expo to route to each screen."""
+    """
+    Build per-cycle independent output channels for Expo to route to each screen.
+
+    seasonal_28d renamed to adaptation_arc — now driven by state machine,
+    not calendar position. cycle_day_28 retained as reporting-only field.
+    """
+    import re
 
     acute_score = acute["score"]
     resource_score = resource["score"]
-    seasonal_score = seasonal["score"]
+    adaptation_score = adaptation["score"]
     active_flags = [k for k, v in flags.items() if v]
 
-    # Acute state label
+    # Acute state label (circadian layer — runs first, always authoritative)
     if acute_score >= 71:
         acute_state = "peaking"
     elif acute_score >= 51:
@@ -425,20 +543,18 @@ def _build_cycles_block(
     else:
         resource_state = "depleted"
 
-    # Seasonal phase
-    if cycle_day_28 <= 7:
-        seasonal_phase = "prime"
-    elif cycle_day_28 <= 14:
-        seasonal_phase = "build"
-    elif cycle_day_28 <= 21:
-        seasonal_phase = "sustain"
-    else:
-        seasonal_phase = "deload"
+    # Arc phase state label for UI
+    arc_phase_labels = {
+        "accumulation": "Accumulation — baseline stimulus building",
+        "expansion":    "Expansion — peak anabolic window",
+        "deload":       "Deload — strategic stimulus reduction",
+        "resensitize":  "Resensitize — receptor reset, intensity cap",
+    }
+    arc_phase_label = arc_phase_labels.get(arc_phase, arc_phase)
 
-    # Virility trend value from seasonal breakdown
+    # Virility trend value from adaptation breakdown
     virility_trend = None
-    import re
-    for b in seasonal.get("breakdown", []):
+    for b in adaptation.get("breakdown", []):
         if b.get("key") == "virility_trend":
             m = re.search(r"([\d.]+)/100", b.get("note", ""))
             if m:
@@ -452,6 +568,8 @@ def _build_cycles_block(
         key=lambda b: abs(b.get("score", 0)),
         reverse=True,
     )[:3]
+
+    arc_start_str = str(arc_start_date) if arc_start_date else None
 
     return {
         "acute_7d": {
@@ -479,19 +597,22 @@ def _build_cycles_block(
                 "ingredientAdjustments": ingredient_adjustments,
             },
         },
-        "seasonal_28d": {
-            "score":      seasonal_score,
-            "maxScore":   100,
-            "cycleDay":   cycle_day_28,
-            "weekType":   cycle_week_type,
-            "phase":      seasonal_phase,
-            "governor":   "report_monthly",
+        "adaptation_arc": {
+            "score":           adaptation_score,
+            "maxScore":        100,
+            "arcPhase":        arc_phase,
+            "arcPhaseLabel":   arc_phase_label,
+            "arcDay":          arc_day,
+            "arcStartDate":    arc_start_str,
+            "cycleDay28":      cycle_day_28,   # reporting only — not phase authority
+            "governor":        "report_monthly",
             "output": {
-                "deloadActive":   flags.get("monthlyResensitizeOverride", False),
-                "virilityTrend":  virility_trend,
-                "narrative":      (
-                    f"Day {cycle_day_28} of 28 — {seasonal_phase} window. "
-                    f"{cycle_week_type.replace('_', ' ').title()} prescription active."
+                "deloadActive":      flags.get("deloadPhaseActive", False),
+                "resensitizeActive": flags.get("resensitizePhaseActive", False),
+                "virilityTrend":     virility_trend,
+                "narrative": (
+                    f"Arc day {arc_day} of {arc_phase} phase. "
+                    f"{arc_phase_label}."
                 ),
             },
         },
@@ -509,9 +630,15 @@ def _build_cycles_block(
             "note":     "Grip/CNS check-in layer pending. Will govern within-day nudges and game timing.",
         },
         "macro_block_90d": {
-            "governor": "report_longrange",
-            "status":   "not_yet_implemented",
-            "note":     "Strength arc / recomp phase tracking pending. Will govern Report screen long-range view.",
+            "governor":  "report_longrange",
+            "reviewLattice": {
+                "7d":  "weekly_check",
+                "14d": "rolling_slope_review",
+                "91d": "quarterly_arc_audit",
+                "364d": "annual_adaptation_review",
+            },
+            "status": "not_yet_implemented",
+            "note":   "Arc Stability Index / Peak Contrast Index pending. Will govern Report screen long-range view.",
         },
     }
 
@@ -630,7 +757,7 @@ def _build_raw_inputs(log_row: VitalsDailyLog, refs: dict, baselines: dict,
             "zone3_7d":                     refs.get("cardioZone3Count7d"),
             "recovery_7d":                  refs.get("cardioRecoveryCount7d"),
         },
-        "seasonal": {
+        "adaptation": {
             "hrv_28d_avg":                    _r(refs.get("hrv28dAvg"), 1),
             "hrv_prev_28d_avg":               _r(refs.get("hrvPrev28dAvg"), 1),
             "rhr_28d_avg":                    _r(refs.get("rhr28dAvg"), 1),
@@ -649,6 +776,13 @@ def _build_raw_inputs(log_row: VitalsDailyLog, refs: dict, baselines: dict,
             "deload_score_28d":               refs.get("deloadScore28d"),
             "deload_compliance_28d":          refs.get("deloadCompliance28d"),
             "light_exposure_consistency_28d": refs.get("lightExposureConsistency28d"),
+            "hrv_slope_14d":                  _r(refs.get("hrv_slope_14d"), 4),
+            "rhr_slope_14d":                  _r(refs.get("rhr_slope_14d"), 4),
+            "strength_slope_14d":             _r(refs.get("strength_slope_14d"), 4),
+            "ffm_slope_14d":                  _r(refs.get("ffm_slope_14d"), 4),
+            "virility_slope_14d":             _r(refs.get("virility_slope_14d"), 4),
+            "sleep_midpoint_drift_14d":       _r(refs.get("sleepMidpointDrift14d"), 1),
+            "soreness_7d_avg":                _r(refs.get("soreness7dAvg"), 2),
         },
     }
 
@@ -710,7 +844,7 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         waist_trend_confidence=refs.get("waistTrendConfidence"),
     )
 
-    seasonal = calculate_seasonal_score(
+    adaptation = calculate_seasonal_score(
         hrv_28d_avg=refs["hrv28dAvg"],
         hrv_prev_28d_avg=refs["hrvPrev28dAvg"],
         rhr_28d_avg=refs["rhr28dAvg"],
@@ -732,11 +866,16 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         virility_trend_prev_28d=refs.get("virilityTrendPrev28d"),
     )
 
-    composite = calculate_composite(acute["score"], resource["score"], seasonal["score"])
+    composite = calculate_composite(acute["score"], resource["score"], adaptation["score"])
 
+    # Reporting-only 28-day counter (no longer drives phase)
     cycle_start = baselines.get("cycle_start_date") or target_date
     cycle_day_28 = _get_cycle_day_28(cycle_start, target_date)
-    cycle_week_type = _get_cycle_week_type(cycle_day_28)
+
+    # Arc phase: signal-driven state machine replaces calendar week mandate
+    arc_phase, arc_day, arc_start_date, arc_transition_reason = _detect_arc_phase(
+        db, expo_user_id, target_date, refs
+    )
 
     soreness_high = log_row.soreness_score is not None and int(log_row.soreness_score) >= 4
     flags = _derive_flags(
@@ -747,7 +886,7 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         refs["cardioZone2Count7d"],
         refs["cardioZone3Count7d"],
         refs["cardioRecoveryCount7d"],
-        cycle_day_28,
+        arc_phase=arc_phase,
     )
 
     # Sequential zone3 cap — check previous two days
@@ -774,7 +913,7 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
     meal_timing = MEAL_TIMING_TEMPLATES[macro_day]
     reasoning = _build_reasoning(
         composite["compositeScore"], composite["oscillatorClass"],
-        acute["score"], resource["score"], seasonal["score"],
+        acute["score"], resource["score"], adaptation["score"],
         cardio_mode, lift_mode, macro_day, flags,
     )
 
@@ -792,10 +931,10 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         macro_delta = None
 
     cycles = _build_cycles_block(
-        acute=acute, resource=resource, seasonal=seasonal,
+        acute=acute, resource=resource, adaptation=adaptation,
         composite=composite, cycle_day_28=cycle_day_28,
-        cycle_week_type=cycle_week_type, flags=flags,
-        cardio_mode=cardio_mode, lift_mode=lift_mode,
+        arc_phase=arc_phase, arc_day=arc_day, arc_start_date=arc_start_date,
+        flags=flags, cardio_mode=cardio_mode, lift_mode=lift_mode,
         macro_day=macro_day, macro_targets=macro_targets,
         macro_delta=macro_delta, meal_timing=meal_timing,
     )
@@ -805,10 +944,13 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
     return {
         "acuteResult": acute,
         "resourceResult": resource,
-        "seasonalResult": seasonal,
+        "adaptationResult": adaptation,
         "composite": composite,
         "cycleDay28": cycle_day_28,
-        "cycleWeekType": cycle_week_type,
+        "arcPhase": arc_phase,
+        "arcDay": arc_day,
+        "arcStartDate": str(arc_start_date) if arc_start_date else None,
+        "arcTransitionReason": arc_transition_reason,
         "flags": flags,
         "recommendedCardioMode": cardio_mode,
         "recommendedLiftMode": lift_mode,
@@ -837,10 +979,17 @@ def persist_oscillator_state(db: Session, expo_user_id: str, log_row: VitalsDail
         db.add(existing)
 
     existing.cycle_day_28 = result["cycleDay28"]
-    existing.cycle_week_type = result["cycleWeekType"]
+    existing.cycle_week_type = None   # no longer calendar-driven; kept for schema compat
+    # Arc phase state persistence
+    existing.arc_phase = result["arcPhase"]
+    existing.arc_day = result["arcDay"]
+    existing.arc_start_date = result.get("arcStartDate")
+    existing.arc_transition_reason = result.get("arcTransitionReason")
     existing.acute_score = result["acuteResult"]["score"]
     existing.resource_score = result["resourceResult"]["score"]
-    existing.seasonal_score = result["seasonalResult"]["score"]
+    adaptation_score_val = result["adaptationResult"]["score"]
+    existing.adaptation_score = adaptation_score_val
+    existing.seasonal_score = adaptation_score_val   # backward compat mirror
     existing.oscillator_composite_score = composite["compositeScore"]
     existing.oscillator_class = composite["oscillatorClass"]
     existing.rolling_zone2_count_7d = refs["cardioZone2Count7d"]
@@ -854,7 +1003,8 @@ def persist_oscillator_state(db: Session, expo_user_id: str, log_row: VitalsDail
     existing.fatigue_flag = result["flags"]["hardStopFatigue"]
     existing.monotony_flag = result["flags"]["cardioMonotony"]
     existing.deload_compliance_flag = refs["deloadCompliance28d"]
+    existing.resensitize_phase_flag = result["flags"].get("resensitizePhaseActive", False)
     existing.acute_breakdown = result["acuteResult"]["breakdown"]
     existing.resource_breakdown = result["resourceResult"]["breakdown"]
-    existing.seasonal_breakdown = result["seasonalResult"]["breakdown"]
+    existing.seasonal_breakdown = result["adaptationResult"]["breakdown"]
     db.commit()

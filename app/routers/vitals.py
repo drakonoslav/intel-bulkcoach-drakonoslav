@@ -28,10 +28,10 @@ def _build_data_quality_warnings(result: dict) -> list:
     low_conf = (
         result["acuteResult"].get("lowConfidenceKeys", []) +
         result["resourceResult"].get("lowConfidenceKeys", []) +
-        result["seasonalResult"].get("lowConfidenceKeys", [])
+        result["adaptationResult"].get("lowConfidenceKeys", [])
     )
     raw = result.get("rawInputs", {})
-    s_raw = raw.get("seasonal", {})
+    s_raw = raw.get("adaptation", {})
 
     if result["acuteResult"].get("overallConfidence", 1.0) < 0.5:
         warnings.append("bodyCompConfidenceLow")
@@ -54,11 +54,15 @@ def _recommendation_block(result: dict) -> dict:
     return {
         "acuteConfidence": result["acuteResult"].get("overallConfidence"),
         "resourceConfidence": result["resourceResult"].get("overallConfidence"),
-        "seasonalConfidence": result["seasonalResult"].get("overallConfidence"),
+        "adaptationConfidence": result["adaptationResult"].get("overallConfidence"),
+        "arcPhase": result.get("arcPhase"),
+        "arcDay": result.get("arcDay"),
+        "arcStartDate": result.get("arcStartDate"),
+        "arcTransitionReason": result.get("arcTransitionReason"),
         "lowConfidenceSignals": (
             result["acuteResult"].get("lowConfidenceKeys", []) +
             result["resourceResult"].get("lowConfidenceKeys", []) +
-            result["seasonalResult"].get("lowConfidenceKeys", [])
+            result["adaptationResult"].get("lowConfidenceKeys", [])
         ),
         "warnings": _build_data_quality_warnings(result),
     }
@@ -334,7 +338,7 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
 
     existing.acute_score = result["acuteResult"]["score"]
     existing.resource_score = result["resourceResult"]["score"]
-    existing.seasonal_score = result["seasonalResult"]["score"]
+    existing.seasonal_score = result["adaptationResult"]["score"]
     existing.oscillator_composite_score = result["composite"]["compositeScore"]
     existing.oscillator_class = result["composite"]["oscillatorClass"]
     existing.recommended_cardio_mode = result["recommendedCardioMode"]
@@ -351,15 +355,17 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
         "recommendation": {
             "date": str(payload.date),
             "cycleDay28": result["cycleDay28"],
-            "cycleWeekType": result["cycleWeekType"],
+            "arcPhase": result["arcPhase"],
+            "arcDay": result["arcDay"],
+            "arcStartDate": result.get("arcStartDate"),
             "scores": result["composite"],
             "acuteConfidence": result["acuteResult"].get("overallConfidence"),
             "resourceConfidence": result["resourceResult"].get("overallConfidence"),
-            "seasonalConfidence": result["seasonalResult"].get("overallConfidence"),
+            "adaptationConfidence": result["adaptationResult"].get("overallConfidence"),
             "lowConfidenceSignals": (
                 result["acuteResult"].get("lowConfidenceKeys", []) +
                 result["resourceResult"].get("lowConfidenceKeys", []) +
-                result["seasonalResult"].get("lowConfidenceKeys", [])
+                result["adaptationResult"].get("lowConfidenceKeys", [])
             ),
             "warnings": _build_data_quality_warnings(result),
             "flags": result["flags"],
@@ -375,7 +381,7 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
         "scoreBreakdowns": {
             "acute": result["acuteResult"]["breakdown"],
             "resource": result["resourceResult"]["breakdown"],
-            "seasonal": result["seasonalResult"]["breakdown"],
+            "adaptation": result["adaptationResult"]["breakdown"],
         },
         "rawInputs": result["rawInputs"],
     }
@@ -431,7 +437,9 @@ def get_dashboard(
             "neuralLiftCount7d": refs["neuralLiftCount7d"],
         },
         "cycleDay28": result["cycleDay28"],
-        "cycleWeekType": result["cycleWeekType"],
+        "arcPhase": result["arcPhase"],
+        "arcDay": result["arcDay"],
+        "arcStartDate": result.get("arcStartDate"),
         "recommendation": {
             "cardioMode": result["recommendedCardioMode"],
             "liftMode": result["recommendedLiftMode"],
@@ -445,7 +453,7 @@ def get_dashboard(
         "breakdowns": {
             "acute": result["acuteResult"]["breakdown"],
             "resource": result["resourceResult"]["breakdown"],
-            "seasonal": result["seasonalResult"]["breakdown"],
+            "adaptation": result["adaptationResult"]["breakdown"],
         },
     }
 
@@ -473,7 +481,9 @@ def get_recommendation(
         "recommendation": {
             "date": str(target_date),
             "cycleDay28": result["cycleDay28"],
-            "cycleWeekType": result["cycleWeekType"],
+            "arcPhase": result["arcPhase"],
+            "arcDay": result["arcDay"],
+            "arcStartDate": result.get("arcStartDate"),
             "scores": result["composite"],
             **conf,
             "flags": result["flags"],
@@ -489,7 +499,7 @@ def get_recommendation(
         "scoreBreakdowns": {
             "acute": result["acuteResult"]["breakdown"],
             "resource": result["resourceResult"]["breakdown"],
-            "seasonal": result["seasonalResult"]["breakdown"],
+            "adaptation": result["adaptationResult"]["breakdown"],
         },
         "rawInputs": result["rawInputs"],
     }
@@ -583,7 +593,7 @@ def recompute(
     result = compute_daily_recommendation(db, expo_user_id, log_row)
     log_row.acute_score = result["acuteResult"]["score"]
     log_row.resource_score = result["resourceResult"]["score"]
-    log_row.seasonal_score = result["seasonalResult"]["score"]
+    log_row.seasonal_score = result["adaptationResult"]["score"]
     log_row.oscillator_composite_score = result["composite"]["compositeScore"]
     log_row.oscillator_class = result["composite"]["oscillatorClass"]
     log_row.recommended_cardio_mode = result["recommendedCardioMode"]
@@ -637,7 +647,9 @@ def get_latest_recommendation(
         "recommendation": {
             "date": str(log_row.date),
             "cycleDay28": result["cycleDay28"],
-            "cycleWeekType": result["cycleWeekType"],
+            "arcPhase": result["arcPhase"],
+            "arcDay": result["arcDay"],
+            "arcStartDate": result.get("arcStartDate"),
             "scores": result["composite"],
             **conf,
             "flags": result["flags"],
@@ -653,7 +665,7 @@ def get_latest_recommendation(
         "scoreBreakdowns": {
             "acute": result["acuteResult"]["breakdown"],
             "resource": result["resourceResult"]["breakdown"],
-            "seasonal": result["seasonalResult"]["breakdown"],
+            "adaptation": result["adaptationResult"]["breakdown"],
         },
         "rawInputs": result["rawInputs"],
     }
