@@ -5,8 +5,18 @@ router = APIRouter(prefix="/schema", tags=["schema"])
 
 # ── Schema version ────────────────────────────────────────────────────────────
 # Bump this any time a field is added, removed, or its metadata changes.
-# ArcForge caches this version; if it changes the app re-fetches the schema.
+# ArcForge polls /schema/version on every launch. If version differs from what
+# it has cached, it fetches the full /schema/ and re-renders all forms.
+# The Expo app never needs to be rebuilt or resubmitted for field changes.
 SCHEMA_VERSION = "1.1.0"
+
+# ── Changelog ────────────────────────────────────────────────────────────────
+# Human-readable record of what changed in each version.
+# ArcForge can display this in a "What's new in your coach" notice.
+SCHEMA_CHANGELOG = {
+    "1.0.0": "Initial field set: morning biometrics, training, nutrition, body composition.",
+    "1.1.0": "Added crossGearDiagnostics to response shape. Added sleep debt fields. FFM expansion threshold tightened to conf >= 0.50.",
+}
 
 
 def _field(
@@ -39,20 +49,60 @@ def _field(
     return f
 
 
+@router.get("/version")
+def get_schema_version():
+    """
+    Lightweight version check. ArcForge calls this on every app launch.
+    Cost: one tiny JSON round-trip (~50 bytes).
+
+    ArcForge logic:
+      cached = SecureStore.get('schema_version')
+      live   = GET /schema/version → version
+      if live != cached:
+          schema = GET /schema/
+          SecureStore.set('schema', JSON.stringify(schema))
+          SecureStore.set('schema_version', live)
+          re-render all forms from new schema
+    """
+    return {
+        "version":      SCHEMA_VERSION,
+        "brain_url":    "https://arcforgecoach.net",
+        "full_schema":  "/schema/",
+        "changelog":    "/schema/changelog",
+    }
+
+
+@router.get("/changelog")
+def get_schema_changelog():
+    """
+    Human-readable record of what changed in each schema version.
+    ArcForge can surface this as a 'What's new in your coach' notice
+    when the schema updates.
+    """
+    return {
+        "current_version": SCHEMA_VERSION,
+        "history": [
+            {"version": v, "summary": s}
+            for v, s in sorted(SCHEMA_CHANGELOG.items(), reverse=True)
+        ],
+    }
+
+
 @router.get("/")
 def get_schema():
     """
-    ArcForge calls this endpoint on startup (and on schema version change) to
-    know exactly what daily log fields to render, in what order, grouped by
-    session. The brain is the single source of truth — ArcForge never hard-codes
-    field definitions.
+    Full schema definition. ArcForge only fetches this when /schema/version
+    returns a version string different from what is cached in SecureStore.
+    On a normal launch where nothing has changed, only /schema/version is called.
 
-    Workflow for ArcForge:
-    1. On app launch, GET /schema
-    2. Cache the response locally, keyed by `version`
-    3. If `version` differs from cached version, replace cache and re-render forms
-    4. Render each session's fields in the order returned
-    5. Submit all collected fields to POST /vitals/daily-log
+    ArcForge rendering contract:
+    1. On app launch, call GET /schema/version (cheap)
+    2. Compare returned version to SecureStore cached version
+    3. If different: fetch GET /schema/, cache it, re-render all forms
+    4. If same: use cached schema, skip full fetch
+    5. Render each session's fields in the order returned
+    6. Submit collected fields to POST /vitals/daily-log
+    The Expo app never needs to be rebuilt or resubmitted when fields change here.
     """
     return {
         "version": SCHEMA_VERSION,
