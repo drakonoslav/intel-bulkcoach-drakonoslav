@@ -1,11 +1,12 @@
 from sqlalchemy import (
     Column, Integer, String, Float, Numeric, Date, Text, Boolean,
-    UniqueConstraint, CheckConstraint
+    UniqueConstraint, CheckConstraint, Enum, ForeignKey
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlalchemy import DateTime
 from app.database import Base
+import enum
 
 
 CARDIO_MODES = ("recovery_walk", "zone_2", "zone_3")
@@ -14,6 +15,20 @@ MACRO_DAY_TYPES = ("surge", "build", "reset", "resensitize")
 OSCILLATOR_CLASSES = ("peak", "strong_build", "controlled_build", "reset", "resensitize")
 CYCLE_WEEK_TYPES = ("prime", "overload", "peak", "resensitize")
 SESSION_SOURCES = ("apple_health", "manual", "imported")
+
+
+class MovementPattern(enum.Enum):
+    horizontal_push = "horizontal_push"
+    vertical_push = "vertical_push"
+    horizontal_pull = "horizontal_pull"
+    vertical_pull = "vertical_pull"
+    hip_hinge = "hip_hinge"
+    squat = "squat"
+    lunge = "lunge"
+    carry = "carry"
+    isolation = "isolation"
+    core = "core"
+    conditioning = "conditioning"
 
 
 class VitalsUserBaselines(Base):
@@ -245,3 +260,55 @@ class VitalsOscillatorState(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ExerciseMaster(Base):
+    """Biomechanical exercise catalog — 122 exercises with movement pattern classification."""
+    __tablename__ = "exercise_master"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(120), nullable=False, unique=True)
+    movement_pattern = Column(
+        Enum(MovementPattern, name="movement_pattern_enum"),
+        nullable=False
+    )
+    primary_muscles = Column(JSONB, nullable=False, default=list)
+    secondary_muscles = Column(JSONB, nullable=False, default=list)
+    equipment_required = Column(String(60))
+    bilateral = Column(Boolean, default=True)
+    compound = Column(Boolean, default=True)
+    neural_demand = Column(Numeric(4, 2), default=0.5)   # 0.0–1.0
+    hypertrophy_stimulus = Column(Numeric(4, 2), default=0.5)  # 0.0–1.0
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class LiftExerciseEntry(Base):
+    """Individual exercise sets within a lift session — ties to ExerciseMaster."""
+    __tablename__ = "lift_exercise_entry"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    expo_user_id = Column(String, nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    lift_session_id = Column(Integer, ForeignKey("vitals_lift_session.id",
+                                                  ondelete="CASCADE"), nullable=True)
+    exercise_id = Column(Integer, ForeignKey("exercise_master.id"), nullable=True)
+    exercise_name_raw = Column(String(120))   # freeform fallback before mapping
+
+    sets_completed = Column(Integer)
+    reps_per_set = Column(Integer)
+    load_kg = Column(Numeric(8, 2))
+    load_lbs = Column(Numeric(8, 2))
+    rpe = Column(Numeric(4, 2))
+    rir = Column(Integer)                     # Reps In Reserve
+    tempo_string = Column(String(20))         # e.g. "4-1-2-0"
+    set_type = Column(String(30))             # "working", "warmup", "drop", "myo"
+
+    # Per-set computed outputs
+    top_set_e1rm_lbs = Column(Numeric(8, 2))  # Epley estimated 1RM
+    volume_load_lbs = Column(Numeric(10, 2))  # sets * reps * load
+    set_strength_output_index = Column(Numeric(8, 2))
+
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

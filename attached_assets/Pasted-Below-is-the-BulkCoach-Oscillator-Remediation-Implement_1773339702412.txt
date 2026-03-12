@@ -1,0 +1,692 @@
+Below is the BulkCoach Oscillator Remediation – Implementation Ticket Pack.
+Each ticket is written so Intel can copy-paste into a task system (Jira / Linear / GitHub Issues).
+
+Each ticket contains:
+	•	File
+	•	Objective
+	•	Required changes
+	•	Function signatures
+	•	Exact formulas
+	•	Acceptance criteria
+
+Nothing here is optional.
+
+⸻
+
+Ticket 01
+
+File: app/confidence.py
+
+Title
+
+Implement centralized confidence-weighting engine
+
+Objective
+
+Create the shared utilities used by all score layers to convert raw subscores into confidence-weighted results.
+
+Required implementation
+
+Create new module:
+
+app/confidence.py
+
+Required types
+
+from dataclasses import dataclass
+from typing import List
+
+
+@dataclass
+class ConfidenceWeightedMetric:
+    key: str
+    raw_score: float
+    max_score: float
+    confidence: float
+    weighted_score: float
+    weighted_max: float
+
+
+@dataclass
+class ConfidenceWeightedScoreResult:
+    score: float
+    raw_weighted_score: float
+    raw_weighted_max: float
+    overall_confidence: float
+    low_confidence_keys: List[str]
+
+
+⸻
+
+Required functions
+
+finalize_weighted_score
+
+def finalize_weighted_score(metrics: List[ConfidenceWeightedMetric]) -> ConfidenceWeightedScoreResult:
+
+Formula:
+
+Score = 100 \times \frac{\sum s_i c_i}{\sum m_i c_i}
+
+Implementation steps:
+	1.	compute
+
+weighted_score_sum
+weighted_max_sum
+
+	2.	compute
+
+score = 100 * weighted_score_sum / weighted_max_sum
+
+	3.	compute average confidence
+	4.	collect keys where
+
+confidence < 0.6
+
+
+⸻
+
+Confidence derivation functions
+
+Required functions:
+
+def derive_hrv_confidence(hrv_ms, sample_count, consistent_window) -> float
+
+def derive_rhr_confidence(rhr) -> float
+
+def derive_sleep_confidence(duration_min, efficiency_pct, time_known) -> float
+
+def derive_body_comp_confidence(
+    body_weight,
+    body_fat_pct,
+    ffm_lb,
+    tbw_pct,
+    fasted_morning,
+    delta_bf_pct,
+    delta_ffm_lb
+) -> float
+
+def derive_waist_confidence(waist_value, waist_confidence, days_since_measure) -> float
+
+def derive_subjective_confidence(fields_completed, total_fields) -> float
+
+
+⸻
+
+Acceptance criteria
+	•	all score layers must call finalize_weighted_score
+	•	no raw additive score allowed
+
+⸻
+
+Ticket 02
+
+File: app/vitals_models.py
+
+Title
+
+Add exercise-level strength schema
+
+Objective
+
+Introduce exercise-level modeling so strength output can be calculated properly.
+
+⸻
+
+Add enum
+
+class MovementPattern(str, Enum):
+    SQUAT = "squat"
+    HINGE = "hinge"
+    HORIZONTAL_PRESS = "horizontal_press"
+    VERTICAL_PRESS = "vertical_press"
+    HORIZONTAL_PULL = "horizontal_pull"
+    VERTICAL_PULL = "vertical_pull"
+    LUNGE = "lunge"
+    LEG_CURL = "leg_curl"
+    LEG_EXTENSION = "leg_extension"
+    CALF = "calf"
+    BICEPS = "biceps"
+    TRICEPS = "triceps"
+    LATERAL_DELT = "lateral_delt"
+    REAR_DELT = "rear_delt"
+    ABS = "abs"
+    OTHER = "other"
+
+
+⸻
+
+Add model: ExerciseMaster
+
+class ExerciseMaster(Base):
+    __tablename__ = "exercise_master"
+
+    id = Column(UUID, primary_key=True)
+    name = Column(String)
+    movement_pattern = Column(String)
+    regional_weight = Column(Float)
+    default_exercise_importance = Column(Float)
+    created_at = Column(DateTime)
+
+
+⸻
+
+Add model: LiftExerciseEntry
+
+class LiftExerciseEntry(Base):
+    __tablename__ = "lift_exercise_entry"
+
+    id = Column(UUID, primary_key=True)
+
+    session_id = Column(UUID)
+    user_id = Column(UUID)
+
+    exercise_id = Column(UUID)
+
+    movement_pattern = Column(String)
+
+    regional_weight = Column(Float)
+
+    exercise_importance = Column(Float)
+
+    set_count = Column(Integer)
+
+    rep_min = Column(Integer)
+    rep_max = Column(Integer)
+
+    top_set_weight_lb = Column(Float)
+    top_set_reps = Column(Integer)
+    top_set_rpe = Column(Float)
+
+    volume_load_lb = Column(Float)
+
+    performed_to_target = Column(Boolean)
+
+    confidence = Column(Float)
+
+    performance_score = Column(Float)
+
+    weighted_contribution = Column(Float)
+
+    weighted_max = Column(Float)
+
+
+⸻
+
+Modify LiftSession
+
+Add fields:
+
+session_strength_output_index
+primary_compound_index
+accessory_index
+
+
+⸻
+
+Acceptance criteria
+	•	exercise entries must exist per session
+	•	session strength index cannot be manually entered anymore
+
+⸻
+
+Ticket 03
+
+File: app/strength_scoring.py
+
+Title
+
+Implement exercise-weighted strength output engine
+
+Objective
+
+Replace flat strength score with weighted exercise model.
+
+⸻
+
+Required functions
+
+estimate_e1rm
+
+def estimate_e1rm(weight: float, reps: int) -> float:
+
+Formula
+
+e1RM = W \times (1 + R/30)
+
+⸻
+
+score_exercise_performance
+
+def score_exercise_performance(entry, baseline) -> float
+
+Formula
+
+Performance_e =
+0.45 StrengthScore +
+0.20 VolumeScore +
+0.15 EffortScore +
+0.20 CompletionScore
+
+⸻
+
+build_exercise_contribution
+
+def build_exercise_contribution(entry, performance_score) -> dict
+
+Formula
+
+Contribution =
+Performance \times RegionalWeight \times Importance \times Confidence
+
+⸻
+
+calculate_session_strength_output
+
+def calculate_session_strength_output(entries, baseline_map)
+
+Formula
+
+SessionStrength =
+100 \times \frac{\sum Contribution}{\sum MaxContribution}
+
+Where
+
+MaxContribution =
+100 \times RegionalWeight \times Importance \times Confidence
+
+⸻
+
+Output
+
+Return:
+
+session_strength_output_index
+primary_compound_index
+accessory_index
+contributions
+
+
+⸻
+
+Acceptance criteria
+	•	every session strength score must be derived
+	•	compounds must carry higher weight
+
+⸻
+
+Ticket 04
+
+File: app/vitals_rolling.py
+
+Title
+
+Implement proper rolling metrics and remove proxy logic
+
+⸻
+
+Required new outputs
+
+Add fields:
+
+ffmTrend14dLbPerWeek
+ffmTrend14dConfidence
+waistTrend14dIn
+waistTrendConfidence
+virilityTrend28d
+lightExposureConsistency28d
+deloadScore28d
+weightedStrengthTrend14dPct
+primaryCompoundTrend14dPct
+
+
+⸻
+
+Deload score formula
+
+DeloadScore =
+0.30 VolumeReduction
++
+0.20 NeuralReduction
++
+0.20 Zone2Increase
++
+0.15 SurgeReduction
++
+0.15 LiftStrainReduction
+
+⸻
+
+Monotony formula
+
+Compute:
+
+cardioMonotony
+liftMonotony
+macroMonotony
+
+Final
+
+Monotony =
+0.35 cardio +
+0.40 lift +
+0.25 macro
+
+⸻
+
+Light exposure
+
+LightConsistency =
+days_meeting_light_target / 28 * 100
+
+
+⸻
+
+Virility trend
+
+Virility =
+0.40 Libido
++
+0.35 Erection
++
+0.15 MentalDrive
++
+0.10 Mood
+
+⸻
+
+Acceptance criteria
+	•	rolling module must output confidence values
+	•	seasonal layer cannot use placeholder values
+
+⸻
+
+Ticket 05
+
+File: app/vitals_scoring.py
+
+Title
+
+Convert score layers to confidence-weighted model
+
+⸻
+
+Acute score function
+
+Signature
+
+def calculate_acute_score(context) -> ConfidenceWeightedScoreResult
+
+Submetrics
+	•	HRV state
+	•	RHR state
+	•	sleep quantity
+	•	sleep regularity
+	•	bodyweight stability
+	•	subjective drive
+	•	joint soreness
+	•	yesterday lift strain
+	•	yesterday cardio strain
+
+Each must include confidence.
+
+Final score must call:
+
+finalize_weighted_score()
+
+
+⸻
+
+Resource score function
+
+Signature
+
+def calculate_resource_score(context) -> ConfidenceWeightedScoreResult
+
+Submetrics
+	•	calorie adherence
+	•	protein adequacy
+	•	fat oscillation
+	•	carb adequacy around training
+	•	weight trend
+	•	waist trend
+	•	FFM trend
+	•	weighted strength trend
+	•	cardio distribution
+
+⸻
+
+Carb adequacy formula
+
+For each day:
+
+PeriCarbs =
+postCardio +
+preLift +
+postLift
+
+Score based on:
+
+PeriCarbs / target_peri_carbs(dayType)
+
+
+⸻
+
+Fat oscillation formula
+
+Conditions:
+
+avg_fat >= 55g
+days >=75g >= 2
+days <=50g >= 2
+
+
+⸻
+
+Seasonal score
+
+Signature
+
+def calculate_seasonal_score(context) -> ConfidenceWeightedScoreResult
+
+Submetrics
+	•	HRV trend
+	•	RHR trend
+	•	sleep regularity
+	•	waist:weight relationship
+	•	FFM trend
+	•	deload compliance
+	•	monotony
+	•	light exposure
+	•	virility trend
+
+⸻
+
+Acceptance criteria
+	•	every score layer must use weighted scoring
+	•	raw additive scoring forbidden
+
+⸻
+
+Ticket 06
+
+File: app/vitals_engine.py
+
+Title
+
+Upgrade decision logic and integrate weighted scores
+
+⸻
+
+Required logic changes
+
+Replace:
+
+raw score usage
+
+with
+
+weighted score results
+
+
+⸻
+
+Cardio selection logic
+
+Add explicit rules:
+
+Hard override
+
+if HRV < 0.9 * HRV7d or RHR > RHR7d + 4:
+    cardio = ZONE2
+
+Sequential cap
+
+if previous_two_zone3:
+    cardio = ZONE2
+
+Rolling cap
+
+if zone3_count_7d >= 3:
+    zone3 disabled
+
+Resensitize week
+
+cycle_day >= 22:
+    zone3_count_week <= 1
+
+
+⸻
+
+Nutrition adjustment safeguards
+
+Implement:
+	•	ingredient caps
+	•	window caps
+	•	distributed delta allocation
+
+⸻
+
+Add strength contribution to response
+
+Expose
+
+top_exercise_contributions
+
+
+⸻
+
+Acceptance criteria
+	•	cardio cannot cluster zone3 excessively
+	•	ingredient adjustments distributed
+
+⸻
+
+Ticket 07
+
+File: app/routers/vitals.py
+
+Title
+
+Expand API responses
+
+⸻
+
+Dashboard response additions
+
+Add fields:
+
+acuteConfidence
+resourceConfidence
+seasonalConfidence
+lowConfidenceSignals
+
+
+⸻
+
+Strength summary
+
+Add
+
+sessionStrengthOutputIndex
+primaryCompoundIndex
+accessoryIndex
+topExerciseContributors
+
+
+⸻
+
+Warnings
+
+Return messages like
+
+bodyCompConfidenceLow
+waistMeasurementStale
+hrvDataSparse
+
+
+⸻
+
+Acceptance criteria
+	•	dashboard exposes score confidence
+	•	strength contributions visible
+
+⸻
+
+Ticket 08
+
+File: app/nutrition_adjustment.py (or equivalent)
+
+Title
+
+Constrain macro delta allocation
+
+⸻
+
+Required rules
+
+Per ingredient cap
+
+delta <= ingredient_cap
+
+Per window cap
+
+delta_window <= window_cap
+
+Protected windows
+
+post_lift macros protected
+
+
+⸻
+
+Allocation algorithm
+
+Pseudo
+
+remaining_delta
+for ingredient in ranked_candidates:
+    allocate min(cap, remaining_delta)
+    remaining_delta -= allocation
+
+
+⸻
+
+Acceptance criteria
+	•	macro shifts distributed across ingredients
+	•	no single ingredient absorbs full adjustment
+
+⸻
+
+Final directive
+
+Intel must not declare the oscillator complete until:
+	•	confidence-weighted scoring implemented
+	•	exercise-weighted strength implemented
+	•	carb timing logic corrected
+	•	fat oscillation based on intake
+	•	deload compliance based on behavior
+	•	seasonal layer completed
+	•	macro adjustment safeguarded
+
+Until those are implemented, the engine is still a scaffold, not the oscillator architecture originally specified.

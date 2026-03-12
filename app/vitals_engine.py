@@ -89,14 +89,37 @@ def _derive_flags(
     }
 
 
-def _decide_cardio(composite: float, flags: dict, zone3_count_7d: int, zone2_count_7d: int) -> str:
+def _decide_cardio(
+    composite: float, flags: dict,
+    zone3_count_7d: int, zone2_count_7d: int,
+    hrv_ms=None, hrv_7d_avg=None,
+    resting_hr_bpm=None, rhr_7d_avg=None,
+    previous_two_zone3: bool = False,
+) -> str:
+    # Hard override — HRV suppression or RHR elevation → floor at zone_2
+    if hrv_ms is not None and hrv_7d_avg is not None:
+        if float(hrv_ms) < 0.90 * float(hrv_7d_avg):
+            return "zone_2"
+    if resting_hr_bpm is not None and rhr_7d_avg is not None:
+        if float(resting_hr_bpm) > float(rhr_7d_avg) + 4:
+            return "zone_2"
+
+    # Sequential cap — two consecutive zone3 sessions → force zone_2
+    if previous_two_zone3:
+        return "zone_2"
+
     if flags["hardStopFatigue"]:
         return "recovery_walk" if composite < 40 else "zone_2"
 
     if flags["monthlyResensitizeOverride"] and zone3_count_7d >= 1:
         return "zone_2"
 
+    # Rolling cap — 3+ zone3 sessions in 7 days
     if zone3_count_7d >= 3:
+        return "zone_2"
+
+    # Resensitize week — limit zone3 to at most 1 per week
+    if flags["monthlyResensitizeOverride"] and zone3_count_7d >= 1:
         return "zone_2"
 
     if composite >= 70:
@@ -174,11 +197,13 @@ _INGREDIENT_PRIORITY = [
         "ingredient": "MCT Powder",  "unit": "g",   "primaryMacro": "fat",
         "secondaryMacro": None,
         "kcalPerPrimaryUnit": 9.0,
+        "perIngredientCapG": 25,
     },
     {
         "ingredient": "Dextrin",     "unit": "g",   "primaryMacro": "carbs",
         "secondaryMacro": None,
         "kcalPerPrimaryUnit": 4.0,
+        "perIngredientCapG": 50,
         "protectedMealWindows": ["post_lift"],
         "preferredReductionWindow": "pre_lift",
         "distributionNote": "Reduce pre-lift pool first. Post-lift Dextrin is anabolically timed — protect it.",
@@ -188,48 +213,65 @@ _INGREDIENT_PRIORITY = [
         "secondaryMacro": "fat",
         "kcalPerPrimaryUnit": 4.0,
         "carbsPerG": 0.67, "fatPerG": 0.06, "proteinPerG": 0.17,
+        "perIngredientCapG": 80,
     },
     {
         "ingredient": "Bananas",     "unit": "each","primaryMacro": "carbs",
         "secondaryMacro": None,
         "kcalPerPrimaryUnit": 4.0,
         "carbsPerUnit": 27, "proteinPerUnit": 1, "fatPerUnit": 0,
+        "perIngredientCapUnits": 2,
     },
     {
         "ingredient": "Eggs",        "unit": "each","primaryMacro": "protein",
         "secondaryMacro": "fat",
         "kcalPerPrimaryUnit": 4.0,
         "proteinPerUnit": 6, "fatPerUnit": 5, "carbsPerUnit": 0,
+        "perIngredientCapUnits": 3,
     },
     {
         "ingredient": "Flaxseed",    "unit": "g",   "primaryMacro": "fat",
         "secondaryMacro": "carbs",
         "kcalPerPrimaryUnit": 9.0,
         "fatPerG": 0.40, "carbsPerG": 0.27, "proteinPerG": 0.20,
+        "perIngredientCapG": 30,
     },
     {
         "ingredient": "Whey",        "unit": "g",   "primaryMacro": "protein",
         "secondaryMacro": None,
         "kcalPerPrimaryUnit": 4.0,
         "proteinPerG": 0.80, "carbsPerG": 0.08, "fatPerG": 0.05,
+        "perIngredientCapG": 40,
     },
     {
         "ingredient": "Greek Yogurt","unit": "cup", "primaryMacro": "protein",
         "secondaryMacro": None,
         "kcalPerPrimaryUnit": 4.0,
+        "perIngredientCapUnits": 1,
     },
 ]
 
+# Maximum per-macro adjustment distributed across all windows combined.
+_WINDOW_CAPS = {"fat": 35, "carbs": 80, "protein": 20}
+
 
 def _compute_ingredient_adjustments(macro_day: str, macro_delta: dict) -> list:
-    """Walk through ingredient priority order and assign macro delta to ingredients."""
+    """
+    Distribute macro delta across ingredients using ranked candidates.
+    Each ingredient absorbs min(ingredient_cap, remaining_delta).
+    No single ingredient absorbs the full delta.
+    Post-lift windows are protected.
+    """
     if not macro_delta:
         return []
 
     remaining = {
-        "fat":     float(macro_delta.get("fatDeltaG", 0) or 0),
-        "carbs":   float(macro_delta.get("carbsDeltaG", 0) or 0),
-        "protein": float(macro_delta.get("proteinDeltaG", 0) or 0),
+        "fat":     min(abs(float(macro_delta.get("fatDeltaG", 0) or 0)),
+                       _WINDOW_CAPS["fat"]) * (1 if (macro_delta.get("fatDeltaG") or 0) >= 0 else -1),
+        "carbs":   min(abs(float(macro_delta.get("carbsDeltaG", 0) or 0)),
+                       _WINDOW_CAPS["carbs"]) * (1 if (macro_delta.get("carbsDeltaG") or 0) >= 0 else -1),
+        "protein": min(abs(float(macro_delta.get("proteinDeltaG", 0) or 0)),
+                       _WINDOW_CAPS["protein"]) * (1 if (macro_delta.get("proteinDeltaG") or 0) >= 0 else -1),
     }
 
     adjustments = []
@@ -239,43 +281,52 @@ def _compute_ingredient_adjustments(macro_day: str, macro_delta: dict) -> list:
         if abs(delta) < 0.5:
             continue
 
-        action = "increase" if delta > 0 else "decrease"
         unit = item["unit"]
 
         if unit == "g":
             per_g = item.get(f"{primary}PerG", 1.0)
-            grams = round(delta / per_g, 0) if per_g else delta
-            if abs(grams) < 1:
+            cap_g = item.get("perIngredientCapG")
+            max_delta = (cap_g * per_g) if cap_g else abs(delta)
+            allocated_g = min(abs(delta / per_g) if per_g else abs(delta), cap_g or abs(delta))
+            if abs(allocated_g) < 1:
                 continue
-            display = f"{abs(int(grams))}g"
-            qty = int(grams)
+            allocated_g = int(round(allocated_g)) * (1 if delta > 0 else -1)
+            allocated_macro = round(allocated_g * per_g, 1)
+            display = f"{abs(allocated_g)}g"
+            qty = allocated_g
         elif unit == "each":
             per_unit = item.get(f"{primary}PerUnit", 1)
-            units_qty = round(delta / per_unit) if per_unit else 1
+            cap_units = item.get("perIngredientCapUnits")
+            units_raw = (delta / per_unit) if per_unit else 1
+            units_qty = int(round(units_raw))
+            if cap_units:
+                units_qty = max(-cap_units, min(cap_units, units_qty))
             if abs(units_qty) < 1:
                 continue
-            display = f"{abs(int(units_qty))} unit(s)"
-            qty = int(units_qty)
+            allocated_macro = round(units_qty * per_unit, 1)
+            display = f"{abs(units_qty)} unit(s)"
+            qty = units_qty
         else:
+            allocated_macro = delta
             display = f"1 {unit}"
             qty = 1
 
+        action = "increase" if qty > 0 else "decrease"
         kcal_per_unit = item.get("kcalPerPrimaryUnit", 4.0)
-        kcal_delta = round(delta * kcal_per_unit, 1)
+        kcal_delta = round(allocated_macro * kcal_per_unit, 1)
 
         entry = {
-            "priority":              len(adjustments) + 1,
-            "ingredient":            item["ingredient"],
-            "unit":                  unit,
-            "action":                action,
-            "primaryMacro":          primary,
-            "deltaG":                round(delta, 1),
-            "qty":                   abs(qty),
-            "kcalPerPrimaryUnit":    kcal_per_unit,
-            "kcalDelta":             kcal_delta,
-            "display":               f"{action} {display}",
+            "priority":           len(adjustments) + 1,
+            "ingredient":         item["ingredient"],
+            "unit":               unit,
+            "action":             action,
+            "primaryMacro":       primary,
+            "deltaG":             allocated_macro,
+            "qty":                abs(qty),
+            "kcalPerPrimaryUnit": kcal_per_unit,
+            "kcalDelta":          kcal_delta,
+            "display":            f"{action} {display}",
         }
-        # Attach meal distribution guidance if present
         if item.get("protectedMealWindows"):
             entry["protectedMealWindows"]    = item["protectedMealWindows"]
         if item.get("preferredReductionWindow"):
@@ -284,7 +335,7 @@ def _compute_ingredient_adjustments(macro_day: str, macro_delta: dict) -> list:
             entry["distributionNote"]        = item["distributionNote"]
 
         adjustments.append(entry)
-        remaining[primary] = 0
+        remaining[primary] = remaining[primary] - allocated_macro
 
         if all(abs(v) < 0.5 for v in remaining.values()):
             break
@@ -497,9 +548,9 @@ def _build_raw_inputs(log_row: VitalsDailyLog, refs: dict, baselines: dict,
 
     def _drive_composite():
         vals = []
-        if libido is not None:     vals.append((libido - 1) / 4 * 10)
-        if erection is not None:   vals.append((erection - 1) / 4 * 10)
-        if motivation is not None: vals.append((motivation - 1) / 4 * 10)
+        if libido is not None:       vals.append((libido - 1) / 4 * 10)
+        if erection is not None:     vals.append((erection / 3) * 10)       # 0–3 scale
+        if motivation is not None:   vals.append((motivation - 1) / 4 * 10)
         if mental_drive is not None: vals.append((mental_drive - 1) / 4 * 10)
         return round(sum(vals) / len(vals), 1) if vals else None
 
@@ -590,7 +641,12 @@ def _build_raw_inputs(log_row: VitalsDailyLog, refs: dict, baselines: dict,
             "ffm_28d_avg":                    _r(refs.get("ffm28dAvg"), 1),
             "ffm_prev_28d_avg":               _r(refs.get("ffmPrev28dAvg"), 1),
             "training_monotony_index_28d":    _r(refs.get("trainingMonotonyIndex28d"), 1),
+            "cardio_monotony_28d":            _r(refs.get("cardioMonotony28d"), 1),
+            "lift_monotony_28d":              _r(refs.get("liftMonotony28d"), 1),
+            "macro_monotony_28d":             _r(refs.get("macroMonotony28d"), 1),
             "virility_trend_28d":             _r(refs.get("virilityTrend28d"), 1),
+            "virility_trend_prev_28d":        _r(refs.get("virilityTrendPrev28d"), 1),
+            "deload_score_28d":               refs.get("deloadScore28d"),
             "deload_compliance_28d":          refs.get("deloadCompliance28d"),
             "light_exposure_consistency_28d": refs.get("lightExposureConsistency28d"),
         },
@@ -638,7 +694,9 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         kcal_target=float(log_row.kcal_target) if log_row.kcal_target else baselines["default_kcal"],
         protein_7d_avg=refs["protein7dAvg"],
         fat_7d_avg=refs["fat7dAvg"],
-        recent_macro_day_types_7d=refs["recentMacroDayTypes7d"],
+        fat_high_days_7d=refs["fatHighDays7d"],
+        fat_low_days_7d=refs["fatLowDays7d"],
+        carb_day_type_adherence_7d=refs["carbDayTypeAdherence7d"],
         carbs_7d_avg=refs["carbs7dAvg"],
         carbs_g_target=float(log_row.carbs_g_target) if log_row.carbs_g_target else None,
         weight_trend_14d_lb_per_week=refs["weightTrend14dLbPerWeek"],
@@ -648,6 +706,8 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         zone2_count_7d=refs["cardioZone2Count7d"],
         zone3_count_7d=refs["cardioZone3Count7d"],
         recovery_count_7d=refs["cardioRecoveryCount7d"],
+        ffm_trend_confidence=refs.get("ffmTrend14dConfidence"),
+        waist_trend_confidence=refs.get("waistTrendConfidence"),
     )
 
     seasonal = calculate_seasonal_score(
@@ -661,10 +721,15 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         weight_28d_change_lb=refs["weight28dChangeLb"],
         ffm_28d_avg=refs["ffm28dAvg"],
         ffm_prev_28d_avg=refs["ffmPrev28dAvg"],
+        deload_score_28d=refs["deloadScore28d"],
         deload_compliance_28d=refs["deloadCompliance28d"],
         training_monotony_index_28d=refs["trainingMonotonyIndex28d"],
         light_exposure_consistency_28d=refs["lightExposureConsistency28d"],
         virility_trend_28d=refs["virilityTrend28d"],
+        cardio_monotony_28d=refs.get("cardioMonotony28d"),
+        lift_monotony_28d=refs.get("liftMonotony28d"),
+        macro_monotony_28d=refs.get("macroMonotony28d"),
+        virility_trend_prev_28d=refs.get("virilityTrendPrev28d"),
     )
 
     composite = calculate_composite(acute["score"], resource["score"], seasonal["score"])
@@ -685,7 +750,23 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         cycle_day_28,
     )
 
-    cardio_mode = _decide_cardio(composite["compositeScore"], flags, refs["cardioZone3Count7d"], refs["cardioZone2Count7d"])
+    # Sequential zone3 cap — check previous two days
+    two_days_ago = target_date - timedelta(days=2)
+    two_days_ago_row = db.query(VitalsDailyLog).filter(
+        VitalsDailyLog.expo_user_id == expo_user_id,
+        VitalsDailyLog.date == two_days_ago,
+    ).first()
+    yesterday_was_z3 = yesterday_row and yesterday_row.actual_cardio_mode == "zone_3"
+    two_days_ago_was_z3 = two_days_ago_row and two_days_ago_row.actual_cardio_mode == "zone_3"
+    previous_two_zone3 = bool(yesterday_was_z3 and two_days_ago_was_z3)
+
+    cardio_mode = _decide_cardio(
+        composite["compositeScore"], flags,
+        refs["cardioZone3Count7d"], refs["cardioZone2Count7d"],
+        hrv_ms=log_row.hrv_ms, hrv_7d_avg=refs.get("hrv7dAvg"),
+        resting_hr_bpm=log_row.resting_hr_bpm, rhr_7d_avg=refs.get("rhr7dAvg"),
+        previous_two_zone3=previous_two_zone3,
+    )
     lift_mode = _decide_lift(composite["compositeScore"], flags)
     macro_day = _decide_macro_day(composite["compositeScore"], flags, flags["elevatedRhr"], soreness_high)
 
@@ -766,7 +847,10 @@ def persist_oscillator_state(db: Session, expo_user_id: str, log_row: VitalsDail
     existing.rolling_zone3_count_7d = refs["cardioZone3Count7d"]
     existing.rolling_recovery_count_7d = refs["cardioRecoveryCount7d"]
     existing.rolling_neural_lift_count_7d = refs["neuralLiftCount7d"]
-    existing.rolling_reset_day_count_28d = refs["resetOrResensitizeDayCount28d"]
+    existing.rolling_reset_day_count_28d = sum(
+        1 for dt in refs.get("recentMacroDayTypes7d", [])
+        if dt in ("reset", "resensitize")
+    )
     existing.fatigue_flag = result["flags"]["hardStopFatigue"]
     existing.monotony_flag = result["flags"]["cardioMonotony"]
     existing.deload_compliance_flag = refs["deloadCompliance28d"]

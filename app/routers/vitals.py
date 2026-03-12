@@ -22,6 +22,48 @@ def get_db():
         db.close()
 
 
+def _build_data_quality_warnings(result: dict) -> list:
+    """Generate human-readable data quality warning strings for Expo to surface."""
+    warnings = []
+    low_conf = (
+        result["acuteResult"].get("lowConfidenceKeys", []) +
+        result["resourceResult"].get("lowConfidenceKeys", []) +
+        result["seasonalResult"].get("lowConfidenceKeys", [])
+    )
+    raw = result.get("rawInputs", {})
+    s_raw = raw.get("seasonal", {})
+
+    if result["acuteResult"].get("overallConfidence", 1.0) < 0.5:
+        warnings.append("bodyCompConfidenceLow")
+    if "hrv_state" in low_conf or "hrv_28d_trend" in low_conf:
+        warnings.append("hrvDataSparse")
+    if "waist_trend" in low_conf or s_raw.get("waist_per_lb_ratio") is None:
+        warnings.append("waistMeasurementStale")
+    if "ffm_trend" in low_conf or "ffm_28d_trend" in low_conf:
+        warnings.append("ffmDataInsufficient")
+    if "light_consistency" in low_conf:
+        warnings.append("lightExposureNotTracked")
+    if "deload_compliance" in low_conf:
+        warnings.append("insufficientHistoryForDeloadAssessment")
+
+    return warnings
+
+
+def _recommendation_block(result: dict) -> dict:
+    """Build the standardized recommendation sub-block for all response shapes."""
+    return {
+        "acuteConfidence": result["acuteResult"].get("overallConfidence"),
+        "resourceConfidence": result["resourceResult"].get("overallConfidence"),
+        "seasonalConfidence": result["seasonalResult"].get("overallConfidence"),
+        "lowConfidenceSignals": (
+            result["acuteResult"].get("lowConfidenceKeys", []) +
+            result["resourceResult"].get("lowConfidenceKeys", []) +
+            result["seasonalResult"].get("lowConfidenceKeys", [])
+        ),
+        "warnings": _build_data_quality_warnings(result),
+    }
+
+
 class BaselineUpsert(BaseModel):
     hrv_year_avg: Optional[float] = None
     rhr_year_avg: Optional[float] = None
@@ -311,6 +353,15 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
             "cycleDay28": result["cycleDay28"],
             "cycleWeekType": result["cycleWeekType"],
             "scores": result["composite"],
+            "acuteConfidence": result["acuteResult"].get("overallConfidence"),
+            "resourceConfidence": result["resourceResult"].get("overallConfidence"),
+            "seasonalConfidence": result["seasonalResult"].get("overallConfidence"),
+            "lowConfidenceSignals": (
+                result["acuteResult"].get("lowConfidenceKeys", []) +
+                result["resourceResult"].get("lowConfidenceKeys", []) +
+                result["seasonalResult"].get("lowConfidenceKeys", [])
+            ),
+            "warnings": _build_data_quality_warnings(result),
             "flags": result["flags"],
             "recommendedCardioMode": result["recommendedCardioMode"],
             "recommendedLiftMode": result["recommendedLiftMode"],
@@ -415,6 +466,7 @@ def get_recommendation(
         raise HTTPException(status_code=404, detail=f"No vitals log for {expo_user_id} on {target_date}")
 
     result = compute_daily_recommendation(db, expo_user_id, log_row)
+    conf = _recommendation_block(result)
     return {
         "date": str(target_date),
         "expo_user_id": expo_user_id,
@@ -423,6 +475,7 @@ def get_recommendation(
             "cycleDay28": result["cycleDay28"],
             "cycleWeekType": result["cycleWeekType"],
             "scores": result["composite"],
+            **conf,
             "flags": result["flags"],
             "recommendedCardioMode": result["recommendedCardioMode"],
             "recommendedLiftMode": result["recommendedLiftMode"],
@@ -577,6 +630,7 @@ def get_latest_recommendation(
         raise HTTPException(status_code=404, detail=f"No computed recommendation found for {expo_user_id}")
 
     result = compute_daily_recommendation(db, expo_user_id, log_row)
+    conf = _recommendation_block(result)
     return {
         "date": str(log_row.date),
         "expo_user_id": expo_user_id,
@@ -585,6 +639,7 @@ def get_latest_recommendation(
             "cycleDay28": result["cycleDay28"],
             "cycleWeekType": result["cycleWeekType"],
             "scores": result["composite"],
+            **conf,
             "flags": result["flags"],
             "recommendedCardioMode": result["recommendedCardioMode"],
             "recommendedLiftMode": result["recommendedLiftMode"],

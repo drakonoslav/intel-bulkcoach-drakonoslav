@@ -1,37 +1,46 @@
 from datetime import date, timedelta
-from typing import Optional, List
+from collections import Counter
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from app.vitals_models import VitalsDailyLog
+
+
+DAY_TYPE_CARB_TARGETS = {
+    "surge": 390,
+    "build": 350,
+    "reset": 290,
+    "resensitize": 250,
+}
+
+
+def _rows_for_range(db: Session, expo_user_id: str, start: date, end: date):
+    rows = (
+        db.query(VitalsDailyLog)
+        .filter(
+            VitalsDailyLog.expo_user_id == expo_user_id,
+            VitalsDailyLog.date >= start,
+            VitalsDailyLog.date <= end,
+        )
+        .order_by(VitalsDailyLog.date.asc())
+        .all()
+    )
+    return [
+        {c.name: getattr(r, c.name) for c in VitalsDailyLog.__table__.columns}
+        for r in rows
+    ]
 
 
 def _linear_slope(pairs):
+    if len(pairs) < 2:
+        return None
     n = len(pairs)
-    if n < 2:
+    sx = sum(p[0] for p in pairs)
+    sy = sum(p[1] for p in pairs)
+    sxy = sum(p[0] * p[1] for p in pairs)
+    sxx = sum(p[0] ** 2 for p in pairs)
+    denom = n * sxx - sx * sx
+    if denom == 0:
         return None
-    xs = [p[0] for p in pairs]
-    ys = [p[1] for p in pairs]
-    mean_x = sum(xs) / n
-    mean_y = sum(ys) / n
-    num = sum((x - mean_x) * (y - mean_y) for x, y in pairs)
-    den = sum((x - mean_x) ** 2 for x in xs)
-    if den == 0:
-        return None
-    return num / den
-
-
-def _rows_for_range(db: Session, expo_user_id: str, from_date: date, to_date: date):
-    result = db.execute(text("""
-        SELECT date, hrv_ms, resting_hr_bpm, sleep_duration_min, sleep_midpoint_min,
-               body_weight_lb, fat_free_mass_lb, waist_at_navel_in,
-               kcal_actual, protein_g_actual, carbs_g_actual, fat_g_actual,
-               actual_cardio_mode, completed_lift_mode, recommended_macro_day,
-               strength_output_index, libido_score, motivation_score, mood_stability_score,
-               morning_erection_score
-        FROM vitals_daily_log
-        WHERE expo_user_id = :uid AND date >= :from_d AND date <= :to_d
-        ORDER BY date ASC
-    """), {"uid": expo_user_id, "from_d": from_date, "to_d": to_date})
-    return result.mappings().all()
+    return (n * sxy - sx * sy) / denom
 
 
 def compute_rolling_references(db: Session, expo_user_id: str, target_date: date) -> dict:
@@ -51,18 +60,12 @@ def compute_rolling_references(db: Session, expo_user_id: str, target_date: date
         return sum(vals) / len(vals) if vals else None
 
     def trend_lb_per_week(rows, field):
-        pairs = []
-        for i, r in enumerate(rows):
-            if r[field] is not None:
-                pairs.append((i, float(r[field])))
+        pairs = [(i, float(r[field])) for i, r in enumerate(rows) if r[field] is not None]
         slope = _linear_slope(pairs)
         return slope * 7 if slope is not None else None
 
     def trend_pct_change(rows, field):
-        pairs = []
-        for i, r in enumerate(rows):
-            if r[field] is not None:
-                pairs.append((i, float(r[field])))
+        pairs = [(i, float(r[field])) for i, r in enumerate(rows) if r[field] is not None]
         if len(pairs) < 2:
             return None
         half = len(pairs) // 2
@@ -122,28 +125,152 @@ def compute_rolling_references(db: Session, expo_user_id: str, target_date: date
     recovery_7d = sum(1 for r in rows_7d if r["actual_cardio_mode"] == "recovery_walk")
     neural_7d = sum(1 for r in rows_7d if r["completed_lift_mode"] == "neural_tension")
 
-    reset_count_28d = sum(1 for r in rows_28d if r["recommended_macro_day"] in ("reset", "resensitize"))
-    deload_28d = reset_count_28d >= 4
+    # ── FAT OSCILLATION: actual intake distribution ────────────────────────────
+    fat_high_days_7d = sum(1 for r in rows_7d if r["fat_g_actual"] is not None and float(r["fat_g_actual"]) >= 75)
+    fat_low_days_7d = sum(1 for r in rows_7d if r["fat_g_actual"] is not None and float(r["fat_g_actual"]) <= 50)
+    fat_daily_values_7d = [float(r["fat_g_actual"]) for r in rows_7d if r["fat_g_actual"] is not None]
 
-    all_modes_28d = [r["actual_cardio_mode"] for r in rows_28d if r["actual_cardio_mode"]]
-    all_lift_28d = [r["completed_lift_mode"] for r in rows_28d if r["completed_lift_mode"]]
-    all_macro_28d = [r["recommended_macro_day"] for r in rows_28d if r["recommended_macro_day"]]
-    all_types = all_modes_28d + all_lift_28d + all_macro_28d
-    if all_types:
-        from collections import Counter
-        counts = Counter(all_types)
-        most_common_pct = counts.most_common(1)[0][1] / len(all_types) * 100
-        monotony_index = most_common_pct
+    # ── CARB DAY-TYPE ADHERENCE: per-day actual vs day-type specific target ────
+    carb_day_adherences = []
+    for r in rows_7d:
+        if r["carbs_g_actual"] is not None and r["recommended_macro_day"] in DAY_TYPE_CARB_TARGETS:
+            dt_target = DAY_TYPE_CARB_TARGETS[r["recommended_macro_day"]]
+            carb_day_adherences.append(float(r["carbs_g_actual"]) / dt_target)
+    carb_day_type_adherence_7d = sum(carb_day_adherences) / len(carb_day_adherences) if carb_day_adherences else None
+
+    # ── 3-CHANNEL MONOTONY (cardio / lift / macro) ─────────────────────────────
+    def _dominance_pct(items):
+        if not items:
+            return None
+        counts = Counter(items)
+        return counts.most_common(1)[0][1] / len(items) * 100
+
+    cardio_modes_28d = [r["actual_cardio_mode"] for r in rows_28d if r["actual_cardio_mode"]]
+    lift_modes_28d = [r["completed_lift_mode"] for r in rows_28d if r["completed_lift_mode"]]
+    macro_days_28d = [r["recommended_macro_day"] for r in rows_28d if r["recommended_macro_day"]]
+
+    cardio_monotony = _dominance_pct(cardio_modes_28d)
+    lift_monotony = _dominance_pct(lift_modes_28d)
+    macro_monotony = _dominance_pct(macro_days_28d)
+
+    if any(v is not None for v in [cardio_monotony, lift_monotony, macro_monotony]):
+        cm = cardio_monotony or 50.0
+        lm = lift_monotony or 50.0
+        mm = macro_monotony or 50.0
+        monotony_index = 0.35 * cm + 0.40 * lm + 0.25 * mm
     else:
         monotony_index = None
 
-    virility_fields_28d = []
+    # ── VIRILITY TREND: corrected formula ─────────────────────────────────────
+    # VirilityDaily = 0.40*LibidoNorm + 0.35*ErectionNorm + 0.15*MentalDriveNorm + 0.10*MoodNorm
+    def _norm_1_5(v):
+        return (float(v) - 1) / 4 if v is not None else None
+
+    def _norm_0_3(v):
+        return float(v) / 3 if v is not None else None
+
+    virility_daily_28d = []
     for r in rows_28d:
-        vals = [r["libido_score"], r["motivation_score"], r["mood_stability_score"]]
-        valid = [float(v) for v in vals if v is not None]
-        if valid:
-            virility_fields_28d.append(sum(valid) / len(valid))
-    virility_trend_28d = (sum(virility_fields_28d) / len(virility_fields_28d) / 5 * 100) if virility_fields_28d else None
+        lib = _norm_1_5(r["libido_score"])
+        ere = _norm_0_3(r["morning_erection_score"])
+        mnd = _norm_1_5(r["mental_drive_score"])
+        moo = _norm_1_5(r["mood_stability_score"])
+        parts = [(lib, 0.40), (ere, 0.35), (mnd, 0.15), (moo, 0.10)]
+        available = [(val, w) for val, w in parts if val is not None]
+        if available:
+            total_w = sum(w for _, w in available)
+            score = sum(val * w for val, w in available) / total_w
+            virility_daily_28d.append(score)
+
+    virility_trend_28d = (sum(virility_daily_28d) / len(virility_daily_28d) * 100) if virility_daily_28d else None
+
+    virility_prev_28d = []
+    for r in rows_prev28d:
+        lib = _norm_1_5(r["libido_score"])
+        ere = _norm_0_3(r["morning_erection_score"])
+        mnd = _norm_1_5(r["mental_drive_score"])
+        moo = _norm_1_5(r["mood_stability_score"])
+        parts = [(lib, 0.40), (ere, 0.35), (mnd, 0.15), (moo, 0.10)]
+        available = [(val, w) for val, w in parts if val is not None]
+        if available:
+            total_w = sum(w for _, w in available)
+            virility_prev_28d.append(sum(val * w for val, w in available) / total_w)
+
+    virility_trend_prev_28d = (sum(virility_prev_28d) / len(virility_prev_28d) * 100) if virility_prev_28d else None
+
+    # ── BEHAVIORAL DELOAD COMPLIANCE ────────────────────────────────────────────
+    def _compute_deload_score():
+        if len(rows_28d) < 7:
+            return None, False
+
+        recent = rows_28d[-7:]
+        prior = rows_28d[:-7]
+
+        if not prior:
+            return None, False
+
+        def _avg_nonzero(rows, field):
+            vals = [float(r[field]) for r in rows if r[field] is not None]
+            return sum(vals) / len(vals) if vals else None
+
+        def _score_ratio(recent_val, prior_val, lower_is_better=True):
+            if recent_val is None or prior_val is None or prior_val == 0:
+                return 50.0
+            ratio = recent_val / prior_val
+            if lower_is_better:
+                if ratio <= 0.65:   return 100.0
+                elif ratio <= 0.80: return 75.0
+                elif ratio <= 0.95: return 40.0
+                else:               return 10.0
+            else:
+                if ratio >= 1.30:   return 100.0
+                elif ratio >= 1.10: return 75.0
+                elif ratio >= 0.90: return 40.0
+                else:               return 10.0
+
+        lift_strain_recent = _avg_nonzero(recent, "lift_strain_score")
+        lift_strain_prior = _avg_nonzero(prior, "lift_strain_score")
+
+        lift_count_recent = sum(1 for r in recent if r["completed_lift_mode"] and r["completed_lift_mode"] != "off")
+        lift_count_prior_norm = sum(1 for r in prior if r["completed_lift_mode"] and r["completed_lift_mode"] != "off")
+        lift_count_prior_weekly = lift_count_prior_norm / (len(prior) / 7) if len(prior) >= 7 else lift_count_prior_norm
+
+        neural_recent = sum(1 for r in recent if r["completed_lift_mode"] == "neural_tension")
+        neural_prior = sum(1 for r in prior if r["completed_lift_mode"] == "neural_tension") / (len(prior) / 7)
+
+        zone2_recent = sum(1 for r in recent if r["actual_cardio_mode"] == "zone_2")
+        zone2_prior = sum(1 for r in prior if r["actual_cardio_mode"] == "zone_2") / (len(prior) / 7)
+
+        surge_recent = sum(1 for r in recent if r["recommended_macro_day"] == "surge")
+        surge_prior = sum(1 for r in prior if r["recommended_macro_day"] == "surge") / (len(prior) / 7)
+
+        volume_score = _score_ratio(lift_count_recent, lift_count_prior_weekly, lower_is_better=True)
+        neural_score = _score_ratio(neural_recent, neural_prior, lower_is_better=True)
+        zone2_score = _score_ratio(zone2_recent, zone2_prior, lower_is_better=False)
+        surge_score = _score_ratio(surge_recent, surge_prior, lower_is_better=True)
+        strain_score = _score_ratio(lift_strain_recent, lift_strain_prior, lower_is_better=True)
+
+        deload_score = (
+            0.30 * volume_score
+            + 0.20 * neural_score
+            + 0.20 * zone2_score
+            + 0.15 * surge_score
+            + 0.15 * strain_score
+        )
+        return round(deload_score, 1), deload_score >= 70
+
+    deload_score_28d, deload_compliance_28d = _compute_deload_score()
+
+    # ── LIGHT EXPOSURE ─────────────────────────────────────────────────────────
+    # Uses sunlight_min if available; default None until field is tracked
+    light_exposure_consistency_28d = None
+
+    # ── FFM TREND CONFIDENCE ───────────────────────────────────────────────────
+    ffm_14d_vals = [r["fat_free_mass_lb"] for r in rows_14d if r["fat_free_mass_lb"] is not None]
+    ffm_trend_14d_confidence = min(1.0, len(ffm_14d_vals) / 10) if ffm_14d_vals else 0.0
+
+    waist_14d_vals = [r["waist_at_navel_in"] for r in rows_14d if r["waist_at_navel_in"] is not None]
+    waist_trend_confidence = min(1.0, len(waist_14d_vals) / 6) if waist_14d_vals else 0.0
 
     recent_macro_types_7d = [r["recommended_macro_day"] for r in rows_7d if r["recommended_macro_day"]]
 
@@ -159,7 +286,9 @@ def compute_rolling_references(db: Session, expo_user_id: str, target_date: date
         "fat7dAvg": fat_7d,
         "weightTrend14dLbPerWeek": weight_trend_14d,
         "ffmTrend14dLbPerWeek": ffm_trend_14d,
+        "ffmTrend14dConfidence": ffm_trend_14d_confidence,
         "waistChange14dIn": waist_change_14d,
+        "waistTrendConfidence": waist_trend_confidence,
         "strengthTrend14dPct": strength_trend_14d,
         "hrv28dAvg": hrv_28d,
         "hrvPrev28dAvg": hrv_prev28d,
@@ -175,10 +304,18 @@ def compute_rolling_references(db: Session, expo_user_id: str, target_date: date
         "cardioZone3Count7d": zone3_7d,
         "cardioRecoveryCount7d": recovery_7d,
         "neuralLiftCount7d": neural_7d,
-        "resetOrResensitizeDayCount28d": reset_count_28d,
-        "deloadCompliance28d": deload_28d,
+        "deloadScore28d": deload_score_28d,
+        "deloadCompliance28d": deload_compliance_28d,
         "trainingMonotonyIndex28d": monotony_index,
-        "lightExposureConsistency28d": None,
+        "cardioMonotony28d": cardio_monotony,
+        "liftMonotony28d": lift_monotony,
+        "macroMonotony28d": macro_monotony,
+        "lightExposureConsistency28d": light_exposure_consistency_28d,
         "virilityTrend28d": virility_trend_28d,
+        "virilityTrendPrev28d": virility_trend_prev_28d,
+        "fatHighDays7d": fat_high_days_7d,
+        "fatLowDays7d": fat_low_days_7d,
+        "fatDailyValues7d": fat_daily_values_7d,
+        "carbDayTypeAdherence7d": carb_day_type_adherence_7d,
         "recentMacroDayTypes7d": recent_macro_types_7d,
     }

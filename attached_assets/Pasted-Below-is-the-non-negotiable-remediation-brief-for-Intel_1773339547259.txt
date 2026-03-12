@@ -1,0 +1,1086 @@
+Below is the non-negotiable remediation brief for Intel.
+
+This is not a suggestion list.
+This is a correction order against the current oscillator build.
+
+The current implementation may remain as scaffolding, but the following items are required if the engine is going to claim fidelity to the original oscillator plan.
+
+⸻
+
+BulkCoach Oscillator Remediation Brief
+
+Status
+
+Mandatory corrective implementation
+
+Scope
+
+Applies to the current oscillator build across:
+	•	models
+	•	rolling reference computation
+	•	scoring
+	•	recommendation engine
+	•	API response contracts
+	•	nutrition adjustment logic
+	•	strength modeling
+
+Principle
+
+Keep the current scaffold where useful.
+Do not rewrite the whole system blindly.
+But all shortcuts that substitute labels, placeholders, or flat proxies for actual physiological logic must be corrected.
+
+⸻
+
+1. Non-negotiable defects summary
+
+These are the mandatory fixes.
+
+Defect A — confidence-weighted scoring is absent
+
+The engine currently treats noisy, stale, sparse, and high-confidence data too similarly.
+
+This is unacceptable.
+
+Required:
+	•	all three score layers must support confidence-weighted metrics
+	•	especially Resource and Seasonal
+
+Defect B — strength output is still flat
+
+The engine still accepts a flat strength_output_index instead of deriving weighted session output from exercise-level data.
+
+This is unacceptable.
+
+Required:
+	•	add exercise-level model
+	•	compute weighted session strength output
+	•	expose primary compound vs accessory contribution
+
+Defect C — carb adequacy is falsely labeled
+
+Current carb adequacy logic is just average daily carb adherence.
+That is not “carb adequacy around training.”
+
+Required:
+	•	compute peri-training carb adequacy
+	•	tie targets to day type
+
+Defect D — fat oscillation is inferred from recommendations instead of intake
+
+Current logic rewards recommended oscillation instead of confirmed actual oscillation.
+
+Required:
+	•	score actual intake behavior first
+
+Defect E — deload compliance is fake
+
+Counting reset labels is not deload compliance.
+
+Required:
+	•	compute actual reduction in stress structure
+
+Defect F — monotony logic is too crude
+
+Current monotony logic is an oversimplified label dominance proxy.
+
+Required:
+	•	separate cardio, lift, and macro monotony channels
+
+Defect G — seasonal layer is incomplete
+
+Light exposure consistency is absent.
+Virility trend is underbuilt.
+
+Required:
+	•	implement both properly
+
+Defect H — nutrition delta allocation is too blunt
+
+Current ingredient adjustment logic is too concentrated and under-constrained.
+
+Required:
+	•	impose caps and distribution rules
+
+⸻
+
+2. File-by-file remediation plan
+
+⸻
+
+FILE: app/vitals_models.py
+
+Current role
+
+Defines data model backbone.
+
+Required action
+
+Expand schema. Do not remove existing tables yet. Add missing structure.
+
+Required additions
+
+A. Add movement pattern enum support
+
+Add a movement pattern type or equivalent controlled string model.
+
+Required values:
+
+SQUAT
+HINGE
+HORIZONTAL_PRESS
+VERTICAL_PRESS
+HORIZONTAL_PULL
+VERTICAL_PULL
+LUNGE
+LEG_CURL
+LEG_EXTENSION
+CALF
+BICEPS
+TRICEPS
+LATERAL_DELT
+REAR_DELT
+ABS
+OTHER
+
+
+⸻
+
+B. Add exercise_master model
+
+Required fields:
+	•	id
+	•	name
+	•	movement_pattern
+	•	regional_weight
+	•	default_exercise_importance
+	•	created_at
+
+This is the master lookup for exercise weighting.
+
+⸻
+
+C. Add lift_exercise_entry model
+
+Required fields:
+	•	id
+	•	session_id
+	•	user_id
+	•	date
+	•	exercise_id
+	•	exercise_name
+	•	movement_pattern
+	•	regional_weight
+	•	exercise_importance
+	•	set_count
+	•	rep_min
+	•	rep_max
+	•	top_set_weight_lb
+	•	top_set_reps
+	•	top_set_rpe
+	•	volume_load_lb
+	•	performed_to_target
+	•	confidence
+	•	performance_score
+	•	weighted_contribution
+	•	weighted_max
+	•	created_at
+
+This is mandatory.
+Without this, the strength engine remains underbuilt.
+
+⸻
+
+D. Add strength-output session fields to lift session
+
+Add:
+	•	session_strength_output_index
+	•	primary_compound_index
+	•	accessory_index
+
+⸻
+
+E. Add confidence-support fields where missing
+
+Ensure daily log or equivalent can support:
+	•	body_comp_confidence
+	•	waist_measure_confidence
+	•	hrv_sample_count
+	•	hrv_consistent_window_flag
+	•	sleep_data_confidence
+	•	subjective_completion_count
+	•	subjective_expected_count
+	•	measured_fasted_morning_flag
+
+These fields are required if confidence-weighting is to be credible.
+
+⸻
+
+Required implementation note
+
+Do not fake this through transient logic alone.
+Persist enough metadata to support auditability.
+
+⸻
+
+FILE: app/vitals_rolling.py
+
+Current role
+
+Computes 7d / 14d / 28d derived references.
+
+Current problem
+
+This file currently calculates trends and flags, but too many are crude, incomplete, or based on bad proxies.
+
+Required actions
+
+A. Add confidence-aware rolling references
+
+This file must compute not just rolling values, but also rolling confidence where appropriate.
+
+Required outputs:
+	•	ffmTrend14dLbPerWeek
+	•	ffmTrend14dConfidence
+	•	waistChange14dIn
+	•	waistTrendConfidence
+	•	waist28dChangeIn
+	•	waist28dConfidence
+	•	bodyCompTrendConfidence
+	•	virilityTrend28d
+	•	virilityTrendConfidence
+	•	lightExposureConsistency28d
+
+⸻
+
+B. Replace fake deload compliance
+
+Current logic:
+	•	based on reset/resensitize day count
+
+This must be removed.
+
+Required replacement
+
+Compute a real deloadScore28d.
+
+Suggested formula:
+
+DeloadScore =
+0.30 \cdot VolumeReductionScore +
+0.20 \cdot NeuralReductionScore +
+0.20 \cdot Zone2IncreaseScore +
+0.15 \cdot SurgeReductionScore +
+0.15 \cdot LiftStrainReductionScore
+
+Where each subscore is 0–100.
+
+Then:
+	•	deloadCompliance28d = deloadScore28d >= 70
+
+Required sub-calculations
+Volume reduction
+Compare final 7 days of 28-day window to prior 21-day baseline or prior 14-day baseline.
+
+VolumeRatio = \frac{LiftVolume_{last7}}{LiftVolume_{prior14}}
+
+Map:
+	•	<= 0.65 → excellent
+	•	0.66–0.80 → good
+	•	0.81–0.95 → partial
+	•	0.95 → poor
+
+Neural reduction
+Compare neural session count in final 7 days vs prior 14 days.
+
+Zone 2 increase
+Check whether Zone 2 share rises in final 7 days.
+
+Surge reduction
+Check whether surge macro-day frequency drops.
+
+Lift strain reduction
+Check whether average lift strain drops.
+
+This is non-negotiable.
+
+⸻
+
+C. Replace monotony index
+
+Current combined dominance-style monotony is too crude.
+
+Required replacement
+
+Compute three channels:
+	•	cardioMonotony28d
+	•	liftMonotony28d
+	•	macroMonotony28d
+
+Then combine:
+
+TrainingMonotonyIndex =
+0.35 \cdot CardioMonotony +
+0.40 \cdot LiftMonotony +
+0.25 \cdot MacroMonotony
+
+Use either inverse entropy or max-class dominance. Max-class dominance is acceptable for v1.1 if applied per subsystem.
+
+Example simple version:
+
+Monotony = 100 \times \max(\text{class distribution})
+
+Do this separately for each subsystem.
+
+⸻
+
+D. Implement light exposure consistency
+
+Current placeholder None is unacceptable.
+
+Required output:
+	•	lightExposureConsistency28d
+
+Minimum viable formula:
+
+LightConsistency =
+100 \times \frac{\text{days with morning light target met}}{28}
+
+If available, blend outdoor exposure data.
+
+Suggested final:
+
+LightConsistency =
+0.6 \cdot MorningLightAdherence +
+0.4 \cdot OutdoorExposureConsistency
+
+If only one exists, use it alone and assign confidence accordingly.
+
+⸻
+
+E. Fix virility trend
+
+Current trend is too soft.
+
+Required formula:
+
+VirilityDaily =
+0.40 \cdot LibidoNorm +
+0.35 \cdot MorningErectionNorm +
+0.15 \cdot MentalDriveNorm +
+0.10 \cdot MoodStabilityNorm
+
+Then:
+
+VirilityTrend28d = 100 \times mean(VirilityDaily_{28d})
+
+Also compute:
+	•	virilityTrendPrev28d
+	•	virilityTrendDelta
+
+This must feed Seasonal Score.
+
+⸻
+
+F. Add strength trend fields based on weighted exercise output
+
+Do not continue relying only on flat strength_output_index.
+
+Required rolling outputs:
+	•	weightedStrengthTrend14dPct
+	•	primaryCompoundTrend14dPct
+	•	accessoryTrend14dPct
+
+These become the new strength references for Resource and dashboard display.
+
+⸻
+
+FILE: app/vitals_scoring.py
+
+Current role
+
+Main scoring engine.
+
+Current problem
+
+It still behaves like a raw additive band-score engine.
+That is no longer acceptable.
+
+Required actions
+
+⸻
+
+A. Introduce confidence-weighted score framework
+
+Add new types or equivalents:
+	•	ConfidenceWeightedMetric
+	•	ConfidenceWeightedScoreResult
+
+Required master formula for every score layer:
+
+Score = 100 \times \frac{\sum s_i c_i}{\sum m_i c_i}
+
+Where:
+	•	s_i = raw subscore
+	•	m_i = max score
+	•	c_i = confidence
+
+This must be the actual scoring basis.
+Not optional.
+Not for later.
+
+⸻
+
+B. Add confidence derivation functions
+
+At minimum add the following functions:
+	•	derive_hrv_confidence(...)
+	•	derive_rhr_confidence(...)
+	•	derive_sleep_confidence(...)
+	•	derive_body_comp_confidence(...)
+	•	derive_waist_confidence(...)
+	•	derive_subjective_confidence(...)
+
+Required body comp confidence behavior
+Body comp confidence must be reduced for:
+	•	non-fasted or unknown timing
+	•	implausible TBW%
+	•	large day-over-day BF%
+	•	large day-over-day FFM jumps
+
+Required waist confidence behavior
+Waist confidence must degrade with staleness.
+
+Required subjective confidence behavior
+Missing fields must reduce contribution confidence, not act as low readiness.
+
+⸻
+
+C. Replace Acute score output with weighted result
+
+Current raw subscore functions may be retained, but Acute must be finalized as weighted.
+
+Required Acute implementation
+Keep raw component logic broadly as-is, but convert to weighted metrics.
+
+Subcomponents:
+	•	HRV state
+	•	RHR state
+	•	sleep quantity
+	•	sleep regularity
+	•	bodyweight stability
+	•	subjective drive
+	•	joint/soreness
+	•	yesterday lift strain
+	•	yesterday cardio strain
+
+Required confidence mapping
+	•	HRV uses HRV confidence
+	•	RHR uses RHR confidence
+	•	sleep quantity and regularity use sleep confidence
+	•	bodyweight stability uses body comp confidence
+	•	subjective drive and joint/soreness use subjective confidence
+	•	yesterday lift/cardio strain may default to high confidence if logged
+
+⸻
+
+D. Replace Resource score with weighted result
+
+This is non-negotiable.
+
+Required Resource subcomponents
+	•	calorie adherence 7d
+	•	protein adequacy 7d
+	•	fat floor + actual oscillation
+	•	carb adequacy around training
+	•	weight trend
+	•	waist trend
+	•	FFM trend
+	•	weighted strength trend
+	•	cardio distribution quality
+
+Required exact corrections
+1. Fat oscillation must use actual intake
+Current recommendation-label logic must be removed or demoted to secondary.
+
+Required actual conditions:
+	•	average fat >= 55 g/day
+	•	at least 2 days >= 75 g
+	•	at least 2 days <= 50 g
+
+Score from actual intake first.
+
+2. Carb adequacy must use peri-training windows
+Current 7-day average carb logic is mislabeled and invalid.
+
+Required formula per day:
+
+PeriCarbs_d = Carbs_{post-cardio} + Carbs_{pre-lift} + Carbs_{post-lift}
+
+Adherence_d = \frac{PeriCarbs_d}{TargetPeriCarbs_{daytype(d)}}
+
+Then 7-day average of scored adherence.
+
+3. FFM trend must be confidence-weighted
+If body comp confidence is weak, FFM trend contribution confidence must be reduced.
+
+4. Waist trend must be confidence-weighted
+Stale waist values cannot be allowed full contribution.
+
+5. Strength trend must use weighted strength output
+Replace:
+	•	strengthTrend14dPct from flat session score
+
+With:
+	•	weightedStrengthTrend14dPct
+and optionally also expose:
+	•	primaryCompoundTrend14dPct
+
+⸻
+
+E. Replace Seasonal score with weighted result
+
+Required subcomponents:
+	•	HRV 28d trend
+	•	RHR 28d trend
+	•	sleep regularity 28d trend
+	•	waist:weight relationship
+	•	FFM 28d trend
+	•	deload compliance
+	•	training variation
+	•	light consistency
+	•	virility trend
+
+Required corrections
+1. Waist:weight relationship must be confidence-weighted
+If waist confidence is low, this metric’s contribution confidence must be reduced.
+
+2. FFM 28d trend must be confidence-weighted
+Same rule.
+
+3. Deload compliance must use actual deload score
+Not reset-day count.
+
+4. Light consistency must be real
+No placeholders.
+
+5. Virility trend must include erection signal materially
+Not just libido/motivation/mood.
+
+⸻
+
+F. Fix mathematically dead sleep bonus
+
+Current logic gives an efficiency bonus that can be clamped away.
+
+Required fix:
+choose one of the following and implement consistently:
+
+Option 1:
+	•	optimal sleep base score = 14
+	•	efficiency bonus can raise to 15
+
+Option 2:
+	•	allow max 16 for that metric
+
+Do not leave dead logic.
+
+⸻
+
+G. Fix erection-score normalization inconsistency
+
+Normalize erection score as 0–3 everywhere.
+No separate explanation-layer drift.
+
+Required normalization:
+
+ErectionNorm = \frac{value}{3} \times 10
+
+Use this consistently.
+
+⸻
+
+FILE: app/vitals_engine.py
+
+Current role
+
+Recommendation engine and orchestration layer.
+
+Current problem
+
+It is structurally decent, but still too flat and too permissive in several decisions.
+
+Required actions
+
+⸻
+
+A. Replace score consumption with weighted score results
+
+The engine must consume weighted outputs from vitals_scoring.py.
+
+Do not keep parallel raw-only score paths.
+
+⸻
+
+B. Tighten cardio decision logic
+
+Current cardio selection is too flat.
+
+Required rule stack:
+
+Hard-stop override
+Force Zone 2 or recovery if any:
+	•	HRV < 90% of 7d average
+	•	RHR > 7d average + 4 bpm
+	•	sleep < 360 min
+	•	composite < 55
+
+Distribution cap
+If zone3_count_7d >= 3, default to Zone 2 unless:
+	•	composite >= 90
+	•	no fatigue flags
+
+Sequential brake
+If previous two completed cardio sessions were Zone 3:
+	•	today defaults to Zone 2
+
+Resensitize cap
+On cycle days 22–28:
+	•	max 1 Zone 3 session per rolling 7d unless composite exceptionally high and fatigue clear
+
+This logic must be explicit.
+Not implied.
+
+⸻
+
+C. Tighten lift decision logic
+
+Maintain class-based lift assignment, but add braking rules:
+	•	if primary compound trend is negative and fatigue flags present, downgrade neural assignment
+	•	if composite high but prior 2 neural sessions already occurred in rolling 7d, consider hypertrophy build instead
+	•	resensitize week must cap neural frequency
+
+⸻
+
+D. Macro day recommendation must remain recommendation, not evidence
+
+The engine must stop treating recommended macro day as proof of achieved oscillation.
+
+Recommendation is output only.
+Behavior scoring must depend on actual intake data.
+
+⸻
+
+E. Ingredient adjustment logic must be constrained
+
+Current adjustment routing is too blunt.
+
+Required safeguards:
+
+Per-ingredient cap
+No single ingredient absorbs more than a configurable percentage of the day’s macro delta.
+
+Per-window cap
+No single feeding window absorbs too much total delta.
+
+Protected windows
+Pre/post training windows must maintain intended digestion structure.
+
+Distributed adjustment
+Macro delta should be spread across ranked candidate ingredients until caps reached.
+
+Implement a proper allocation algorithm, not first-hit dumping.
+
+⸻
+
+F. Add confidence summaries to dashboard/recommendation response
+
+Engine response must expose:
+	•	overall score confidence
+	•	low-confidence contributors
+	•	warnings like:
+	•	“FFM trend confidence low”
+	•	“waist stale”
+	•	“HRV sparse”
+
+Without that, the user cannot interpret whether the engine is confident or guessing.
+
+⸻
+
+FILE: app/routers/vitals.py
+
+Current role
+
+API surface.
+
+Required actions
+
+A. Expand response contracts
+
+Add to dashboard and recommendation responses:
+	•	confidence summaries for Acute / Resource / Seasonal
+	•	weighted strength summary
+	•	primary compound index
+	•	accessory index
+	•	low-confidence warnings
+
+B. Add exercise-entry endpoints
+
+Required endpoints:
+	•	create/update exercise master entries if needed
+	•	create lift exercise entries
+	•	fetch session strength contribution breakdown
+
+At minimum:
+	•	POST /api/vitals/lift-exercise-entry
+	•	GET /api/vitals/lift-session/:id/strength-breakdown
+
+⸻
+
+3. New required module or file additions
+
+These should be added, not improvised awkwardly into existing files.
+
+⸻
+
+NEW FILE: app/strength_models.py or equivalent
+
+Contains:
+	•	movement pattern enum
+	•	movement weights
+	•	exercise importance defaults
+
+⸻
+
+NEW FILE: app/strength_scoring.py
+
+Must contain:
+	•	estimate_e1rm(weight, reps)
+	•	score_exercise_performance(entry, baseline)
+	•	build_exercise_contribution(entry, performance_score)
+	•	calculate_session_strength_output_index(entries, baseline_map)
+
+Required formulas
+
+Estimated 1RM
+e1RM = W \times (1 + R/30)
+
+Exercise performance
+Performance_e =
+0.45 \cdot StrengthScore_e +
+0.20 \cdot VolumeScore_e +
+0.15 \cdot EffortScore_e +
+0.20 \cdot CompletionScore_e
+
+Weighted contribution
+Contribution_e =
+Performance_e \cdot RegionalWeight_e \cdot Importance_e \cdot Confidence_e
+
+Session output index
+SessionStrengthIndex =
+100 \times \frac{\sum Contribution_e}{\sum MaxContribution_e}
+
+Where:
+
+MaxContribution_e = 100 \cdot RegionalWeight_e \cdot Importance_e \cdot Confidence_e
+
+This module is mandatory.
+
+⸻
+
+NEW FILE: app/confidence.py
+
+Centralize confidence logic here.
+
+Must contain:
+	•	HRV confidence
+	•	sleep confidence
+	•	body comp confidence
+	•	waist confidence
+	•	subjective confidence
+	•	helper to convert raw metrics into weighted metrics
+	•	helper to finalize weighted score
+
+Do not scatter confidence logic across files.
+
+⸻
+
+4. Exact movement weights to implement
+
+Use these defaults unless there is a documented reason to override:
+
+SQUAT: 1.80
+HINGE: 1.80
+HORIZONTAL_PRESS: 1.50
+VERTICAL_PRESS: 1.35
+HORIZONTAL_PULL: 1.45
+VERTICAL_PULL: 1.45
+LUNGE: 1.20
+LEG_CURL: 1.00
+LEG_EXTENSION: 1.00
+CALF: 0.75
+LATERAL_DELT: 0.75
+REAR_DELT: 0.75
+BICEPS: 0.65
+TRICEPS: 0.65
+ABS: 0.60
+OTHER: 0.80
+
+Required default exercise importance tiers:
+	•	primary main lift: 1.6
+	•	secondary major lift: 1.3
+	•	key accessory: 1.0
+	•	support accessory: 0.8
+	•	finisher/isolation: 0.6
+
+Do not leave exercise importance undefined.
+
+⸻
+
+5. Exact formula corrections by subsystem
+
+⸻
+
+Acute score finalization
+
+Current raw banding can mostly stay, but finalization must become weighted.
+
+Acute = 100 \times \frac{\sum s_i c_i}{\sum m_i c_i}
+
+⸻
+
+Resource score finalization
+
+Must become:
+
+Resource = 100 \times \frac{\sum s_i c_i}{\sum m_i c_i}
+
+with corrected actual-intake and weighted-strength inputs.
+
+⸻
+
+Seasonal score finalization
+
+Must become:
+
+Seasonal = 100 \times \frac{\sum s_i c_i}{\sum m_i c_i}
+
+with real deload, light, virility, and confidence-weighted body-comp signals.
+
+⸻
+
+Composite
+
+May remain:
+
+OCS = 0.50 \cdot Acute + 0.30 \cdot Resource + 0.20 \cdot Seasonal
+
+This is one of the few parts that does not require major correction.
+
+⸻
+
+6. SQL / schema remediation requirements
+
+If the current build uses ORM models only, the schema still must materially support the following additions.
+
+Required new persisted entities
+	•	exercise_master
+	•	lift_exercise_entry
+
+Required new persisted fields
+
+At minimum:
+	•	movement pattern
+	•	regional weight
+	•	exercise importance
+	•	exercise-level performance score
+	•	weighted contribution
+	•	weighted max
+	•	session strength output index
+	•	primary compound index
+	•	accessory index
+
+Required confidence support fields
+
+Persist or derive with auditability:
+	•	body comp confidence
+	•	waist confidence
+	•	HRV sampling metadata
+	•	sleep confidence metadata
+	•	subjective completion count
+
+If persistence is resisted, then documented derivation logic must be centralized and deterministic.
+
+⸻
+
+7. Required API contract changes
+
+Dashboard and daily recommendation responses must now include:
+
+Scores
+	•	weighted Acute / Resource / Seasonal / Composite
+
+Confidence
+	•	overall confidence per layer
+	•	low-confidence metric keys per layer
+
+Strength
+	•	session strength output index
+	•	primary compound index
+	•	accessory index
+	•	top contributing exercises
+
+Warnings
+
+Examples:
+	•	“Body comp trend confidence low”
+	•	“Waist stale >10 days”
+	•	“HRV sparse this week”
+	•	“Seasonal light signal missing or weak”
+
+The API must stop pretending perfect certainty.
+
+⸻
+
+8. Required implementation order
+
+Intel should do this in the following order.
+Do not randomize the order.
+
+Phase 1 — confidence-weighted scoring infrastructure
+
+Files:
+	•	new confidence.py
+	•	modify vitals_scoring.py
+	•	modify vitals_engine.py
+	•	modify dashboard/recommendation responses
+
+This is first because it corrects score trustworthiness immediately.
+
+⸻
+
+Phase 2 — exercise-level strength engine
+
+Files:
+	•	vitals_models.py
+	•	new strength_scoring.py
+	•	vitals_rolling.py
+	•	vitals_scoring.py
+	•	vitals_engine.py
+	•	routers
+
+This is second because flat strength is one of the largest remaining distortions.
+
+⸻
+
+Phase 3 — fix actual nutrient behavior scoring
+
+Files:
+	•	vitals_scoring.py
+	•	vitals_engine.py
+	•	wherever meal-window data is assembled
+
+Correct:
+	•	peri-training carb adequacy
+	•	actual fat oscillation
+	•	separation of recommendation vs actual behavior
+
+⸻
+
+Phase 4 — correct Seasonal layer
+
+Files:
+	•	vitals_rolling.py
+	•	vitals_scoring.py
+	•	response contracts
+
+Implement:
+	•	real deload
+	•	light consistency
+	•	corrected virility trend
+	•	better monotony decomposition
+
+⸻
+
+Phase 5 — constrain ingredient adjustment engine
+
+Files:
+	•	vitals_engine.py or nutrition allocation module
+
+Implement:
+	•	per-ingredient caps
+	•	per-window caps
+	•	distributed allocation
+	•	protected peri-training windows
+
+⸻
+
+9. Non-negotiable acceptance criteria
+
+Intel should not claim completion until the following are true.
+
+Acceptance A
+
+All three scores are confidence-weighted.
+
+Acceptance B
+
+Resource and Seasonal expose confidence summaries and low-confidence contributors.
+
+Acceptance C
+
+Strength trend is derived from exercise-level weighted session output.
+
+Acceptance D
+
+Carb adequacy is computed from peri-training windows, not generic daily averages.
+
+Acceptance E
+
+Fat oscillation scoring uses actual intake distribution.
+
+Acceptance F
+
+Deload compliance is based on actual stress reduction behavior.
+
+Acceptance G
+
+Seasonal light consistency is implemented.
+
+Acceptance H
+
+Virility trend materially includes erection signal.
+
+Acceptance I
+
+Cardio decision logic explicitly enforces:
+	•	fatigue override
+	•	rolling Zone 3 cap
+	•	sequential Zone 3 brake
+	•	resensitize-week cap
+
+Acceptance J
+
+Ingredient adjustment no longer overconcentrates macro delta onto first-ranked ingredient.
+
+⸻
+
+10. Final directive to Intel
+
+Here is the direct message version:
+
+Do not defend the current shortcuts by saying the architecture is already there.
+The missing pieces are the architecture’s actual intelligence.
+
+The current build is a scaffold, not a faithful completion of the oscillator model.
+
+So the remediation standard is:
+	•	keep useful structure
+	•	replace false proxies with real observables
+	•	replace raw additive scoring with confidence-weighted scoring
+	•	replace flat session strength with exercise-weighted output
+	•	replace label-based compliance with behavior-based compliance
+
+Anything less is still an incomplete approximation.
+
+If you want, I can turn this into a copy-paste implementation ticket pack next, with one ticket per file and explicit function signatures.

@@ -1,0 +1,991 @@
+Here is the blunt version:
+
+This build is not the oscillator you specified.
+It is a half-built proxy wearing the right labels.
+
+The names are right.
+The folders are right.
+The endpoint plumbing is mostly right.
+But the actual engine is still mathematically flatter, biologically dumber, and systemically lazier than the original plan.
+
+It imitates the spec at the outer shell and then cuts corners exactly where the intelligence was supposed to live.
+
+So I’m going to slam it in the correct order:
+	1.	what is structurally fake
+	2.	what is mathematically wrong
+	3.	what is biologically incoherent
+	4.	what was supposed to be built
+	5.	how each broken part should actually be calculated
+
+⸻
+
+1. The biggest failure: it kept the nouns and dropped the intelligence
+
+The original plan was never:
+	•	make three scores
+	•	sum them
+	•	assign a macro day label
+
+That is the kindergarten version.
+
+The original plan was a nested, confidence-aware, oscillatory control system with:
+	•	acute readiness
+	•	medium resource sufficiency
+	•	slow adaptation quality
+	•	macro cycling tied to actual substrate distribution
+	•	cardio oscillation tied to autonomic state
+	•	training output tied to exercise importance
+	•	seasonal logic tied to re-sensitization
+
+What Intel built is:
+	•	a mostly static scoring scaffold
+	•	simple fixed-band scoring
+	•	flat strength input
+	•	no confidence weighting
+	•	no true substrate timing logic
+	•	no actual ultradian control
+	•	no real 90-day phenotype layer
+
+So the truth is:
+
+they built the dashboard skeleton and called it the organism.
+
+That is the central offense.
+
+⸻
+
+2. Confidence-weighted scoring was not “missed.” It was the exact missing brain.
+
+This is the most serious flaw.
+
+You explicitly evolved the system into:
+	•	value
+	•	confidence
+	•	weighted contribution
+	•	weighted max
+	•	normalized final score
+
+That was not decoration.
+That was the actual mechanism for preventing garbage data from poisoning the system.
+
+Instead, the code in app/vitals_scoring.py still behaves like:
+
+subscore_1 + subscore_2 + subscore_3 ...
+
+That is primitive and wrong for your use case.
+
+Why this is unacceptable
+
+Your system includes:
+	•	Apple Watch HRV, which can be sparse and timing-sensitive
+	•	smart scale body fat and FFM, which are notoriously noisy
+	•	waist, which is manually entered and stale if not recent
+	•	subjective fields, which vary in completeness
+
+Those are not equally trustworthy.
+
+A real engine would never let:
+	•	a low-confidence FFM swing
+	•	a stale waist value
+	•	a missing subjective log
+	•	a weird HRV reading
+
+hit the score with full weight.
+
+This build does exactly that.
+
+That means the engine is still vulnerable to false suppression, false depletion, and false adaptation signals.
+
+That is not a minor bug.
+That is a direct failure to implement the later, more serious version of the system.
+
+⸻
+
+What should have been done instead
+
+Every scored component should have been transformed into:
+
+weighted_score_i = raw_score_i * confidence_i
+weighted_max_i   = max_score_i * confidence_i
+final_score      = 100 * sum(weighted_score_i) / sum(weighted_max_i)
+
+Not:
+
+final_score = sum(raw_scores)
+
+Correct master formula
+
+For any layer L:
+
+L = 100 \times \frac{\sum_{i=1}^{n} s_i c_i}{\sum_{i=1}^{n} m_i c_i}
+
+Where:
+	•	s_i = raw subscore for metric i
+	•	m_i = max subscore for metric i
+	•	c_i = confidence for metric i, bounded [0,1]
+
+That was the proper architecture.
+
+⸻
+
+What each confidence should have been
+
+HRV confidence
+
+Not binary. Not “present or missing.”
+
+It should depend on:
+	•	consistent measurement window
+	•	overnight vs random daytime sample
+	•	sample density
+	•	recent availability
+
+Example:
+
+c_{HRV} =
+0.40 + 0.25I(\text{consistent window}) + 0.20I(\text{overnight-derived}) + 0.15I(\text{sample count adequate})
+
+clamped to [0,1]
+
+Body comp confidence
+
+This should have been the most aggressively down-weighted signal.
+
+It should depend on:
+	•	fasted morning measurement
+	•	source-reported confidence
+	•	day-over-day BF volatility
+	•	day-over-day FFM volatility
+	•	hydration plausibility
+
+A proper version:
+
+c_{FFM} = c_{source}
++ 0.10I(\text{fasted morning})
+- 0.20I(|\Delta BF_{1d}| > 1.0\%)
+- 0.20I(|\Delta FFM_{1d}| > 2.0)
+- 0.10I(TBW \notin [45,70])
+
+then clamp to [0,1]
+
+Waist confidence
+
+Should depend on:
+	•	actual manual confidence
+	•	recency
+	•	repeated consistency
+
+Example:
+
+c_{waist} = c_{manual} - p(\text{staleness})
+
+with staleness penalty like:
+	•	0 if <= 3 days
+	•	0.1 if 4–7 days
+	•	0.25 if > 10 days
+
+Subjective confidence
+
+Should depend on completion density, not punish omission as if omission equals low drive.
+
+c_{subjective} = \frac{\text{completed fields}}{\text{expected fields}} + 0.1I(\text{logged in correct window})
+
+clamped to [0,1]
+
+⸻
+
+3. The strength model is fundamentally underbuilt and therefore misleading
+
+This is the second major failure.
+
+The build still uses a flat strength_output_index.
+
+That means the system still cannot distinguish:
+	•	a real heavy compound session
+from
+	•	a cosmetically good accessory session
+
+That is fatal for a training intelligence engine.
+
+Because the entire point of your design was that not all output matters equally.
+
+A top set on squat, hinge, press, row, pull-up, etc. is not remotely equivalent to:
+	•	curls
+	•	laterals
+	•	pump fluff
+	•	low-stakes cable work
+
+Yet the build still accepts a flat session number and trends it over 14 days as if that were serious.
+
+It isn’t.
+
+It is mathematically convenient nonsense.
+
+⸻
+
+What should have been built
+
+A real session strength score had to be computed from exercise entries, not from one manually supplied field.
+
+For each exercise e:
+
+Contribution_e = Performance_e \times RegionalWeight_e \times Importance_e \times Confidence_e
+
+Then session score:
+
+SessionStrengthIndex =
+100 \times \frac{\sum Contribution_e}{\sum MaxContribution_e}
+
+Where:
+
+MaxContribution_e = 100 \times RegionalWeight_e \times Importance_e \times Confidence_e
+
+That was the correct architecture.
+
+⸻
+
+What performance should have meant
+
+Each exercise should have had a performance score driven by:
+	•	estimated strength expression
+	•	volume expression
+	•	effort quality
+	•	completion quality
+
+A sane version:
+
+Performance_e
+= 0.45 \cdot StrengthScore_e
++ 0.20 \cdot VolumeScore_e
++ 0.15 \cdot EffortScore_e
++ 0.20 \cdot CompletionScore_e
+
+Strength expression
+
+Use estimated 1RM baseline comparison:
+
+e1RM = W \times (1 + \frac{R}{30})
+
+Then:
+
+Ratio_{e1RM} = \frac{e1RM_{today}}{e1RM_{28d\,baseline}}
+
+Mapped to score bands.
+
+Volume expression
+
+Use:
+
+Ratio_{vol} = \frac{VolumeLoad_{today}}{VolumeLoad_{28d\,baseline}}
+
+Effort quality
+
+Use target RPE window:
+	•	7.5–9.0 for major compounds scores best
+	•	too low = underdosed
+	•	too high = unsustainably costly
+
+Completion
+
+Binary or graded:
+	•	hit target work
+	•	partially hit
+	•	missed target
+
+⸻
+
+Regional movement weights should have existed
+
+The build does not have exercise-level weighted movement logic.
+
+That means it cannot represent systemically important output.
+
+It should have had something like:
+	•	squat: 1.80
+	•	hinge: 1.80
+	•	horizontal press: 1.50
+	•	vertical press: 1.35
+	•	horizontal pull: 1.45
+	•	vertical pull: 1.45
+	•	lunge: 1.20
+	•	curl/extension: 1.00
+	•	calves/laterals: 0.75
+	•	arms: 0.65
+	•	abs: 0.60
+
+Without that, “strength trend” is still too dumb to be trusted as a resource or adaptation signal.
+
+⸻
+
+4. The carb adequacy logic is mislabeled and therefore dishonest
+
+In the current build, carb adequacy is basically:
+	•	7-day average carbs
+	•	compared to target carbs
+
+That is not what the original system asked for.
+
+The original plan was specifically about:
+	•	pre-cardio
+	•	post-cardio
+	•	pre-lift
+	•	post-lift
+	•	day-type context
+	•	surge/build/reset distribution
+
+So the current function is not “carb adequacy around training.”
+
+It is general carb adherence pretending to be training-window intelligence.
+
+That is a fake label.
+
+⸻
+
+What it should have calculated
+
+For each day type d, define target peri-training carb window:
+	•	surge: 220–280g
+	•	build: 180–240g
+	•	reset: 120–170g
+	•	resensitize: lower still depending on lift status
+
+Then:
+
+TrainingWindowCarbAdherence_d
+= \frac{Carbs_{post-cardio} + Carbs_{pre-lift} + Carbs_{post-lift}}{TargetTrainingWindowCarbs_d}
+
+Then aggregate over 7 days with day-type awareness:
+
+CarbAdequacy_{7d}
+= \frac{1}{N}\sum_{d=1}^{N} Score(TrainingWindowCarbAdherence_d)
+
+Not:
+\frac{Carbs_{7d\,avg}}{CarbTarget}
+
+That shortcut is exactly the kind of flattening your original architecture was designed to avoid.
+
+⸻
+
+5. Fat oscillation is scored from recommendation labels instead of actual nutritional behavior
+
+This is one of the more embarrassing shortcuts.
+
+The build checks whether recent macro day types included enough:
+	•	reset/resensitize days
+	•	surge days
+
+But that is recommendation history, not actual intake behavior.
+
+That means the score can claim fat oscillation exists because the system recommended oscillation, even if the user never actually ate that way.
+
+That is bogus.
+
+⸻
+
+What it should have done
+
+Use actual intake distribution first.
+
+A real fat oscillation score should ask:
+
+Floor condition
+
+\overline{Fat}_{7d} \ge 55g
+
+High-fat day condition
+
+At least 2 days:
+Fat_d \ge 75g
+
+Low-fat day condition
+
+At least 2 days:
+Fat_d \le 50g
+
+Then:
+
+FatOscillationScore =
+f(\overline{Fat}_{7d}, Count(Fat_d \ge 75), Count(Fat_d \le 50))
+
+Recommendation history can be secondary context, not the primary evidence.
+
+Anything else is fantasy accounting.
+
+⸻
+
+6. Deload compliance is fake-compliance
+
+The code treats deload compliance as essentially:
+	•	enough reset/resensitize macro day labels over 28 days
+
+That is nowhere near sufficient.
+
+A deload is not a word.
+A deload is a behavioral state change.
+
+You wanted deload/resensitize to mean:
+	•	reduced neural load
+	•	reduced session density
+	•	reduced total lift strain
+	•	reduced surge frequency
+	•	increased Zone 2 share
+	•	increased recovery emphasis
+	•	lower systemic monotony
+
+The build checks basically none of that.
+
+So the current “deload compliance” is really:
+
+did we assign enough soft-sounding day labels?
+
+That is not compliance. That is clerical theater.
+
+⸻
+
+What proper deload compliance should have been
+
+A 28-day deload compliance flag should require multiple criteria:
+
+DeloadCompliance =
+I(V_{deload} \le 0.65V_{prior})
+\cdot I(NeuralCount_{deload} < NeuralCount_{prior})
+\cdot I(Zone2Share_{deload} > Zone2Share_{prior})
+\cdot I(SurgeCount_{deload} < SurgeCount_{prior})
+
+Or softer scoring:
+
+DeloadScore =
+0.30 \cdot VolumeReductionScore
++ 0.20 \cdot NeuralReductionScore
++ 0.20 \cdot Zone2IncreaseScore
++ 0.15 \cdot SurgeReductionScore
++ 0.15 \cdot LiftStrainReductionScore
+
+Then classify compliance from that.
+
+That is real.
+The current version is not.
+
+⸻
+
+7. Training monotony is too crude to be useful
+
+The current monotony index is a crude label-frequency proxy.
+
+That is lazy.
+
+Training monotony should reflect repeated similarity in:
+	•	cardio intensity
+	•	lift mode
+	•	strain profile
+	•	movement pattern distribution
+	•	macro day structure
+
+Not just “which label happened most often.”
+
+A real monotony measure should have treated different channels separately and then combined them.
+
+⸻
+
+Proper monotony architecture
+
+For 28 days, calculate entropy or dominance within each subsystem.
+
+Cardio monotony
+
+Distribution across:
+	•	recovery
+	•	zone 2
+	•	zone 3
+
+Lift monotony
+
+Distribution across:
+	•	neural
+	•	hypertrophy
+	•	pump
+	•	recovery/mobility
+and ideally movement pattern categories
+
+Macro monotony
+
+Distribution across:
+	•	surge
+	•	build
+	•	reset
+	•	resensitize
+
+Then combine:
+
+Monotony =
+0.35 \cdot CardioDominance
++ 0.40 \cdot LiftDominance
++ 0.25 \cdot MacroDominance
+
+Where dominance could be max class frequency or inverse entropy.
+
+The current simplification is barely acceptable as a placeholder, not as the final seasonal input.
+
+⸻
+
+8. Light exposure consistency is simply absent, which breaks the seasonal layer
+
+The code literally leaves light exposure consistency as None.
+
+That means the seasonal layer includes a slot for a signal that does not exist.
+
+That is worse than just omitting it because it creates the appearance of completion.
+
+The original system explicitly treated light/seasonality as part of the longer-wave endocrine and recovery logic.
+
+So leaving it unimplemented means the “seasonal” layer is not truly seasonal.
+It is just a 28-day physiological trend layer with a fake environmental badge.
+
+⸻
+
+What should have been done
+
+At minimum:
+
+LightConsistency_{28d} =
+100 \times \frac{\text{days with morning light exposure target met}}{28}
+
+Or, if using Apple data and manual logs:
+
+LightConsistency_{28d}
+= 0.6 \cdot MorningLightAdherence
++ 0.4 \cdot OutdoorExposureConsistency
+
+That signal should then feed Seasonal Score directly.
+
+Without it, the seasonal layer is incomplete.
+
+⸻
+
+9. Virility trend is underbuilt and softened into mood fluff
+
+The current implementation trends:
+	•	libido
+	•	motivation
+	•	mood stability
+
+That is too softened relative to the original model.
+
+If the system wants to claim any male-endocrine proxy relevance, it should have included:
+	•	libido
+	•	morning erection score
+	•	possibly erection frequency/quality if logged
+	•	drive/motivation as secondary
+
+Instead, it leans too much into general affective tone.
+
+That dilutes the intended meaning.
+
+⸻
+
+What proper virility trend should have been
+
+VirilityTrend_{28d}
+=
+0.40 \cdot LibidoNorm
++ 0.35 \cdot MorningErectionNorm
++ 0.15 \cdot MentalDriveNorm
++ 0.10 \cdot MoodStabilityNorm
+
+Then:
+
+VirilityTrend_{28d,final}
+= 100 \times \overline{VirilityTrend_{daily}}
+
+That would have been coherent.
+The current version is watered down.
+
+⸻
+
+10. The sleep quantity bonus is mathematically dead
+
+This is a smaller issue, but it reveals sloppy thinking.
+
+The function gives:
+	•	optimal sleep = 15
+	•	efficiency >= 90 gives +1
+	•	then clamps the result to max 15
+
+So the bonus can vanish immediately in the best case.
+
+That is dead logic.
+
+It signals that the function was copied from concept text without actual implementation discipline.
+
+A real implementation would have done one of three things:
+	•	make base optimal score 14, efficiency bonus to 15
+	•	raise max to 16
+	•	remove the bonus
+
+As written, it is sloppy.
+
+⸻
+
+11. The erection normalization inconsistency is sloppy and undermines trust
+
+In one place erection is normalized correctly as 0–3.
+In another explanation layer it is treated more like a 1–5-style transformation.
+
+That means the system’s interpretation and its explanation are not perfectly aligned.
+
+That is the sort of bug that causes silent conceptual drift later.
+
+It won’t completely break the score, but it shows the build is not under sufficiently exact control.
+
+For a system this sensitive, that matters.
+
+⸻
+
+12. The cardio decision logic is flatter than the original plan
+
+The current cardio logic is passable, not good.
+
+The original logic needed to account for:
+	•	composite score
+	•	hard-stop fatigue overrides
+	•	recent Zone 3 saturation
+	•	rolling weekly distribution
+	•	resensitize-week caps
+	•	sequential overuse brakes
+
+What is still missing or underdone:
+	•	no strong “two recent Zone 3s already, stop” brake
+	•	weak handling of cadence-dependent alternation
+	•	not enough distinction between 85+ and 70–84 states
+	•	not enough resistance to accidental Zone 3 clustering
+
+That means the engine still behaves too much like:
+“score high, do Zone 3”
+instead of:
+“score high, but only if the weekly wave still supports another sympathetic push.”
+
+That subtlety was central to the original design.
+
+⸻
+
+What proper cardio switching should have been
+
+A more correct rule set would be:
+
+Hard-stop override
+
+Force Zone 2/recovery if any severe condition:
+
+HRV_{today} < 0.90 \cdot HRV_{7d}
+or
+RHR_{today} > RHR_{7d} + 4
+or
+Sleep < 360 \text{ min}
+
+Distribution cap
+
+If:
+
+Zone3Count_{rolling7d} \ge 3
+
+then no Zone 3 unless:
+
+OCS \ge 90 \land \text{no fatigue flags}
+
+Sequential cap
+
+If:
+
+Zone3_{d-1} = 1 \land Zone3_{d-2} = 1
+
+then today defaults to Zone 2.
+
+Resensitize week cap
+
+If day 22–28:
+
+Zone3Count_{week} \le 1
+
+That is more like the intended system.
+The current version is weaker.
+
+⸻
+
+13. The ingredient-adjustment logic is overeager and nutritionally blunt
+
+The macro-adjustment engine is creative, but not controlled enough.
+
+It can over-assign a macro delta to the first convenient ingredient.
+
+That is not safe for a real nutrition control layer because it can distort meal architecture.
+
+Example failure pattern:
+	•	carb delta mostly shoved onto dextrin
+	•	fat delta mostly shoved into one ingredient
+	•	insufficient regard for meal windows
+	•	insufficient spreading across sources
+
+That turns a macro-adjustment system into a lopsided ingredient hammer.
+
+⸻
+
+What it should have done
+
+Adjustments should have been constrained by:
+
+Per-ingredient cap
+
+|\Delta ingredient_i| \le Cap_i
+
+Per-window cap
+
+No single meal window should absorb too much of the day’s total macro shift.
+
+Protected windows
+
+Pre/post training windows should preserve intended digestion properties.
+
+Multi-ingredient distribution
+
+Distribute macro deltas across ranked ingredients until caps reached.
+
+That is how you preserve the architecture of the day.
+
+Right now the logic is smart-looking but too coarse.
+
+⸻
+
+14. Ultradian and 90-day layers are not “pending.” They are absent.
+
+The code openly says the ultradian and 90-day blocks are not implemented.
+
+That honesty is better than pretending, but the consequence is obvious:
+
+This is not yet the full oscillator.
+
+It is mostly a:
+	•	daily
+	•	weekly
+	•	28-day
+
+system.
+
+That means it still lacks:
+	•	within-day pulse governance
+	•	long-horizon phenotype governance
+	•	true “hours to years” nesting
+
+So if this was presented as the completed embodiment of the original plan, that would be false.
+
+⸻
+
+15. The build repeatedly substitutes proxies for real observables
+
+This is the broadest systems-level criticism.
+
+Again and again, the engine chooses the easier proxy instead of the real signal:
+	•	recommended macro day instead of actual macro oscillation
+	•	flat strength index instead of exercise-weighted output
+	•	reset-day count instead of true deload behavior
+	•	daily carb average instead of training-window carb targeting
+	•	generic trend placeholders instead of confidence-weighted evidence
+	•	missing light exposure signal in a “seasonal” layer
+
+This is the overall pattern:
+conceptual compression at exactly the wrong places.
+
+The architecture demanded more discipline than that.
+
+⸻
+
+16. What the corrected system should look like
+
+Here is the proper corrected stack.
+
+Acute Score
+
+Acute = 100 \times \frac{
+\sum (s_i c_i)
+}{
+\sum (m_i c_i)
+}
+
+Subcomponents:
+	•	HRV state
+	•	RHR state
+	•	sleep quantity
+	•	sleep regularity
+	•	bodyweight stability
+	•	subjective drive
+	•	joint/soreness
+	•	yesterday lift strain
+	•	yesterday cardio strain
+
+Each with confidence.
+
+⸻
+
+Resource Score
+
+Resource = 100 \times \frac{
+\sum (s_i c_i)
+}{
+\sum (m_i c_i)
+}
+
+Subcomponents:
+	•	calorie adherence
+	•	protein adequacy
+	•	fat floor + actual oscillation
+	•	training-window carb adequacy
+	•	weight trend
+	•	waist trend
+	•	FFM trend
+	•	weighted strength trend
+	•	cardio distribution quality
+
+Crucially:
+	•	waist trend confidence-weighted
+	•	FFM trend confidence-weighted
+	•	strength trend derived from exercise-weighted session output
+
+⸻
+
+Seasonal Score
+
+Seasonal = 100 \times \frac{
+\sum (s_i c_i)
+}{
+\sum (m_i c_i)
+}
+
+Subcomponents:
+	•	HRV 28d trend
+	•	RHR 28d trend
+	•	sleep regularity 28d trend
+	•	waist:weight relationship
+	•	FFM 28d trend
+	•	deload compliance
+	•	training variation quality
+	•	light consistency
+	•	virility trend
+
+Again with confidence, especially for body comp and waist.
+
+⸻
+
+Composite
+
+OCS = 0.50 \cdot Acute + 0.30 \cdot Resource + 0.20 \cdot Seasonal
+
+That part the build mostly got right.
+
+⸻
+
+Weighted session strength output
+
+For each exercise:
+
+e1RM = W \times (1 + R/30)
+
+Performance_e =
+0.45 \cdot StrengthScore_e +
+0.20 \cdot VolumeScore_e +
+0.15 \cdot EffortScore_e +
+0.20 \cdot CompletionScore_e
+
+Contribution_e =
+Performance_e \cdot RegionalWeight_e \cdot Importance_e \cdot Confidence_e
+
+SessionStrengthIndex =
+100 \times \frac{
+\sum Contribution_e
+}{
+\sum 100 \cdot RegionalWeight_e \cdot Importance_e \cdot Confidence_e
+}
+
+That is what should replace the flat strength_output_index.
+
+⸻
+
+Training-window carb adequacy
+
+For each day:
+
+PeriCarbs_d =
+Carbs_{post-cardio,d} +
+Carbs_{pre-lift,d} +
+Carbs_{post-lift,d}
+
+CarbAdequacy_d =
+\frac{PeriCarbs_d}{TargetPeriCarbs_{daytype(d)}}
+
+Map each day to score.
+Then average over 7d.
+
+Not daily total carbs.
+
+⸻
+
+Actual fat oscillation
+
+Use actual intake:
+	•	average fat floor
+	•	high-fat day count
+	•	low-fat day count
+
+Not recommendation labels.
+
+⸻
+
+Deload compliance
+
+Use actual behavior:
+
+DeloadScore =
+0.30 \cdot VolumeReduction
++ 0.20 \cdot NeuralReduction
++ 0.20 \cdot Zone2Increase
++ 0.15 \cdot SurgeReduction
++ 0.15 \cdot LiftStrainReduction
+
+Then classify compliance from that.
+
+⸻
+
+17. Final verdict in plain language
+
+Here is the harshest accurate summary:
+
+Intel built the costume, not the creature.
+
+They built:
+	•	the vocabulary
+	•	the route structure
+	•	the score shells
+	•	the dashboard-compatible payloads
+
+What they did not fully build was:
+	•	the trust model for noisy data
+	•	the real strength model
+	•	the real macro timing model
+	•	the real deload model
+	•	the true seasonal/environmental layer
+	•	the long-wave nested control logic
+
+So the current oscillator is not false in the sense of being useless.
+It is false in the sense of being prematurely self-congratulatory.
+
+It is a respectable scaffold.
+It is not the cohesive entirety of the original system.
+
+The original plan was:
+adaptive, hierarchical, confidence-aware, biologically oscillatory control.
+
+This build is still:
+rule-based scoring with placeholders and shortcuts.
+
+That is the truth.
+
+If you want, I’ll turn this into a non-negotiable remediation brief for Intel:
+file by file, function by function, with exact replacement formulas and required schema changes.
