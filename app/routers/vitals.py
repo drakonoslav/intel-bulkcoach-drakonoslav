@@ -274,6 +274,18 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
     for field, val in payload.dict(exclude={"expo_user_id", "date"}).items():
         setattr(existing, field, val)
 
+    # Auto-compute sleep_midpoint_min from bedtime/waketime if not explicitly sent
+    if existing.sleep_midpoint_min is None and existing.bedtime_local and existing.waketime_local:
+        from datetime import timedelta as _td
+        _mid = existing.bedtime_local + (existing.waketime_local - existing.bedtime_local) / 2
+        existing.sleep_midpoint_min = _mid.hour * 60 + _mid.minute
+
+    # Also derive from bedtime + sleep_duration if waketime missing
+    elif existing.sleep_midpoint_min is None and existing.bedtime_local and existing.sleep_duration_min:
+        from datetime import timedelta as _td
+        _mid = existing.bedtime_local + _td(minutes=existing.sleep_duration_min / 2)
+        existing.sleep_midpoint_min = _mid.hour * 60 + _mid.minute
+
     db.flush()
 
     result = compute_daily_recommendation(db, payload.expo_user_id, existing)
@@ -499,6 +511,16 @@ def recompute(
     ).first()
     if not log_row:
         raise HTTPException(status_code=404, detail=f"No vitals log for {expo_user_id} on {target_date}")
+
+    # Backfill sleep_midpoint_min from stored bedtime/waketime if still null
+    if log_row.sleep_midpoint_min is None and log_row.bedtime_local and log_row.waketime_local:
+        from datetime import timedelta as _td
+        _mid = log_row.bedtime_local + (log_row.waketime_local - log_row.bedtime_local) / 2
+        log_row.sleep_midpoint_min = _mid.hour * 60 + _mid.minute
+    elif log_row.sleep_midpoint_min is None and log_row.bedtime_local and log_row.sleep_duration_min:
+        from datetime import timedelta as _td
+        _mid = log_row.bedtime_local + _td(minutes=float(log_row.sleep_duration_min) / 2)
+        log_row.sleep_midpoint_min = _mid.hour * 60 + _mid.minute
 
     result = compute_daily_recommendation(db, expo_user_id, log_row)
     log_row.acute_score = result["acuteResult"]["score"]
