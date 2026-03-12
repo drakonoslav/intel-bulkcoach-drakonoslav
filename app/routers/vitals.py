@@ -320,11 +320,13 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
             "mealTimingTargets": result["mealTimingTargets"],
             "reasoning": result["reasoning"],
         },
+        "cycles": result["cycles"],
         "scoreBreakdowns": {
             "acute": result["acuteResult"]["breakdown"],
             "resource": result["resourceResult"]["breakdown"],
             "seasonal": result["seasonalResult"]["breakdown"],
         },
+        "rawInputs": result["rawInputs"],
     }
 
 
@@ -436,6 +438,7 @@ def get_recommendation(
             "resource": result["resourceResult"]["breakdown"],
             "seasonal": result["seasonalResult"]["breakdown"],
         },
+        "rawInputs": result["rawInputs"],
     }
 
 
@@ -597,4 +600,5 @@ def get_latest_recommendation(
             "resource": result["resourceResult"]["breakdown"],
             "seasonal": result["seasonalResult"]["breakdown"],
         },
+        "rawInputs": result["rawInputs"],
     }

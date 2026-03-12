@@ -465,6 +465,138 @@ def _build_cycles_block(
     }
 
 
+def _build_raw_inputs(log_row: VitalsDailyLog, refs: dict, baselines: dict,
+                      yesterday_lift_strain, yesterday_cardio) -> dict:
+    def _f(v):
+        return float(v) if v is not None else None
+
+    hrv = _f(log_row.hrv_ms)
+    hrv7 = refs.get("hrv7dAvg")
+    hrv_ratio = round(hrv / hrv7, 2) if (hrv and hrv7) else None
+    hrv_delta = round(hrv - hrv7, 1) if (hrv and hrv7) else None
+
+    rhr = _f(log_row.resting_hr_bpm)
+    rhr7 = refs.get("rhr7dAvg")
+    rhr_delta = round(rhr - rhr7, 1) if (rhr and rhr7) else None
+
+    sleep_min = _f(log_row.sleep_duration_min)
+    midpoint = _f(log_row.sleep_midpoint_min)
+    midpoint7 = refs.get("sleepMidpoint7dAvg")
+    midpoint_shift = round(abs(midpoint - midpoint7), 1) if (midpoint and midpoint7) else None
+
+    bw = _f(log_row.body_weight_lb)
+    bw7 = refs.get("bodyWeight7dAvg")
+    bw_delta_pct = round((bw - bw7) / bw7 * 100, 2) if (bw and bw7) else None
+
+    libido = _f(log_row.libido_score)
+    erection = _f(log_row.morning_erection_score)
+    motivation = _f(log_row.motivation_score)
+    mental_drive = _f(log_row.mental_drive_score)
+    soreness = _f(log_row.soreness_score)
+    joint_friction = _f(log_row.joint_friction_score)
+
+    def _drive_composite():
+        vals = []
+        if libido is not None:     vals.append((libido - 1) / 4 * 10)
+        if erection is not None:   vals.append((erection - 1) / 4 * 10)
+        if motivation is not None: vals.append((motivation - 1) / 4 * 10)
+        if mental_drive is not None: vals.append((mental_drive - 1) / 4 * 10)
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    def _recovery_comfort():
+        vals = []
+        if soreness is not None:      vals.append((5 - soreness) / 4 * 10)
+        if joint_friction is not None: vals.append((5 - joint_friction) / 4 * 10)
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    kcal_actual = _f(log_row.kcal_actual)
+    kcal7 = refs.get("kcal7dAvg")
+    kcal_target = _f(log_row.kcal_target) if log_row.kcal_target else _f(baselines.get("default_kcal"))
+    kcal7_ratio = round(kcal7 / kcal_target, 2) if (kcal7 and kcal_target) else None
+
+    protein_actual = _f(log_row.protein_g_actual)
+    protein7 = refs.get("protein7dAvg")
+    fat_actual = _f(log_row.fat_g_actual)
+    fat7 = refs.get("fat7dAvg")
+    carbs_actual = _f(log_row.carbs_g_actual)
+    carbs7 = refs.get("carbs7dAvg")
+    carbs_target = _f(log_row.carbs_g_target)
+    carbs_ratio = round(carbs7 / carbs_target, 2) if (carbs7 and carbs_target and carbs_target > 0) else None
+
+    waist = _f(log_row.waist_at_navel_in)
+    waist_per_lb = round(waist / bw, 3) if (waist and bw) else None
+
+    def _r(v, digits=2):
+        return round(v, digits) if v is not None else None
+
+    return {
+        "acute": {
+            "hrv_ms":                  hrv,
+            "hrv_7d_avg":              _r(hrv7, 1),
+            "hrv_year_avg":            _f(baselines.get("hrv_year_avg")),
+            "hrv_ratio":               hrv_ratio,
+            "hrv_delta_ms":            hrv_delta,
+            "rhr_bpm":                 rhr,
+            "rhr_7d_avg":              _r(rhr7, 1),
+            "rhr_year_avg":            _f(baselines.get("rhr_year_avg")),
+            "rhr_delta_bpm":           rhr_delta,
+            "sleep_duration_min":      sleep_min,
+            "sleep_midpoint_min":      midpoint,
+            "sleep_midpoint_7d_avg":   _r(midpoint7, 1),
+            "sleep_midpoint_shift_min": midpoint_shift,
+            "body_weight_lb":          bw,
+            "weight_7d_avg_lb":        _r(bw7, 2),
+            "weight_delta_pct":        bw_delta_pct,
+            "libido_score":            libido,
+            "morning_erection_score":  erection,
+            "motivation_score":        motivation,
+            "mental_drive_score":      mental_drive,
+            "drive_composite_0_10":    _drive_composite(),
+            "soreness_score":          soreness,
+            "joint_friction_score":    joint_friction,
+            "recovery_comfort_0_10":   _recovery_comfort(),
+            "lift_strain_yesterday":   yesterday_lift_strain,
+            "cardio_mode_yesterday":   yesterday_cardio,
+        },
+        "resource": {
+            "kcal_actual_today":           kcal_actual,
+            "kcal_7d_avg":                 _r(kcal7, 1),
+            "kcal_target":                 kcal_target,
+            "kcal_7d_ratio":               kcal7_ratio,
+            "protein_g_actual_today":      protein_actual,
+            "protein_7d_avg_g":            _r(protein7, 1),
+            "fat_g_actual_today":          fat_actual,
+            "fat_7d_avg_g":                _r(fat7, 1),
+            "carbs_g_actual_today":        carbs_actual,
+            "carbs_7d_avg_g":              _r(carbs7, 1),
+            "carbs_g_target_today":        carbs_target,
+            "carb_adherence_ratio":        carbs_ratio,
+            "weight_trend_14d_lb_per_week": _r(refs.get("weightTrend14dLbPerWeek"), 3),
+            "waist_change_14d_in":          _r(refs.get("waistChange14dIn"), 3),
+            "ffm_trend_14d_lb_per_week":    _r(refs.get("ffmTrend14dLbPerWeek"), 3),
+            "strength_trend_14d_pct":       refs.get("strengthTrend14dPct"),
+            "zone2_7d":                     refs.get("cardioZone2Count7d"),
+            "zone3_7d":                     refs.get("cardioZone3Count7d"),
+            "recovery_7d":                  refs.get("cardioRecoveryCount7d"),
+        },
+        "seasonal": {
+            "hrv_28d_avg":                    _r(refs.get("hrv28dAvg"), 1),
+            "hrv_prev_28d_avg":               _r(refs.get("hrvPrev28dAvg"), 1),
+            "rhr_28d_avg":                    _r(refs.get("rhr28dAvg"), 1),
+            "rhr_prev_28d_avg":               _r(refs.get("rhrPrev28dAvg"), 1),
+            "sleep_regularity_28d_score":     _r(refs.get("sleepRegularity28dScore"), 1),
+            "sleep_regularity_prev_28d_score": _r(refs.get("sleepRegularityPrev28dScore"), 1),
+            "waist_per_lb_ratio":             waist_per_lb,
+            "ffm_28d_avg":                    _r(refs.get("ffm28dAvg"), 1),
+            "ffm_prev_28d_avg":               _r(refs.get("ffmPrev28dAvg"), 1),
+            "training_monotony_index_28d":    _r(refs.get("trainingMonotonyIndex28d"), 1),
+            "virility_trend_28d":             _r(refs.get("virilityTrend28d"), 1),
+            "deload_compliance_28d":          refs.get("deloadCompliance28d"),
+            "light_exposure_consistency_28d": refs.get("lightExposureConsistency28d"),
+        },
+    }
+
+
 def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: VitalsDailyLog) -> dict:
     target_date = log_row.date
     baselines = _get_baselines(db, expo_user_id)
@@ -587,6 +719,8 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         macro_delta=macro_delta, meal_timing=meal_timing,
     )
 
+    raw_inputs = _build_raw_inputs(log_row, refs, baselines, yesterday_lift_strain, yesterday_cardio)
+
     return {
         "acuteResult": acute,
         "resourceResult": resource,
@@ -603,6 +737,7 @@ def compute_daily_recommendation(db: Session, expo_user_id: str, log_row: Vitals
         "mealTimingTargets": meal_timing,
         "reasoning": reasoning,
         "cycles": cycles,
+        "rawInputs": raw_inputs,
         "refs": refs,
     }
 
