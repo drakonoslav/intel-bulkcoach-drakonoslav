@@ -97,9 +97,9 @@ class DailyLogIn(BaseModel):
     sleep_rem_min:   Optional[float] = None
     sleep_core_min:  Optional[float] = None
     sleep_deep_min:  Optional[float] = None
-    # HH:MM onset/wake strings — accepts 23:20, 23.20, or 2320 (numeric keypad friendly)
-    sleep_onset_hhmm: Optional[str] = Field(None, pattern=r"^\d{1,2}[:\.]?\d{2}$")
-    sleep_wake_hhmm:  Optional[str] = Field(None, pattern=r"^\d{1,2}[:\.]?\d{2}$")
+    # HH:MM onset/wake strings — accepts 23:20, 23.20, 2320, 23.2, 5.3 (single digit = ×10 min)
+    sleep_onset_hhmm: Optional[str] = Field(None, pattern=r"^\d{1,2}[:\.]?\d{1,2}$")
+    sleep_wake_hhmm:  Optional[str] = Field(None, pattern=r"^\d{1,2}[:\.]?\d{1,2}$")
 
     resting_hr_bpm: Optional[float] = None
     hrv_ms: Optional[float] = None
@@ -358,7 +358,8 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
 
     def _hhmm_to_total_min(s: str) -> float:
         """Parse sleep time string → total minutes from midnight.
-        Accepts: '23:20', '23.20' (decimal keypad), or '2320' (no separator).
+        Accepts: '23:20', '23.20', '2320', '23.2', '5.3'
+        Single digit after separator = ×10 (so .2 = 20 min, .3 = 30 min).
         """
         s = s.strip()
         if ":" in s:
@@ -371,6 +372,9 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
             h, m = s[:1], s[1:]
         else:
             raise ValueError(f"Unrecognised time format: {s!r}")
+        # Single digit after separator means tens-of-minutes (e.g. .2 = 20 min)
+        if len(m) == 1:
+            m = m + "0"
         return int(h) * 60 + int(m)
 
     # 1. sleep_duration_min — derive from stages if not provided directly
