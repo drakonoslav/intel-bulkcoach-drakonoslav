@@ -332,6 +332,27 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
     # All computation happens server-side so the user never does math.
     # Priority: explicit values always win; derived values fill gaps only.
 
+    def _normalise_stage_min(val) -> float:
+        """Normalise a sleep stage float to minutes.
+        If the decimal part × 100 is 01-59 we treat the value as HH.MM format,
+        i.e. 1.25 → 1h25m = 85 min.  Pure integers or decimals outside 01-59
+        are returned unchanged (already raw minutes).
+        """
+        if val is None:
+            return None
+        val = float(val)
+        frac = val - int(val)
+        mm_candidate = round(frac * 100)
+        if 1 <= mm_candidate <= 59:
+            return int(val) * 60 + mm_candidate
+        return val
+
+    # Normalise all stage fields so users can type e.g. 1.25 for 1h25m
+    for _stage_field in ("sleep_awake_min", "sleep_rem_min", "sleep_core_min", "sleep_deep_min"):
+        _raw = getattr(existing, _stage_field, None)
+        if _raw is not None:
+            setattr(existing, _stage_field, _normalise_stage_min(_raw))
+
     def _hhmm_to_total_min(s: str) -> float:
         """Parse sleep time string → total minutes from midnight.
         Accepts: '23:20', '23.20' (decimal keypad), or '2320' (no separator).
