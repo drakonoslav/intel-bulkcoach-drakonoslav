@@ -161,10 +161,10 @@ def get_schema():
                     # Brain auto-computes duration, efficiency, and time-in-bed from these.
                     _field("sleep_onset_hhmm", "string", "Sleep Onset Time",
                            source_hint="manual",
-                           description="Time you fell asleep. Format: HH:MM (e.g. 23:20). Brain computes midpoint automatically."),
+                           description="Time you fell asleep. Use 23:20, 23.20, or 2320 — all accepted. Brain computes midpoint automatically."),
                     _field("sleep_wake_hhmm", "string", "Wake Time",
                            source_hint="manual",
-                           description="Time you woke up. Format: HH:MM (e.g. 05:05). Brain computes midpoint automatically."),
+                           description="Time you woke up. Use 05:05, 05.05, or 0505 — all accepted. Brain computes midpoint automatically."),
                     _field("sleep_awake_min", "float", "Awake",
                            unit="min", min=0, max=120,
                            source_hint="manual",
