@@ -8,7 +8,7 @@ router = APIRouter(prefix="/schema", tags=["schema"])
 # ArcForge polls /schema/version on every launch. If version differs from what
 # it has cached, it fetches the full /schema/ and re-renders all forms.
 # The Expo app never needs to be rebuilt or resubmitted for field changes.
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 
 # ── Changelog ────────────────────────────────────────────────────────────────
 # Human-readable record of what changed in each version.
@@ -16,6 +16,7 @@ SCHEMA_VERSION = "1.1.0"
 SCHEMA_CHANGELOG = {
     "1.0.0": "Initial field set: morning biometrics, training, nutrition, body composition.",
     "1.1.0": "Added crossGearDiagnostics to response shape. Added sleep debt fields. FFM expansion threshold tightened to conf >= 0.50.",
+    "1.2.0": "Added Apple Health native sleep inputs: stage breakdown (awake/REM/core/deep) and onset/wake HH:MM strings. Brain now derives duration, midpoint, efficiency, and time-in-bed automatically — no user math required.",
 }
 
 
@@ -153,7 +154,33 @@ def get_schema():
                            description="Midpoint between sleep onset and wake. e.g. slept 11pm, woke 7am → midpoint 3am = 180"),
                     _field("sleep_efficiency_pct", "float", "Sleep Efficiency",
                            unit="%", min=0, max=100,
-                           source_hint="wearable_preferred"),
+                           source_hint="brain_computed",
+                           description="Auto-computed from stages if not provided. You do not need to enter this manually."),
+                    # ── Sleep stage breakdown (manual entry) ──────────────────
+                    # Type in the stage minutes exactly as shown by your sleep tracker.
+                    # Brain auto-computes duration, efficiency, and time-in-bed from these.
+                    _field("sleep_onset_hhmm", "string", "Sleep Onset Time",
+                           source_hint="manual",
+                           description="Time you fell asleep. Format: HH:MM (e.g. 23:20). Brain computes midpoint automatically."),
+                    _field("sleep_wake_hhmm", "string", "Wake Time",
+                           source_hint="manual",
+                           description="Time you woke up. Format: HH:MM (e.g. 05:05). Brain computes midpoint automatically."),
+                    _field("sleep_awake_min", "float", "Awake",
+                           unit="min", min=0, max=120,
+                           source_hint="manual",
+                           description="Minutes spent awake during the sleep window."),
+                    _field("sleep_rem_min", "float", "REM Sleep",
+                           unit="min", min=0, max=360,
+                           source_hint="manual",
+                           description="REM stage minutes."),
+                    _field("sleep_core_min", "float", "Core Sleep",
+                           unit="min", min=0, max=480,
+                           source_hint="manual",
+                           description="Core/light sleep stage minutes."),
+                    _field("sleep_deep_min", "float", "Deep Sleep",
+                           unit="min", min=0, max=300,
+                           source_hint="manual",
+                           description="Deep sleep stage minutes."),
                     _field("body_weight_lb", "float", "Morning Weight",
                            unit="lb", min=80, max=400,
                            source_hint="scale",

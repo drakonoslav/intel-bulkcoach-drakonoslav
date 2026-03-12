@@ -92,6 +92,14 @@ class DailyLogIn(BaseModel):
     bedtime_local: Optional[datetime] = None
     waketime_local: Optional[datetime] = None
     sleep_midpoint_min: Optional[float] = None
+    # Apple Health raw stage breakdown — enter exactly what the app shows
+    sleep_awake_min: Optional[float] = None
+    sleep_rem_min:   Optional[float] = None
+    sleep_core_min:  Optional[float] = None
+    sleep_deep_min:  Optional[float] = None
+    # HH:MM onset/wake strings — brain derives midpoint automatically
+    sleep_onset_hhmm: Optional[str] = Field(None, pattern=r"^\d{1,2}:\d{2}$")
+    sleep_wake_hhmm:  Optional[str] = Field(None, pattern=r"^\d{1,2}:\d{2}$")
 
     resting_hr_bpm: Optional[float] = None
     hrv_ms: Optional[float] = None
@@ -320,16 +328,63 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
     for field, val in payload.dict(exclude={"expo_user_id", "date"}).items():
         setattr(existing, field, val)
 
-    # Auto-compute sleep_midpoint_min from bedtime/waketime if not explicitly sent
-    if existing.sleep_midpoint_min is None and existing.bedtime_local and existing.waketime_local:
+    # ── SLEEP AUTO-DERIVATION ─────────────────────────────────────────────────
+    # All computation happens server-side so the user never does math.
+    # Priority: explicit values always win; derived values fill gaps only.
+
+    def _hhmm_to_total_min(s: str) -> float:
+        """'HH:MM' or 'H:MM' → total minutes from midnight."""
+        h, m = s.strip().split(":")
+        return int(h) * 60 + int(m)
+
+    # 1. sleep_duration_min — derive from stages if not provided directly
+    if existing.sleep_duration_min is None:
+        _stage_sum = sum(
+            float(v) for v in [
+                existing.sleep_rem_min, existing.sleep_core_min, existing.sleep_deep_min
+            ] if v is not None
+        )
+        if _stage_sum > 0:
+            existing.sleep_duration_min = _stage_sum
+
+    # 2. time_in_bed_min — derive from all stages including awake
+    if existing.time_in_bed_min is None:
+        _bed_sum = sum(
+            float(v) for v in [
+                existing.sleep_awake_min, existing.sleep_rem_min,
+                existing.sleep_core_min, existing.sleep_deep_min
+            ] if v is not None
+        )
+        if _bed_sum > 0:
+            existing.time_in_bed_min = _bed_sum
+
+    # 3. sleep_efficiency_pct — derive from stages if not provided
+    if existing.sleep_efficiency_pct is None:
+        if existing.sleep_duration_min and existing.time_in_bed_min and existing.time_in_bed_min > 0:
+            existing.sleep_efficiency_pct = round(
+                float(existing.sleep_duration_min) / float(existing.time_in_bed_min) * 100, 1
+            )
+
+    # 4. sleep_midpoint_min — derive from HH:MM strings (simplest Apple Health path)
+    if existing.sleep_midpoint_min is None and existing.sleep_onset_hhmm and existing.sleep_wake_hhmm:
+        _onset = _hhmm_to_total_min(existing.sleep_onset_hhmm)
+        _wake  = _hhmm_to_total_min(existing.sleep_wake_hhmm)
+        # Handle crossing midnight (e.g. onset 23:20, wake 05:05)
+        if _wake < _onset:
+            _wake += 1440
+        _mid = _onset + (_wake - _onset) / 2
+        existing.sleep_midpoint_min = round(_mid % 1440, 1)
+
+    # 5. Fallback: derive midpoint from bedtime_local + waketime_local datetime objects
+    elif existing.sleep_midpoint_min is None and existing.bedtime_local and existing.waketime_local:
         from datetime import timedelta as _td
         _mid = existing.bedtime_local + (existing.waketime_local - existing.bedtime_local) / 2
         existing.sleep_midpoint_min = _mid.hour * 60 + _mid.minute
 
-    # Also derive from bedtime + sleep_duration if waketime missing
+    # 6. Last resort: bedtime + half duration
     elif existing.sleep_midpoint_min is None and existing.bedtime_local and existing.sleep_duration_min:
         from datetime import timedelta as _td
-        _mid = existing.bedtime_local + _td(minutes=existing.sleep_duration_min / 2)
+        _mid = existing.bedtime_local + _td(minutes=float(existing.sleep_duration_min) / 2)
         existing.sleep_midpoint_min = _mid.hour * 60 + _mid.minute
 
     db.flush()

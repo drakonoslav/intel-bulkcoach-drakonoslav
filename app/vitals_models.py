@@ -93,6 +93,14 @@ class VitalsDailyLog(Base):
     bedtime_local = Column(DateTime(timezone=True))
     waketime_local = Column(DateTime(timezone=True))
     sleep_midpoint_min = Column(Numeric(8, 2))
+    # Apple Health raw stage breakdown — brain computes derived fields from these
+    sleep_awake_min = Column(Numeric(8, 2))
+    sleep_rem_min   = Column(Numeric(8, 2))
+    sleep_core_min  = Column(Numeric(8, 2))
+    sleep_deep_min  = Column(Numeric(8, 2))
+    # HH:MM strings (e.g. "23:20" / "05:05") — brain computes midpoint from these
+    sleep_onset_hhmm = Column(String(5))
+    sleep_wake_hhmm  = Column(String(5))
 
     resting_hr_bpm = Column(Numeric(8, 2))
     hrv_ms = Column(Numeric(8, 2))
