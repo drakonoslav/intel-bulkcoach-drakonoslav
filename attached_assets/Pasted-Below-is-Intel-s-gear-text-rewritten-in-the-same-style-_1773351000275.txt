@@ -1,0 +1,431 @@
+Below is Intel’s gear text rewritten in the same style and structure—but corrected so it matches male biology (pulse-driven + sleep-anchored + adaptive infradian arcs), and tuned for fractal recurrence + long-term stability rather than a false “fixed 28-day male hormone month.”
+
+I preserved the tone, the gear metaphor, the interlocking logic, and the “emergent cycle” idea—while making the oscillator state-driven (like real physiology) instead of calendar-driven.
+
+⸻
+
+The Full Gear-by-Gear Architecture (Biologically Corrected)
+
+Every layer feeds the next, but no single calendar gear is allowed to impersonate endocrine reality.
+In men, the core repeating structure is ultradian pulsatility + circadian sleep anchoring, with infradian “waves” emerging from stress/recovery dynamics—not a clean monthly endocrine wheel.
+
+So the system is built as a fractal oscillator:
+	•	Ultradian pulses (hours) → shape readiness + feeding + training windows
+	•	Circadian fidelity (day) → dominates testosterone expression/recovery competence
+	•	Weekly distribution (7d) → stabilizes references + enforces alternation
+	•	Tissue response (14d) → detects whether output is producing tissue change
+	•	Adaptive infradian arc (≈18–35d, target ~26d) → replaces the fake “fixed 28-day male cycle”
+	•	Annual baseline (365d) → slow recalibration + age-biasing
+
+The emergent behavior is the point: build → peak → deload → resensitize becomes visible only across weeks, but governs each day.
+
+⸻
+
+GEAR 1 — The Ultradian Pulse Gears (within a single day)
+
+These gears are not “stored as a cycle,” but they define when signals are valid and when interventions matter.
+
+Valid sampling windows (non-negotiable)
+	•	hrv_ms — valid only in a consistent morning window (first ~30 minutes post-wake).
+A random afternoon reading is a different autonomic state and should not drive readiness.
+	•	resting_hr_bpm — valid as an overnight minimum or overnight average, not a daytime resting.
+	•	sleep_midpoint_min — circadian phase marker: where your sleep sits relative to your anchor.
+	•	virility/drive proxy window — libido/erection/mental-drive are sampled in the same morning window, capturing the “wake transition” state.
+
+Meal timing pulse windows (actionable)
+
+These are the smallest actionable outputs the engine should generate:
+	•	Pre-training window (60–90 min pre-lift): carbs + protein, low fat
+	•	Post-training window (0–60 min post-lift): carbs + protein priority
+	•	Evening window (3–4 hours before bed): higher fat + slower protein, lower simple carbs
+
+Important correction:
+This gear is where “male endocrinology” is most faithfully mimicked: pulses + contrast + timing, not a calendar month.
+
+⸻
+
+GEAR 2 — The Circadian Daily Gear (24 hours)
+
+Every calendar day produces one oscillator state, but it is anchored primarily to sleep fidelity and morning autonomic state.
+
+Raw inputs consumed (what the engine should actually treat as primary)
+
+Autonomic / sleep
+	•	HRV deviation from 7d avg (primary) + annual baseline (secondary)
+	•	RHR deviation from 7d avg
+	•	sleep duration (minutes)
+	•	sleep midpoint drift (regularity)
+	•	sleep continuity proxy if available (WASO or awakenings)
+
+Body / tissue
+	•	body weight vs 7d/14d roll
+	•	waist recency-weighted (stale waist cannot dominate)
+	•	body comp (FFM/BF) confidence-weighted
+
+Subjective
+	•	libido, morning erection, mental drive, motivation, mood stability
+	•	soreness, joint friction
+These are not “hormone truth,” they are state evidence and should be trend-interpreted.
+
+Behavior
+	•	macro actual vs targets
+	•	cardio mode actual vs prescription
+	•	lift mode actual vs prescription
+
+⸻
+
+Calculations at this layer (corrected)
+
+1) Acute Score (0–100, confidence-weighted)
+Acute is a readiness gate, not “hormone level.”
+
+It should remain:
+	•	derive_hrv_score()
+	•	derive_rhr_score()
+	•	derive_sleep_score() (duration + midpoint regularity; continuity if available)
+	•	derive_subjective_score() (drive + soreness gates)
+	•	confidence weights applied per metric
+	•	finalize_weighted_score()
+
+Key correction:
+Acute must never be dominated by low-confidence body comp or stale waist. Those belong to slower gears.
+
+2) Recovery Comfort Index
+Internal gating signal:
+	•	high soreness/joint friction suppresses neural work even if HRV is high.
+
+3) Cardio decision (hard sequential gates, biologically corrected)
+Cardio is an autonomic lever. Zone 3 too often = chronic sympathetic tone.
+
+Hard gates (in order):
+	•	Gate 1: HRV < 90% of 7d avg → force Zone 2 (no override)
+	•	Gate 2: RHR > (7d avg + 4 bpm) → force Zone 2
+	•	Gate 3: last two cardio sessions were Zone 3 → force Zone 2
+	•	Gate 4: rolling 7d Zone 3 count ≥ 3 → force Zone 2
+	•	Gate 5: if in resensitize phase (see Gear 5), cap Zone 3 to max 1 / 7d
+
+Then (only if clear) composite score may allow Zone 3.
+
+4) Lift mode decision
+Daily lift mode is driven by:
+	•	composite readiness
+	•	mechanical readiness (soreness/joint friction)
+	•	phase in the adaptive infradian arc (Gear 5)
+
+5) Macro day type decision
+Macro targets are not a calendar trick; they are substrate timing to create contrast:
+	•	surge (carb-dominant)
+	•	build (balanced)
+	•	reset (higher fat)
+	•	resensitize (fat-dominant + lower carbs)
+
+6) Macro target adjustment constraints
+Keep Intel’s caps, but enforce window logic:
+	•	Protein Δ max/day
+	•	Carb Δ max/day
+	•	Fat Δ max/day
+	•	distribute across ingredients with caps
+plus: do not break pre/post training windows.
+
+⸻
+
+GEAR 3 — The 7-Day Gear (weekly rolling reference)
+
+This gear is correct and should remain the primary benchmark layer.
+It’s where your system establishes “normal” and enforces alternation.
+
+Rolling computations (keep, but correct two pieces)
+	•	hrv7dAvg, rhr7dAvg
+	•	kcal_7d, protein_7d, carbs_7d, fat_7d
+	•	fat_high_days_7d, fat_low_days_7d
+	•	Zone 3 count, Zone 2 count, recovery count
+	•	3-channel monotony: cardio + lift + macro distributions
+
+Correction 1: Carb adequacy must be peri-training, not daily total.
+Replace “day-type carb adherence” with:
+	•	PeriCarbs = post-cardio + pre-lift + post-lift
+	•	Score vs target periCarbs for that macroDayType
+Then average across 7 days.
+
+Correction 2: Fat oscillation must be based on actual intake.
+Not recommendations.
+High-fat day count and low-fat day count must come from actual grams.
+
+Resource Score (7d-weighted)
+
+Resource should answer:
+“Is the organism fueled and structured to support anabolic work without flattening?”
+
+Subscores:
+	•	calorie adequacy
+	•	protein adequacy
+	•	fat floor + oscillation presence
+	•	peri-training carb adequacy
+	•	monotony penalty
+	•	hydration/weight stability proxy
+	•	(plus 14d tissue references injected from Gear 4)
+
+⸻
+
+GEAR 4 — The 14-Day Tissue Response Gear (biweekly trend)
+
+This is where we stop pretending the day is the truth and ask:
+
+Is tissue responding?
+
+Computations (must be confidence-weighted)
+	•	ffm_trend_14d (linear regression slope) → lb/week
+	•	weighted_strength_trend_14d → %/week
+	•	waist drift (if recent enough)
+	•	body weight variance → confidence signal
+
+Required confidence logic
+	•	if FFM readings < 4 in 14 days → FFM confidence drops
+	•	if body weight variance is high and TBW is unstable → body comp confidence drops
+	•	stale waist cannot dominate (recency penalty)
+
+Correct downstream interpretations
+	•	if strength trending up but FFM flat → check calories + sleep + cardio monotony
+	•	if FFM falling with high training → recovery failure or underfeeding signal
+	•	if waist rising faster than FFM → macro ratio and stress load misaligned
+
+⸻
+
+GEAR 5 — The Adaptive Infradian Arc (the master state cycle)
+
+This replaces the false “28-day male hormonal cycle.”
+
+Men do show infradian waves, but they’re better modeled as an adaptive arc whose length can drift.
+
+The Arc
+	•	Target arc length: 26 days
+	•	Allowed range: 18–35 days
+	•	Phase is detected, not assigned by calendar
+
+Phases (same four mandates, but state-driven)
+	1.	Accumulation — build volume, moderate stress, glycogen support
+	2.	Expansion/Peak — highest output days, Zone 3 permitted within caps
+	3.	Deload — volume reduction + Zone 2 dominance + neural reduction
+	4.	Resensitize — carbs down, fats up, sleep emphasis, contrast restoration
+
+Phase detection (non-negotiable)
+
+The engine must infer phase from rolling signals:
+
+Enter Deload when any combination hits:
+	•	HRV 14–28d slope negative AND
+	•	RHR 14–28d slope positive AND
+	•	weighted strength trend flattening or negative OR
+	•	soreness/joint friction burden rising
+
+Enter Resensitize when:
+	•	virility trend declining AND
+	•	monotony rising AND
+	•	sleep midpoint drift worsening OR sleep debt accumulating
+
+Extend Accumulation/Expansion only if:
+	•	FFM trend positive confidence-weighted AND
+	•	weighted strength trend positive AND
+	•	virility stable AND
+	•	autonomic markers stable
+
+“Arc reset” rule
+
+Resensitize must last until:
+	•	HRV stops compressing
+	•	RHR normalizes
+	•	virility trend stabilizes
+	•	monotony decreases
+
+Then arc restarts at Accumulation, regardless of what day-of-month it is.
+
+This is the key puberty-mimic principle:
+puberty was repeated waves of stimulus + recovery + sensitivity return, not a tidy month.
+
+⸻
+
+GEAR 6 — The Annual Baseline Gear (~365 days)
+
+This gear anchors long-run comparisons and introduces age-biasing (development across lifespan).
+
+Inputs (keep)
+	•	hrv_year_avg
+	•	rhr_year_avg
+	•	body_weight_setpoint_lb
+	•	waist_setpoint_in
+	•	base macros baseline
+	•	cycle start date (for reporting only)
+
+What this gear must govern (corrected)
+	•	floors: protein floor, fat floor
+	•	calibration: update baselines quarterly/annually
+	•	age mode: shifts weights + thresholds as you age
+
+Age-bias parameters (lifespan alignment)
+
+This is how you “mimic development into old age” without pretending you can be 15 again:
+
+Early adult mode (higher tolerance)
+	•	allow slightly higher Zone 3 frequency
+	•	allow longer accumulation before deload
+	•	more aggressive neural days when readiness supports it
+
+Mature adult mode (stability-first)
+	•	stronger penalty for monotony
+	•	stronger preference for Zone 2
+	•	earlier deload triggers
+	•	more emphasis on sleep regularity
+
+Older adult mode (preservation)
+	•	strong suppression of repeated Zone 3
+	•	fewer neural peaks
+	•	more frequent resensitization arcs
+	•	joint friction gating dominates
+
+This is how the same architecture scales across decades.
+
+⸻
+
+The Full Interlocking System — How the Gears Mesh (Corrected)
+
+Annual Baseline Gear
+└─ defines floors, baselines, age weighting
+
+Adaptive Infradian Arc
+└─ state-based phase (accumulate → peak → deload → resensitize)
+
+14-Day Tissue Response
+└─ determines whether stress is producing tissue
+
+7-Day Rolling Reference
+└─ sets daily benchmarks and monotony distribution
+
+Daily Circadian Gear
+└─ computes scores and issues today’s prescriptions
+
+Ultradian Pulse Gears
+└─ determine when to sample and how to time substrates
+
+⸻
+
+The emergent output (what BulkCoach receives each day)
+
+Same shape Intel listed, but corrected semantics:
+	•	compositeScore (0–100) → readiness + resources + adaptation
+	•	oscillatorClass → PEAK/BUILD/RESET/RESENSITIZE (class)
+	•	recommendedCardioMode → Zone 2 / Zone 3 / recovery
+	•	recommendedLiftMode → neural / hypertrophy / pump / recovery
+	•	recommendedMacroDayType → surge / build / reset / resensitize
+	•	macroTargets → grams/day
+	•	mealTimingTargets → grams per window (pre/post/evening)
+	•	macroDelta → change vs baseline and why
+	•	acuteConfidence / resourceConfidence / adaptationConfidence
+	•	lowConfidenceSignals
+	•	warnings
+	•	flags
+
+Correction: “SeasonalConfidence” should be renamed to AdaptationConfidence unless you actually track light consistency. Seasonal is optional; adaptation is real.
+
+⸻
+
+The Math: recurrence, overlap, and “fractal alignment” (corrected)
+
+Intel’s LCM math is fine if every gear is fixed.
+But the moment we replace the fake fixed 28-day master with an adaptive arc (18–35 days), the system becomes biologically realistic—and the LCM becomes non-deterministic (which is the point).
+
+What we can still do (and what’s more useful)
+
+Instead of a single LCM “snap-back year,” compute:
+	1.	Hard resonances (fixed gears)
+	2.	Near-resonances (useful planning markers)
+	3.	Arc-drift statistics (how your adaptive arc behaves over years)
+
+⸻
+
+A) Hard resonances (fixed)
+
+These always align:
+	•	8h windows inside 24h day
+	•	7d weekly reference
+	•	14d tissue response
+
+If you keep those fixed, you get clean recurrence points at:
+	•	1 day
+	•	7 days
+	•	14 days
+
+⸻
+
+B) Near-resonances (useful, not mystical)
+
+Instead of worshipping 28×365, use 13-week and 52-week rings because they’re actually useful for training + reviews:
+	•	13 weeks = 91 days (quarter)
+	•	52 weeks = 364 days (clean year ring)
+
+This yields a beautiful stable lattice:
+	•	weekly patterning (7)
+	•	biweekly tissue response (14)
+	•	quarterly phenotype review (91)
+	•	annual baseline review (364/365)
+
+This becomes your long-term recurrence scaffold.
+
+⸻
+
+C) Adaptive arc overlap math (state-driven)
+
+Let the adaptive arc have target length 26 days but allow 18–35.
+
+Instead of LCM, track:
+	•	average arc length
+	•	arc length variance
+	•	arc phase durations
+	•	time between resensitization phases
+	•	number of peak days per arc
+
+Over years, what matters is:
+	•	does your arc stabilize (healthier system)?
+	•	or does it fragment (overreach / stress / sleep instability)?
+
+Long-term “fractal stability” metrics
+
+These should be tracked:
+
+1) Arc Stability Index
+ASI = 1 - \frac{\sigma(\text{arc length})}{\mu(\text{arc length})}
+Higher ASI = more stable infradian rhythm.
+
+2) Peak Contrast Index
+How different are peak days vs reset days in:
+	•	HRV
+	•	RHR
+	•	training output
+	•	subjective drive
+
+3) Resensitization Effect Size
+Compare the 3-day window after resensitize vs before:
+	•	HRV rebound
+	•	RHR normalization
+	•	virility stabilization
+	•	soreness drop
+
+If resensitize is not restoring contrast, the system is flattening.
+
+⸻
+
+Small updates advice to Intel (minimal change set, maximum alignment)
+	1.	Rename Gear 5
+From “28-day master hormonal cycle” → Adaptive Infradian Arc
+Keep 28 days only as a reporting ring if you want.
+	2.	Make phases state-driven
+Replace calendar week mandates with entry/exit rules based on slopes and flags.
+	3.	Promote circadian fidelity
+Sleep regularity and sleep duration must dominate daily decisions more than “phase.”
+	4.	Keep the gear metaphor
+But explicitly state: male endocrine tone emerges from pulse fidelity + sleep + contrast, not a universal month.
+	5.	Replace LCM mythology with review lattice
+Use 7/14/91/364 for planning and review recurrence. Use arc statistics for “male rhythm.”
+
+⸻
+
+If you want, I can also generate a “drop-in replacement” paragraph for Intel’s LCM section that keeps the Tzolkin poetic vibe but swaps fixed 28-day claims for adaptive arc drift + review lattice while still giving a genuinely remarkable math story.

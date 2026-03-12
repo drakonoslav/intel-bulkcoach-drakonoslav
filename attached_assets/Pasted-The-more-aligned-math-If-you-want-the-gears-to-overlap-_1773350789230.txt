@@ -1,0 +1,52 @@
+The more aligned math
+
+If you want the gears to overlap in a biologically smarter way, stop using a hard 28-day master and use a floating infradian arc instead.
+
+Let:
+	•	ultradian = 8 h operational windows
+	•	circadian = 24 h
+	•	weekly = 7 d
+	•	tissue = 14 d
+	•	adaptive infradian = variable 18–35 d, target 26 d
+	•	annual = 365 d
+
+Then there is no single fixed LCM worth worshipping, because the infradian gear is intentionally state-variable. That is actually better. It means the engine is behaving like biology instead of like a clockwork religion.
+
+If you still want a planning cadence, use:
+	•	26-day adaptive arc
+	•	91-day quarter review
+	•	364-day review ring
+
+Why 91 and 364 are useful:
+	•	91 = 13 weeks
+	•	364 = 52 weeks
+	•	they give clean training and review cadence without forcing a false male monthly hormone myth
+
+That preserves the elegance Intel likes without making the biology worse.
+
+What I would tell Intel as “small updates”
+
+Here is the concise instruction set I’d give them:
+
+First, rename the 28-day oscillator to adaptive_infradian_arc and stop claiming it is the male hormonal cycle. Make 28 days a reporting default, not a biological certainty.  ￼
+
+Second, promote circadian fidelity above calendar phase in the recommendation hierarchy. If sleep timing, sleep duration, and HRV/RHR are bad, no calendar phase should rescue the day.  ￼
+
+Third, treat virility as a slope signal, not a same-day hormone claim. Use libido + erection quality + drive as a slow trend channel, not as proof of exact endocrine state. That makes the model safer and more honest.
+
+Fourth, make phase switching state-based:
+	•	enter deload if HRV trend down + RHR trend up + strength flattening
+	•	enter resensitize if virility trend down + monotony up + sleep drift
+	•	extend build if FFM up + strength up + virility stable
+
+Fifth, shift the age model:
+	•	younger profile = more surge tolerance
+	•	older profile = more recovery weighting and lower Zone 3 density
+
+Sixth, keep the 28-year math only as an optional visualization, not as system logic.
+
+My best aligned version in one sentence
+
+The most male-development-aligned version is:
+
+a sleep-anchored, pulse-aware, state-driven infradian hypertrophy engine that uses calendar cycles for review, not as a false substitute for male endocrine biology
