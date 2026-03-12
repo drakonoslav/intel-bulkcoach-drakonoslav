@@ -8,7 +8,7 @@ router = APIRouter(prefix="/schema", tags=["schema"])
 # ArcForge polls /schema/version on every launch. If version differs from what
 # it has cached, it fetches the full /schema/ and re-renders all forms.
 # The Expo app never needs to be rebuilt or resubmitted for field changes.
-SCHEMA_VERSION = "1.2.0"
+SCHEMA_VERSION = "1.3.0"
 
 # ── Changelog ────────────────────────────────────────────────────────────────
 # Human-readable record of what changed in each version.
@@ -17,6 +17,7 @@ SCHEMA_CHANGELOG = {
     "1.0.0": "Initial field set: morning biometrics, training, nutrition, body composition.",
     "1.1.0": "Added crossGearDiagnostics to response shape. Added sleep debt fields. FFM expansion threshold tightened to conf >= 0.50.",
     "1.2.0": "Added Apple Health native sleep inputs: stage breakdown (awake/REM/core/deep) and onset/wake HH:MM strings. Brain now derives duration, midpoint, efficiency, and time-in-bed automatically — no user math required.",
+    "1.3.0": "Added morning_temp_f/morning_temp_c (brain converts between units). Added skeletal_muscle_pct — brain derives skeletal_muscle_lb automatically. Brain now auto-computes fat_mass_lb and fat_free_mass_lb from weight + body_fat_pct.",
 }
 
 
@@ -185,6 +186,14 @@ def get_schema():
                            unit="lb", min=80, max=400,
                            source_hint="scale",
                            description="Post-void, before food"),
+                    _field("morning_temp_f", "float", "Morning Temperature (°F)",
+                           unit="°F", min=95.0, max=104.0,
+                           source_hint="manual",
+                           description="Oral or wrist temp on waking, before getting up. Enter in °F. If you only have °C, use morning_temp_c instead — brain converts automatically."),
+                    _field("morning_temp_c", "float", "Morning Temperature (°C)",
+                           unit="°C", min=35.0, max=40.0,
+                           source_hint="manual",
+                           description="Enter in °C if that's what your thermometer shows. Brain stores both units automatically."),
                     _field("libido_score", "int", "Libido",
                            min=1, max=5,
                            description="1 = none / absent  →  5 = high / present"),
@@ -267,15 +276,24 @@ def get_schema():
                 "description": "Log weekly or whenever measured. Never required daily.",
                 "fields": [
                     _field("body_fat_pct", "float", "Body Fat %",
-                           unit="%", min=3, max=60, periodic=True),
+                           unit="%", min=3, max=60, periodic=True,
+                           description="Enter the % your scale or app shows directly."),
                     _field("fat_free_mass_lb", "float", "Fat-Free Mass",
                            unit="lb", min=50, max=300, periodic=True,
-                           source_hint="scale_or_dexa"),
+                           source_hint="scale_or_dexa",
+                           description="Enter directly if your scale shows it. Otherwise brain derives it from weight + body fat %."),
                     _field("fat_mass_lb", "float", "Fat Mass",
-                           unit="lb", min=0, max=200, periodic=True),
-                    _field("skeletal_muscle_lb", "float", "Skeletal Muscle",
+                           unit="lb", min=0, max=200, periodic=True,
+                           source_hint="brain_computed",
+                           description="Auto-computed from weight × body fat %. You do not need to enter this."),
+                    _field("skeletal_muscle_pct", "float", "Skeletal Muscle %",
+                           unit="%", min=20, max=60, periodic=True,
+                           source_hint="scale",
+                           description="Enter the % your scale shows. Brain converts to lbs automatically."),
+                    _field("skeletal_muscle_lb", "float", "Skeletal Muscle (lbs)",
                            unit="lb", min=30, max=200, periodic=True,
-                           source_hint="inbody_or_dexa"),
+                           source_hint="brain_computed",
+                           description="Auto-computed from skeletal_muscle_pct × weight. Only enter directly if your scale gives lbs."),
                     _field("waist_at_navel_in", "float", "Waist at Navel",
                            unit="in", min=20, max=80, periodic=True,
                            description="Tape measure at navel, relaxed, morning"),

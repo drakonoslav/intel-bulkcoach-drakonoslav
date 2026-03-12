@@ -118,10 +118,13 @@ class DailyLogIn(BaseModel):
     actual_cardio_mode: Optional[str] = None
     cardio_strain_score: Optional[float] = None
 
+    morning_temp_f: Optional[float] = None
+    morning_temp_c: Optional[float] = None
     body_weight_lb: Optional[float] = None
     body_fat_pct: Optional[float] = None
     fat_mass_lb: Optional[float] = None
     fat_free_mass_lb: Optional[float] = None
+    skeletal_muscle_pct: Optional[float] = None
     skeletal_muscle_lb: Optional[float] = None
     tbw_pct: Optional[float] = None
     body_comp_confidence: Optional[float] = None
@@ -419,6 +422,30 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
         from datetime import timedelta as _td
         _mid = existing.bedtime_local + _td(minutes=float(existing.sleep_duration_min) / 2)
         existing.sleep_midpoint_min = _mid.hour * 60 + _mid.minute
+
+    # ── TEMPERATURE AUTO-CONVERSION ───────────────────────────────────────────
+    # Accept either unit; derive the other automatically.
+    if existing.morning_temp_f is None and existing.morning_temp_c is not None:
+        existing.morning_temp_f = round(float(existing.morning_temp_c) * 9 / 5 + 32, 2)
+    elif existing.morning_temp_c is None and existing.morning_temp_f is not None:
+        existing.morning_temp_c = round((float(existing.morning_temp_f) - 32) * 5 / 9, 2)
+
+    # ── BODY COMPOSITION AUTO-DERIVATION ─────────────────────────────────────
+    _wt  = float(existing.body_weight_lb)   if existing.body_weight_lb  else None
+    _bfp = float(existing.body_fat_pct)     if existing.body_fat_pct    else None
+    _smp = float(existing.skeletal_muscle_pct) if existing.skeletal_muscle_pct else None
+
+    # fat_mass_lb from weight × body_fat_pct — no extra data needed from user
+    if existing.fat_mass_lb is None and _wt and _bfp:
+        existing.fat_mass_lb = round(_wt * _bfp / 100, 2)
+
+    # fat_free_mass_lb from weight − fat_mass (only if user didn't supply it)
+    if existing.fat_free_mass_lb is None and _wt and existing.fat_mass_lb:
+        existing.fat_free_mass_lb = round(_wt - float(existing.fat_mass_lb), 2)
+
+    # skeletal_muscle_lb from weight × skeletal_muscle_pct
+    if existing.skeletal_muscle_lb is None and _wt and _smp:
+        existing.skeletal_muscle_lb = round(_wt * _smp / 100, 2)
 
     db.flush()
 

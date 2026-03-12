@@ -119,10 +119,13 @@ class VitalsDailyLog(Base):
     actual_cardio_mode = Column(String(30))
     cardio_strain_score = Column(Numeric(8, 2))
 
+    morning_temp_f = Column(Numeric(5, 2))
+    morning_temp_c = Column(Numeric(5, 2))
     body_weight_lb = Column(Numeric(8, 2))
     body_fat_pct = Column(Numeric(8, 2))
     fat_mass_lb = Column(Numeric(8, 2))
     fat_free_mass_lb = Column(Numeric(8, 2))
+    skeletal_muscle_pct = Column(Numeric(5, 2))
     skeletal_muscle_lb = Column(Numeric(8, 2))
     tbw_pct = Column(Numeric(8, 2))
     body_comp_confidence = Column(Numeric(4, 3))
