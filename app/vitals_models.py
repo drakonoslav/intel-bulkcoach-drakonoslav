@@ -53,6 +53,22 @@ class VitalsUserBaselines(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class ArcForgeUser(Base):
+    """
+    One row per registered ArcForge user.
+    expo_user_id is the UUID-v4 generated on the user's device at first launch.
+    This is the single partition key for all physiological data in every table.
+    """
+    __tablename__ = "arcforge_users"
+
+    expo_user_id  = Column(String, primary_key=True)
+    username      = Column(String(80), nullable=False)
+    date_of_birth = Column(Date, nullable=False)
+    age_mode      = Column(String(20), nullable=False, default="early_adult")
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at    = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class VitalsDailyLog(Base):
     __tablename__ = "vitals_daily_log"
     __table_args__ = (
