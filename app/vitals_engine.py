@@ -164,22 +164,60 @@ def _build_reasoning(composite, oscillator_class, acute, resource, seasonal, car
     return lines
 
 
-# Ingredient priority order: least → most disruptive to routine
-# Each entry maps its primary macro and a secondary macro it also moves
+# Ingredient priority order: least → most disruptive to routine.
+# kcalPerPrimaryUnit: Intel canonical calorie density — Expo must use these values
+# to stay in sync with Intel's macro target math (4 kcal/g carb, 9 kcal/g fat, 4 kcal/g protein).
+# protectedMealWindows: meal windows that must not be reduced (anabolic timing).
+# preferredReductionWindow: which named meal to draw from first when reducing.
 _INGREDIENT_PRIORITY = [
-    {"ingredient": "MCT Powder",  "unit": "g",   "primaryMacro": "fat",     "secondaryMacro": None},
-    {"ingredient": "Dextrin",     "unit": "g",   "primaryMacro": "carbs",   "secondaryMacro": None},
-    {"ingredient": "Oats",        "unit": "g",   "primaryMacro": "carbs",   "secondaryMacro": "fat",
-     "carbsPerG": 0.67, "fatPerG": 0.06, "proteinPerG": 0.17},
-    {"ingredient": "Bananas",     "unit": "each","primaryMacro": "carbs",   "secondaryMacro": None,
-     "carbsPerUnit": 27, "proteinPerUnit": 1, "fatPerUnit": 0},
-    {"ingredient": "Eggs",        "unit": "each","primaryMacro": "protein", "secondaryMacro": "fat",
-     "proteinPerUnit": 6, "fatPerUnit": 5, "carbsPerUnit": 0},
-    {"ingredient": "Flaxseed",    "unit": "g",   "primaryMacro": "fat",     "secondaryMacro": "carbs",
-     "fatPerG": 0.40, "carbsPerG": 0.27, "proteinPerG": 0.20},
-    {"ingredient": "Whey",        "unit": "g",   "primaryMacro": "protein", "secondaryMacro": None,
-     "proteinPerG": 0.80, "carbsPerG": 0.08, "fatPerG": 0.05},
-    {"ingredient": "Greek Yogurt","unit": "cup", "primaryMacro": "protein", "secondaryMacro": None},
+    {
+        "ingredient": "MCT Powder",  "unit": "g",   "primaryMacro": "fat",
+        "secondaryMacro": None,
+        "kcalPerPrimaryUnit": 9.0,
+    },
+    {
+        "ingredient": "Dextrin",     "unit": "g",   "primaryMacro": "carbs",
+        "secondaryMacro": None,
+        "kcalPerPrimaryUnit": 4.0,
+        "protectedMealWindows": ["post_lift"],
+        "preferredReductionWindow": "pre_lift",
+        "distributionNote": "Reduce pre-lift pool first. Post-lift Dextrin is anabolically timed — protect it.",
+    },
+    {
+        "ingredient": "Oats",        "unit": "g",   "primaryMacro": "carbs",
+        "secondaryMacro": "fat",
+        "kcalPerPrimaryUnit": 4.0,
+        "carbsPerG": 0.67, "fatPerG": 0.06, "proteinPerG": 0.17,
+    },
+    {
+        "ingredient": "Bananas",     "unit": "each","primaryMacro": "carbs",
+        "secondaryMacro": None,
+        "kcalPerPrimaryUnit": 4.0,
+        "carbsPerUnit": 27, "proteinPerUnit": 1, "fatPerUnit": 0,
+    },
+    {
+        "ingredient": "Eggs",        "unit": "each","primaryMacro": "protein",
+        "secondaryMacro": "fat",
+        "kcalPerPrimaryUnit": 4.0,
+        "proteinPerUnit": 6, "fatPerUnit": 5, "carbsPerUnit": 0,
+    },
+    {
+        "ingredient": "Flaxseed",    "unit": "g",   "primaryMacro": "fat",
+        "secondaryMacro": "carbs",
+        "kcalPerPrimaryUnit": 9.0,
+        "fatPerG": 0.40, "carbsPerG": 0.27, "proteinPerG": 0.20,
+    },
+    {
+        "ingredient": "Whey",        "unit": "g",   "primaryMacro": "protein",
+        "secondaryMacro": None,
+        "kcalPerPrimaryUnit": 4.0,
+        "proteinPerG": 0.80, "carbsPerG": 0.08, "fatPerG": 0.05,
+    },
+    {
+        "ingredient": "Greek Yogurt","unit": "cup", "primaryMacro": "protein",
+        "secondaryMacro": None,
+        "kcalPerPrimaryUnit": 4.0,
+    },
 ]
 
 
@@ -222,23 +260,86 @@ def _compute_ingredient_adjustments(macro_day: str, macro_delta: dict) -> list:
             display = f"1 {unit}"
             qty = 1
 
-        adjustments.append({
-            "priority":      len(adjustments) + 1,
-            "ingredient":    item["ingredient"],
-            "unit":          unit,
-            "action":        action,
-            "primaryMacro":  primary,
-            "deltaG":        round(delta, 1),
-            "qty":           abs(qty),
-            "display":       f"{action} {display}",
-        })
+        kcal_per_unit = item.get("kcalPerPrimaryUnit", 4.0)
+        kcal_delta = round(delta * kcal_per_unit, 1)
 
+        entry = {
+            "priority":              len(adjustments) + 1,
+            "ingredient":            item["ingredient"],
+            "unit":                  unit,
+            "action":                action,
+            "primaryMacro":          primary,
+            "deltaG":                round(delta, 1),
+            "qty":                   abs(qty),
+            "kcalPerPrimaryUnit":    kcal_per_unit,
+            "kcalDelta":             kcal_delta,
+            "display":               f"{action} {display}",
+        }
+        # Attach meal distribution guidance if present
+        if item.get("protectedMealWindows"):
+            entry["protectedMealWindows"]    = item["protectedMealWindows"]
+        if item.get("preferredReductionWindow"):
+            entry["preferredReductionWindow"] = item["preferredReductionWindow"]
+        if item.get("distributionNote"):
+            entry["distributionNote"]        = item["distributionNote"]
+
+        adjustments.append(entry)
         remaining[primary] = 0
 
         if all(abs(v) < 0.5 for v in remaining.values()):
             break
 
     return adjustments
+
+
+def _macro_intent(macro_day: str, macro_delta: dict) -> dict:
+    """
+    Clarifies what the macro day type means for the day's calorie and macro strategy.
+    Prevents Expo from conflating a macro-split rebalance with an actual calorie cut/surplus.
+    kcalChange: 'stable' | 'reduction' | 'surplus'
+    splitChange: describes the directional macro split shift
+    applyFrom: 'baseline' — Expo must apply ingredient deltas from the LOCKED BASELINE,
+               NOT from the previous day's actual submission.
+    """
+    kcal_delta = float(macro_delta.get("kcalDelta", 0) or 0) if macro_delta else 0
+    carbs_delta = float(macro_delta.get("carbsDeltaG", 0) or 0) if macro_delta else 0
+    fat_delta   = float(macro_delta.get("fatDeltaG", 0) or 0) if macro_delta else 0
+
+    if abs(kcal_delta) < 20:
+        kcal_change = "stable"
+    elif kcal_delta < 0:
+        kcal_change = "reduction"
+    else:
+        kcal_change = "surplus"
+
+    if abs(carbs_delta) >= 10 and abs(fat_delta) >= 5:
+        split_change = (
+            f"carbs {'down' if carbs_delta < 0 else 'up'} {abs(round(carbs_delta))}g, "
+            f"fat {'up' if fat_delta > 0 else 'down'} {abs(round(fat_delta))}g — "
+            f"{'iso-caloric rebalance' if kcal_change == 'stable' else 'net calorie shift'}"
+        )
+    elif abs(carbs_delta) >= 10:
+        split_change = f"carbs {'down' if carbs_delta < 0 else 'up'} {abs(round(carbs_delta))}g, fat stable"
+    else:
+        split_change = "macro split unchanged"
+
+    descriptions = {
+        "surge":        "High-output day. Carb surplus loaded front and back. Fat held flat.",
+        "build":        "Training day. Moderate carb increase. Fat slightly elevated.",
+        "reset":        "Recovery day. Carb reduction, fat increase. Total kcal stable.",
+        "resensitize":  "Deload day. Significant carb reduction. Fat increase. Slight kcal decrease.",
+    }
+
+    return {
+        "kcalChange":    kcal_change,
+        "splitChange":   split_change,
+        "description":   descriptions.get(macro_day, "Standard macro day."),
+        "applyFrom":     "baseline",
+        "applyFromNote": (
+            "Apply ingredient deltas from the LOCKED BASELINE values, not from "
+            "the previous day's actuals. Baseline: 330.9g C / 54.4g F / 173.9g P."
+        ),
+    }
 
 
 def _build_cycles_block(
@@ -320,7 +421,8 @@ def _build_cycles_block(
             "state":     resource_state,
             "governor":  "nutrition_targets",
             "output": {
-                "macroDay":              macro_day,
+                "macroDay":    macro_day,
+                "macroIntent": _macro_intent(macro_day, macro_delta),
                 "macroTargets":          macro_targets,
                 "macroDelta":            macro_delta,
                 "ingredientAdjustments": ingredient_adjustments,
