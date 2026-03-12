@@ -556,3 +556,42 @@ def get_history(
         "count": len(rows),
         "logs": [_log_to_dict(r) for r in rows],
     }
+
+
+@router.get("/recommendation/latest")
+def get_latest_recommendation(
+    expo_user_id: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    log_row = db.query(VitalsDailyLog).filter(
+        VitalsDailyLog.expo_user_id == expo_user_id,
+        VitalsDailyLog.oscillator_composite_score.isnot(None),
+    ).order_by(VitalsDailyLog.date.desc()).first()
+
+    if not log_row:
+        raise HTTPException(status_code=404, detail=f"No computed recommendation found for {expo_user_id}")
+
+    result = compute_daily_recommendation(db, expo_user_id, log_row)
+    return {
+        "date": str(log_row.date),
+        "expo_user_id": expo_user_id,
+        "recommendation": {
+            "date": str(log_row.date),
+            "cycleDay28": result["cycleDay28"],
+            "cycleWeekType": result["cycleWeekType"],
+            "scores": result["composite"],
+            "flags": result["flags"],
+            "recommendedCardioMode": result["recommendedCardioMode"],
+            "recommendedLiftMode": result["recommendedLiftMode"],
+            "recommendedMacroDayType": result["recommendedMacroDayType"],
+            "macroTargets": result["macroTargets"],
+            "macroDelta": result["macroDelta"],
+            "mealTimingTargets": result["mealTimingTargets"],
+            "reasoning": result["reasoning"],
+        },
+        "scoreBreakdowns": {
+            "acute": result["acuteResult"]["breakdown"],
+            "resource": result["resourceResult"]["breakdown"],
+            "seasonal": result["seasonalResult"]["breakdown"],
+        },
+    }

@@ -1,0 +1,42 @@
+Ok Intel has the view of the current prod data this is what it is asking of you. What do you think the wisest thing to do to honor the plan tab and keep that fairly stable and unchanged and all Intel to help advise the current daily log entry as well as workout advise of how cardio and lifting will be advised given its process of the oscillator. I am ok if you want to advise Intel on how to feel the oscillator into the oscillator you have already built in vitals tab and if can feed you its data and you can compare Intel data metrics vs prod expo oscillator metrics and confirm if values align then it can decide how best to rid that input into other systems which adjust macros or adjust training recommendations like in readiness score etc.
+
+Think first obtain oscillator full system in vitals to start how to get that from Intel for yourself. As it is already linked to my prod data.
+Let me fully read the existing oscillator system and vitals tab before proposing anything:
+While those run, let me also pull a live Intel oscillator response and the current Expo oscillator response side-by-side to directly compare the two systems:
+Now I have everything I need. Let me give you the full architectural picture before touching a single line of code.
+
+Side-by-Side Comparison: Intel vs Expo Oscillator
+Metric	Intel	Expo	Alignment
+cycleDay28	1 (Prime week)	24 (Resensitize week)	❌ Anchors disagree
+Composite	47	56	❌ Different
+Class	Reset	Controlled Build	❌ Different
+Lift mode	recovery_patterning	pump	❌ Different
+Cardio mode	zone_2	zone_2	✅ Agree
+Carbs target	290g	350g	❌ Different
+HRV data used	✅ 38.5ms (suppressed)	❌ hasHrv=false	← root cause
+Root cause of the divergence: Intel is reading your actual HRV (38.5ms, flagged as suppressed) and responding with a recovery prescription. Expo's oscillator has hasHrv=false, hasRhr=false, hasSleep=false — it's flying blind on acute signals and defaulting upward. Intel is right. Expo is overestimating today.
+
+The cycle anchor disagreement is the other critical one: Intel anchored its 28-day cycle on March 11 (your first data submission). Expo uses a different anchor entirely. Until these agree, cycle-phase recommendations (what week type you're in) will conflict.
+
+What I Recommend (wisest path, Plan tab untouched)
+What already works (don't touch):
+
+Vitals tab already prefers Intel data via mapIntelToOscillator() ✅
+Intel recommendation stored in AsyncStorage on every save ✅
+Plan tab runs independently off readiness engine — leave it alone ✅
+Three things to build, in order of impact:
+
+1. Surface Intel's advisory in the Daily Log (highest value, zero Plan tab risk)
+Add a compact "Today's Intel" card at the top of the Log form that reads from the stored Intel recommendation: shows cardio mode, lift mode, macro day type, and any active flags (hardStopFatigue, suppressedHrv). The user sees Intel's guidance while filling out their log. This is read-only and doesn't change any existing logic.
+
+2. A persistent Intel recommendation endpoint (infrastructure, not display)
+Right now Intel's recommendation only lives in AsyncStorage and gets overwritten on each save. A GET /api/intel/recommendation/latest endpoint pulls the most recent Intel response from the DB so the app can always access it even without a recent save. This is what lets other parts of the app (future readiness score integration) read Intel's data cleanly.
+
+3. Tell Intel the cycle anchor — resolve the cycleDay28 disagreement. Expo currently has its cycle anchored. Intel needs to know that anchor date so they compute the same week type. This is a message to Intel, not a code change here.
+
+What NOT to build yet:
+
+Don't merge the two oscillators into one number
+Don't pipe Intel into the readiness engine yet (the readiness engine uses a different methodology — wait until the cycle anchors agree)
+Don't touch the Plan tab, coaching engine, or workout engine
+Want me to start with item 1 — the Intel advisory card in the Daily Log?
