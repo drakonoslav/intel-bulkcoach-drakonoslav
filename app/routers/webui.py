@@ -96,7 +96,9 @@ def get_log_data(expo_user_id: str, date: str, db: Session = Depends(get_db)):
         "protein_g_actual":    f(row.protein_g_actual),
         "carbs_g_actual":      f(row.carbs_g_actual),
         "fat_g_actual":        f(row.fat_g_actual),
-        "meal_actuals_json":   row.meal_actuals_json,
+        "meal_actuals_json":      row.meal_actuals_json,
+        "meal_adherence_json":    row.meal_adherence_json,
+        "recommended_macro_day":  row.recommended_macro_day,
     }
 
 
@@ -175,6 +177,78 @@ async def save_meal_actuals(payload: dict, db: Session = Depends(get_db)):
     _write_all(updated)
 
     return {"ok": True, "totals": totals}
+
+
+@router.post("/log/meal-adherence", include_in_schema=False)
+async def save_meal_adherence(payload: dict, db: Session = Depends(get_db)):
+    """Save per-window meal adherence (base/adj/skip) and tally day kcal."""
+    import datetime
+    from app.csv_log import _read_all, _write_all
+
+    expo_user_id = payload.get("expo_user_id")
+    date_str     = payload.get("date")
+    adherence    = payload.get("adherence", {})   # {window: {status, base_kcal, adj_kcal, logged_kcal}}
+    day_type     = payload.get("day_type", "build")
+    total_kcal   = payload.get("total_kcal", 0)
+    target_kcal  = payload.get("target_kcal", 0)
+    kcal_delta   = payload.get("kcal_delta", 0)
+
+    if not expo_user_id or not date_str:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="expo_user_id and date required")
+
+    row = db.query(VitalsDailyLog).filter(
+        VitalsDailyLog.expo_user_id == expo_user_id,
+        VitalsDailyLog.date == date_str,
+    ).first()
+    if not row:
+        row = VitalsDailyLog(expo_user_id=expo_user_id, date=date_str)
+        db.add(row)
+
+    adherence_doc = dict(adherence)
+    adherence_doc["day_type"]    = day_type
+    adherence_doc["total_kcal"]  = total_kcal
+    adherence_doc["target_kcal"] = target_kcal
+    adherence_doc["kcal_delta"]  = kcal_delta
+
+    row.meal_adherence_json = adherence_doc
+    # Mirror total into kcal_actual so the brain can read carry-over
+    if total_kcal:
+        row.kcal_actual = total_kcal
+
+    db.commit()
+
+    # Update CSV
+    logged_at = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    extra = {
+        "adherence_logged_at":   logged_at,
+        "adherence_day_type":    day_type,
+        "adherence_kcal_total":  total_kcal,
+        "adherence_kcal_target": target_kcal,
+        "adherence_kcal_delta":  kcal_delta,
+    }
+    existing = _read_all()
+    updated = []
+    found = False
+    for r in existing:
+        if r.get("expo_user_id") == expo_user_id and r.get("date") == date_str:
+            r.update(extra)
+            updated.append(r)
+            found = True
+        else:
+            updated.append(r)
+    if not found:
+        new_row = {"expo_user_id": expo_user_id, "date": date_str}
+        new_row.update(extra)
+        updated.append(new_row)
+    _write_all(updated)
+
+    return {
+        "ok": True,
+        "total_kcal":  total_kcal,
+        "target_kcal": target_kcal,
+        "kcal_delta":  kcal_delta,
+    }
 
 
 _HTML = r"""<!DOCTYPE html>
@@ -309,6 +383,27 @@ body{padding:0 0 80px 0}
 .meas-side input:focus{outline:none}
 .meas-side input::placeholder{color:#333;font-weight:400}
 .meas-group-lbl{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;padding:10px 0 4px;margin:0}
+/* ── Meal Adherence ── */
+.adh-badge{font-size:.7rem;font-weight:600;background:#1c1c1c;color:var(--accent);padding:2px 8px;border-radius:20px;margin-left:8px;vertical-align:middle;text-transform:capitalize}
+.adh-row{padding:10px 0;border-bottom:1px solid var(--border)}
+.adh-row:last-child{border-bottom:none}
+.adh-win-label{display:flex;align-items:baseline;gap:8px;margin-bottom:7px}
+.adh-win-name{font-size:.88rem;font-weight:600;color:var(--text)}
+.adh-win-time{font-size:.72rem;color:var(--muted)}
+.adh-btns{display:flex;gap:6px}
+.adh-btn{flex:1;padding:8px 4px;border-radius:8px;border:1.5px solid #333;background:transparent;color:var(--muted);font-size:.75rem;font-weight:600;cursor:pointer;text-align:center;transition:background .15s,border-color .15s,color .15s;-webkit-tap-highlight-color:transparent}
+.adh-btn:active{opacity:.75}
+.adh-kcal{display:block;font-size:.65rem;font-weight:400;margin-top:1px;color:inherit;opacity:.8}
+.adh-btn.adh-base.active{background:#14532d;border-color:var(--green);color:var(--green)}
+.adh-btn.adh-adj.active{background:#431407;border-color:var(--accent);color:var(--accent)}
+.adh-btn.adh-skip.active{background:#450a0a;border-color:var(--red);color:var(--red)}
+.adh-tally-row{display:flex;justify-content:space-between;align-items:center;padding:14px 0 10px;border-top:1px solid var(--border);margin-top:4px}
+.adh-tally-label{font-size:.78rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.adh-save-btn{width:100%;padding:13px;background:#1c1c1c;border:1.5px solid var(--accent);border-radius:var(--radius);color:var(--accent);font-size:.95rem;font-weight:700;cursor:pointer;letter-spacing:.4px;margin-top:4px}
+.adh-save-btn:active{opacity:.8}
+.adh-save-btn:disabled{opacity:.4;cursor:not-allowed}
+.adh-carryover{margin-top:14px;background:#0f1f0f;border:1px solid #1f4b1f;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.adh-carry-label{font-size:.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}
 </style>
 </head>
 <body>
@@ -560,6 +655,18 @@ body{padding:0 0 80px 0}
   </div>
 </div>
 
+<!-- MEAL ADHERENCE -->
+<div class="section">
+  <div class="section-title">Meal Adherence <span id="adh-day-badge" class="adh-badge">Build Day</span></div>
+  <div id="adh-windows"><!-- populated by JS --></div>
+  <div class="adh-tally-row">
+    <span class="adh-tally-label">Day Total</span>
+    <span id="adh-tally" style="color:var(--muted);font-size:.9rem">Tap meals above</span>
+  </div>
+  <button class="adh-save-btn" id="adh-save-btn" onclick="saveAdherence()">Save Adherence</button>
+  <div id="adh-carryover" class="adh-carryover" style="display:none"></div>
+</div>
+
 <div class="submit-wrap">
   <button class="submit-btn" id="submit-btn" onclick="submitLog()">Submit Daily Log</button>
 </div>
@@ -634,7 +741,11 @@ async function loadDate(){
   try {
     const res = await fetch(`/log/data?expo_user_id=${USER_ID}&date=${date}`);
     const d = await res.json();
-    if(!d.found) return;
+    if(!d.found){
+      resetAdherence();
+      loadAdherencePlan("build");
+      return;
+    }
 
     // sleep
     setTime('sleep_onset', d.sleep_onset_hhmm);
@@ -686,6 +797,14 @@ async function loadDate(){
     setNum('protein', d.protein_g_actual);
     setNum('carbs',   d.carbs_g_actual);
     setNum('fat',     d.fat_g_actual);
+
+    // meal adherence — restore saved state and re-fetch kcal plan for that day type
+    resetAdherence();
+    if(d.meal_adherence_json) {
+      loadSavedAdherence(d.meal_adherence_json, d.recommended_macro_day || "build");
+    } else {
+      loadAdherencePlan(d.recommended_macro_day || "build");
+    }
 
   } catch(e){ /* no data for this date, form stays blank */ }
 }
@@ -849,7 +968,169 @@ function renderResults(json){
 
   // Food plan — fetch and render prep card
   const dayType = rec?.recommendedMacroDayType;
-  if(dayType) renderFoodPlan(dayType);
+  if(dayType) {
+    renderFoodPlan(dayType);
+    loadAdherencePlan(dayType);
+  }
+}
+
+// ── Meal Adherence ────────────────────────────────────────────────────────────
+const ADH_WINDOWS = [
+  {name:"Pre-Cardio",      time:"05:30", intel:false},
+  {name:"Post-Cardio",     time:"06:45", intel:false},
+  {name:"Mid-Morning",     time:"11:30", intel:false},
+  {name:"Pre-Lift",        time:"15:45", intel:false},
+  {name:"Post-Lift",       time:"18:20", intel:false},
+  {name:"Evening Meal",    time:"20:00", intel:false},
+  {name:"Evening Protein", time:"21:30", intel:true},
+];
+let _adhState    = {};   // {windowName: "base"|"adj"|"skip"|null}
+let _adhPlan     = {};   // {windowName: {base_kcal, adj_kcal}}
+let _adhDayType  = "build";
+let _adhTargetKcal = 2696;
+
+function resetAdherence(){
+  ADH_WINDOWS.forEach(w=>{ _adhState[w.name]=null; _adhPlan[w.name]={base_kcal:0,adj_kcal:0}; });
+  const carry=document.getElementById("adh-carryover");
+  if(carry) carry.style.display="none";
+  renderAdherenceWindows();
+  updateAdherenceTally();
+}
+
+function loadAdherencePlan(dayType){
+  _adhDayType = dayType||"build";
+  const badge=document.getElementById("adh-day-badge");
+  if(badge) badge.textContent=_adhDayType.charAt(0).toUpperCase()+_adhDayType.slice(1)+" Day";
+  Promise.all([
+    fetch("/log/meal-plan?day_type=build").then(r=>r.json()),
+    fetch(`/log/meal-plan?day_type=${_adhDayType}`).then(r=>r.json()),
+  ]).then(([bp,ap])=>{
+    const b=bp.plan||{}, a=ap.plan||{};
+    let tot=0;
+    ADH_WINDOWS.forEach(w=>{
+      _adhPlan[w.name]={base_kcal:b[w.name]?.kcal??0, adj_kcal:a[w.name]?.kcal??0};
+      tot+=b[w.name]?.kcal??0;
+    });
+    _adhTargetKcal=tot;
+    renderAdherenceWindows();
+    updateAdherenceTally();
+  });
+}
+
+function renderAdherenceWindows(){
+  const el=document.getElementById("adh-windows");
+  if(!el) return;
+  el.innerHTML=ADH_WINDOWS.map(w=>{
+    const pl=_adhPlan[w.name]||{base_kcal:0,adj_kcal:0};
+    const bk=pl.base_kcal, ak=pl.adj_kcal;
+    const st=_adhState[w.name];
+    const winId=w.name.replace(/\s+/g,'-');
+    const intelNote=w.intel?'<span style="font-size:.65rem;color:var(--muted)"> · Intel-managed</span>':'';
+    return `<div class="adh-row" id="adh-row-${winId}">
+  <div class="adh-win-label">
+    <span class="adh-win-name">${w.name}</span>${intelNote}
+    <span class="adh-win-time">${w.time}</span>
+  </div>
+  <div class="adh-btns">
+    <button class="adh-btn adh-base${st==='base'?' active':''}"
+      onclick="tapAdherence('${w.name}','base')">
+      Base${bk?`<span class="adh-kcal">${bk} kcal</span>`:''}
+    </button>
+    <button class="adh-btn adh-adj${st==='adj'?' active':''}"
+      onclick="tapAdherence('${w.name}','adj')">
+      Adj${ak?`<span class="adh-kcal">${ak} kcal</span>`:''}
+    </button>
+    <button class="adh-btn adh-skip${st==='skip'?' active':''}"
+      onclick="tapAdherence('${w.name}','skip')">
+      Skip
+    </button>
+  </div>
+</div>`;
+  }).join('');
+}
+
+function tapAdherence(winName, status){
+  _adhState[winName]=(_adhState[winName]===status)?null:status;
+  renderAdherenceWindows();
+  updateAdherenceTally();
+}
+
+function updateAdherenceTally(){
+  let total=0;
+  ADH_WINDOWS.forEach(w=>{
+    const st=_adhState[w.name], pl=_adhPlan[w.name]||{base_kcal:0,adj_kcal:0};
+    if(st==='base') total+=pl.base_kcal||0;
+    else if(st==='adj') total+=pl.adj_kcal||0;
+  });
+  const target=_adhTargetKcal||2696;
+  const pct=target?Math.round(total/target*100):0;
+  const el=document.getElementById("adh-tally");
+  if(el) el.innerHTML=`<span style="color:var(--accent);font-weight:700">${total.toLocaleString()}</span>`+
+    ` / ${target.toLocaleString()} kcal`+
+    `<span style="color:var(--muted);font-size:.78rem;margin-left:6px">${pct}%</span>`;
+}
+
+async function saveAdherence(){
+  const uid=USER_ID; const date=dateEl.value;
+  if(!uid||!date){showToast("User ID not set","err");return;}
+  let total=0;
+  const windowsData={};
+  ADH_WINDOWS.forEach(w=>{
+    const st=_adhState[w.name], pl=_adhPlan[w.name]||{base_kcal:0,adj_kcal:0};
+    const logged_kcal=st==='base'?(pl.base_kcal||0):st==='adj'?(pl.adj_kcal||0):0;
+    total+=logged_kcal;
+    windowsData[w.name]={status:st||"not_logged",base_kcal:pl.base_kcal||0,adj_kcal:pl.adj_kcal||0,logged_kcal};
+  });
+  const target=_adhTargetKcal||2696;
+  const delta=total-target;
+  const btn=document.getElementById("adh-save-btn");
+  if(btn){btn.disabled=true;btn.textContent="Saving…";}
+  const res=await fetch("/log/meal-adherence",{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({expo_user_id:uid,date,day_type:_adhDayType,adherence:windowsData,total_kcal:total,target_kcal:target,kcal_delta:delta}),
+  });
+  if(btn){btn.disabled=false;btn.textContent="Save Adherence";}
+  if(res.ok){
+    showToast("Adherence saved ✓","ok");
+    const carry=document.getElementById("adh-carryover");
+    if(carry){
+      const sign=delta>=0?"+":"";
+      const col=delta>=0?"var(--green)":"var(--red)";
+      carry.style.display="flex";
+      carry.innerHTML=`<span class="adh-carry-label">Walking into tomorrow</span>`+
+        `<span style="color:${col};font-weight:700;font-size:1rem">${sign}${Math.abs(delta).toLocaleString()} kcal ${delta>=0?'surplus':'deficit'}</span>`+
+        `<span style="color:var(--muted);font-size:.75rem">${total.toLocaleString()} consumed · ${target.toLocaleString()} target</span>`;
+    }
+  } else { showToast("Save failed — try again","err"); }
+}
+
+function loadSavedAdherence(adherenceJson, dayType){
+  if(!adherenceJson) return;
+  _adhDayType=dayType||"build";
+  const badge=document.getElementById("adh-day-badge");
+  if(badge) badge.textContent=_adhDayType.charAt(0).toUpperCase()+_adhDayType.slice(1)+" Day";
+  ADH_WINDOWS.forEach(w=>{
+    const saved=adherenceJson[w.name];
+    if(saved?.status&&saved.status!=="not_logged"){
+      _adhState[w.name]=saved.status;
+      _adhPlan[w.name]={base_kcal:saved.base_kcal||0,adj_kcal:saved.adj_kcal||0};
+    } else { _adhState[w.name]=null; }
+  });
+  _adhTargetKcal=adherenceJson.target_kcal||2696;
+  const total=adherenceJson.total_kcal||0;
+  const target=adherenceJson.target_kcal||2696;
+  const delta=adherenceJson.kcal_delta||0;
+  const carry=document.getElementById("adh-carryover");
+  if(carry&&total){
+    const sign=delta>=0?"+":"";
+    const col=delta>=0?"var(--green)":"var(--red)";
+    carry.style.display="flex";
+    carry.innerHTML=`<span class="adh-carry-label">Walking into tomorrow</span>`+
+      `<span style="color:${col};font-weight:700;font-size:1rem">${sign}${Math.abs(delta).toLocaleString()} kcal ${delta>=0?'surplus':'deficit'}</span>`+
+      `<span style="color:var(--muted);font-size:.75rem">${total.toLocaleString()} consumed · ${target.toLocaleString()} target</span>`;
+  }
+  renderAdherenceWindows();
+  updateAdherenceTally();
 }
 
 // ── Ingredient macro density (brain's own values) ─────────────────────────────

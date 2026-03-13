@@ -90,6 +90,12 @@ COLUMNS = [
     "day_f_planned",
     "day_f_actual",
     "day_f_delta",
+    # meal adherence (base/adj/skip logged per window)
+    "adherence_logged_at",
+    "adherence_day_type",
+    "adherence_kcal_total",
+    "adherence_kcal_target",
+    "adherence_kcal_delta",
 ]
 
 

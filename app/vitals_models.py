@@ -195,6 +195,11 @@ class VitalsDailyLog(Base):
     #             ingredients:{name:{planned_qty, actual_qty}}}, ..., totals:{...}}
     meal_actuals_json = Column(JSONB)
 
+    # Per-window adherence log — stored when user logs what they actually ate
+    # Structure: {window: {status:"base"|"adj"|"skip", base_kcal:N, adj_kcal:N, logged_kcal:N},
+    #             day_type:"build", total_kcal:N, target_kcal:N, kcal_delta:N}
+    meal_adherence_json = Column(JSONB)
+
     notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
