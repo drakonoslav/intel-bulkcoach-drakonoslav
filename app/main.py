@@ -19,6 +19,7 @@ from app.routers import datasets, matrix, volume, reports, optimizer, composite,
 from app.routers import vitals as vitals_router
 from app.routers import users as users_router
 from app.routers import schema as schema_router
+from app.routers import webui as webui_router
 
 _parsed = urlparse(DATABASE_URL)
 _dialect = _parsed.scheme.split("+")[0] if "+" in _parsed.scheme else _parsed.scheme
@@ -148,6 +149,7 @@ app.include_router(game.router)
 app.include_router(vitals_router.router)
 app.include_router(users_router.router)
 app.include_router(schema_router.router)
+app.include_router(webui_router.router)
 
 
 @app.get("/health", tags=["system"], summary="Service health check")
