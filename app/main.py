@@ -74,6 +74,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    import time, json as _json
+    body_bytes = await request.body()
+    body_str = ""
+    if body_bytes:
+        try:
+            body_str = _json.dumps(_json.loads(body_bytes), separators=(",", ":"))[:400]
+        except Exception:
+            body_str = body_bytes.decode(errors="replace")[:200]
+
+    path = request.url.path
+    qs   = str(request.url.query)
+    src  = request.headers.get("x-forwarded-for", request.client.host if request.client else "?")
+
+    async def receive():
+        return {"type": "http.request", "body": body_bytes}
+
+    request = Request(request.scope, receive)
+    t0 = time.monotonic()
+    response = await call_next(request)
+    ms = (time.monotonic() - t0) * 1000
+
+    if path not in ("/health", "/", "/openapi.json", "/docs", "/redoc"):
+        print(
+            f"[BRAIN] {request.method} {path}{'?' + qs if qs else ''}  "
+            f"status={response.status_code}  ms={ms:.0f}  from={src}  body={body_str or '(empty)'}",
+            flush=True,
+        )
+
+    return response
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     error_id = uuid.uuid4().hex[:12]
