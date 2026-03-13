@@ -384,26 +384,40 @@ body{padding:0 0 80px 0}
 .meas-side input:focus{outline:none}
 .meas-side input::placeholder{color:#333;font-weight:400}
 .meas-group-lbl{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;padding:10px 0 4px;margin:0}
-/* ── Meal Adherence ── */
+/* ── Meal Prep & Adherence ── */
 .adh-badge{font-size:.7rem;font-weight:600;background:#1c1c1c;color:var(--accent);padding:2px 8px;border-radius:20px;margin-left:8px;vertical-align:middle;text-transform:capitalize}
-.adh-row{padding:10px 0;border-bottom:1px solid var(--border)}
+.adh-row{padding:14px 0;border-bottom:1px solid var(--border)}
 .adh-row:last-child{border-bottom:none}
-.adh-win-label{display:flex;align-items:baseline;gap:8px;margin-bottom:7px}
-.adh-win-name{font-size:.88rem;font-weight:600;color:var(--text)}
-.adh-win-time{font-size:.72rem;color:var(--muted)}
+.adh-win-label{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+.adh-win-name{font-size:.95rem;font-weight:700;color:var(--text)}
+.adh-win-time{font-size:.75rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.adh-intel-note{font-size:.65rem;color:var(--muted);margin-left:4px}
+/* ingredient prep card */
+.adh-foods{display:flex;gap:1px;margin-bottom:10px;border-radius:10px;overflow:hidden;border:1px solid #222}
+.adh-foods-col{flex:1;background:#111;padding:10px 11px}
+.adh-foods-col+.adh-foods-col{border-left:1px solid #222}
+.adh-foods-hdr{font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.9px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #222}
+.adh-hdr-base{color:var(--green)}
+.adh-hdr-adj{color:var(--accent)}
+.adh-food-row{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;border-bottom:1px solid #1a1a1a}
+.adh-food-row:last-of-type{border-bottom:none}
+.adh-food-name{font-size:.8rem;color:#aaa;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.adh-food-amt{font-size:.95rem;font-weight:800;color:var(--text);margin-left:6px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.adh-foods-kcal{font-size:.7rem;color:var(--muted);text-align:right;margin-top:7px;padding-top:6px;border-top:1px solid #1f1f1f}
+/* tap buttons */
 .adh-btns{display:flex;gap:6px}
-.adh-btn{flex:1;padding:8px 4px;border-radius:8px;border:1.5px solid #333;background:transparent;color:var(--muted);font-size:.75rem;font-weight:600;cursor:pointer;text-align:center;transition:background .15s,border-color .15s,color .15s;-webkit-tap-highlight-color:transparent}
-.adh-btn:active{opacity:.75}
-.adh-kcal{display:block;font-size:.65rem;font-weight:400;margin-top:1px;color:inherit;opacity:.8}
-.adh-btn.adh-base.active{background:#14532d;border-color:var(--green);color:var(--green)}
+.adh-btn{flex:1;padding:10px 4px;border-radius:9px;border:1.5px solid #2a2a2a;background:#111;color:var(--muted);font-size:.78rem;font-weight:700;cursor:pointer;text-align:center;transition:background .12s,border-color .12s,color .12s;-webkit-tap-highlight-color:transparent;letter-spacing:.2px}
+.adh-btn:active{opacity:.7}
+.adh-kcal{display:block;font-size:.66rem;font-weight:400;margin-top:2px;color:inherit;opacity:.75}
+.adh-btn.adh-base.active{background:#052e16;border-color:#16a34a;color:var(--green)}
 .adh-btn.adh-adj.active{background:#431407;border-color:var(--accent);color:var(--accent)}
 .adh-btn.adh-skip.active{background:#450a0a;border-color:var(--red);color:var(--red)}
 .adh-tally-row{display:flex;justify-content:space-between;align-items:center;padding:14px 0 10px;border-top:1px solid var(--border);margin-top:4px}
-.adh-tally-label{font-size:.78rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-.adh-save-btn{width:100%;padding:13px;background:#1c1c1c;border:1.5px solid var(--accent);border-radius:var(--radius);color:var(--accent);font-size:.95rem;font-weight:700;cursor:pointer;letter-spacing:.4px;margin-top:4px}
+.adh-tally-label{font-size:.78rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.adh-save-btn{width:100%;padding:14px;background:#111;border:1.5px solid var(--accent);border-radius:var(--radius);color:var(--accent);font-size:1rem;font-weight:700;cursor:pointer;letter-spacing:.4px;margin-top:4px}
 .adh-save-btn:active{opacity:.8}
 .adh-save-btn:disabled{opacity:.4;cursor:not-allowed}
-.adh-carryover{margin-top:14px;background:#0f1f0f;border:1px solid #1f4b1f;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.adh-carryover{margin-top:14px;background:#071a07;border:1px solid #1a3d1a;border-radius:10px;padding:13px 14px;display:flex;flex-direction:column;gap:5px}
 .adh-carry-label{font-size:.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}
 </style>
 </head>
@@ -660,9 +674,9 @@ body{padding:0 0 80px 0}
   </div>
 </div>
 
-<!-- MEAL ADHERENCE -->
+<!-- MEAL PREP & ADHERENCE -->
 <div class="section">
-  <div class="section-title">Meal Adherence <span id="adh-day-badge" class="adh-badge">Build Day</span></div>
+  <div class="section-title">Meal Prep &amp; Adherence <span id="adh-day-badge" class="adh-badge">Build Day</span></div>
   <div id="adh-windows"><!-- populated by JS --></div>
   <div class="adh-tally-row">
     <span class="adh-tally-label">Day Total</span>
@@ -992,7 +1006,7 @@ function renderResults(json){
   }
 }
 
-// ── Meal Adherence ────────────────────────────────────────────────────────────
+// ── Meal Prep & Adherence ─────────────────────────────────────────────────────
 const ADH_WINDOWS = [
   {name:"Pre-Cardio",      time:"05:30", intel:false},
   {name:"Post-Cardio",     time:"06:45", intel:false},
@@ -1002,23 +1016,49 @@ const ADH_WINDOWS = [
   {name:"Evening Meal",    time:"20:00", intel:false},
   {name:"Evening Protein", time:"21:30", intel:true},
 ];
-let _adhState    = {};   // {windowName: "base"|"adj"|"skip"|null}
-let _adhPlan     = {};   // {windowName: {base_kcal, adj_kcal}}
-let _adhDayType  = "build";
+let _adhState      = {};  // {windowName: "base"|"adj"|"skip"|null}
+let _adhPlan       = {};  // {windowName: {base_kcal, adj_kcal, base_foods[], adj_foods[]}}
+let _adhDayType    = "build";
 let _adhTargetKcal = 2696;
 
+function _fmtAmt(f){
+  if(f.intel_managed) return "Intel fill";
+  if(f.unit==="whole")  return f.amount+" whole";
+  if(f.unit==="cup")    return f.amount+" cup";
+  return f.amount+"g";
+}
+
+function _foodsColHtml(foods, kcal, hdrLabel, hdrClass){
+  if(!foods||!foods.length) return "";
+  const rows = foods.map(f=>
+    `<div class="adh-food-row">
+       <span class="adh-food-name">${f.name}</span>
+       <span class="adh-food-amt">${_fmtAmt(f)}</span>
+     </div>`
+  ).join("");
+  const hdr = hdrLabel
+    ? `<div class="adh-foods-hdr ${hdrClass}">${hdrLabel}</div>` : "";
+  const tot = kcal
+    ? `<div class="adh-foods-kcal">${kcal} kcal</div>` : "";
+  return `<div class="adh-foods-col">${hdr}${rows}${tot}</div>`;
+}
+
 function resetAdherence(){
-  ADH_WINDOWS.forEach(w=>{ _adhState[w.name]=null; _adhPlan[w.name]={base_kcal:0,adj_kcal:0}; });
+  ADH_WINDOWS.forEach(w=>{
+    _adhState[w.name]=null;
+    _adhPlan[w.name]={base_kcal:0,adj_kcal:0,base_foods:[],adj_foods:[]};
+  });
   const carry=document.getElementById("adh-carryover");
   if(carry) carry.style.display="none";
   renderAdherenceWindows();
   updateAdherenceTally();
 }
 
-function loadAdherencePlan(dayType){
+function loadAdherencePlan(dayType, afterLoad){
   _adhDayType = dayType||"build";
   const badge=document.getElementById("adh-day-badge");
-  if(badge) badge.textContent=_adhDayType.charAt(0).toUpperCase()+_adhDayType.slice(1)+" Day";
+  const dtLabel=_adhDayType.charAt(0).toUpperCase()+_adhDayType.slice(1);
+  if(badge) badge.textContent=dtLabel+" Day";
   Promise.all([
     fetch("/log/meal-plan?day_type=build").then(r=>r.json()),
     fetch(`/log/meal-plan?day_type=${_adhDayType}`).then(r=>r.json()),
@@ -1026,37 +1066,67 @@ function loadAdherencePlan(dayType){
     const b=bp.plan||{}, a=ap.plan||{};
     let tot=0;
     ADH_WINDOWS.forEach(w=>{
-      _adhPlan[w.name]={base_kcal:b[w.name]?.kcal??0, adj_kcal:a[w.name]?.kcal??0};
+      _adhPlan[w.name]={
+        base_kcal:  b[w.name]?.kcal??0,
+        adj_kcal:   a[w.name]?.kcal??0,
+        base_foods: b[w.name]?.foods??[],
+        adj_foods:  a[w.name]?.foods??[],
+      };
       tot+=b[w.name]?.kcal??0;
     });
     _adhTargetKcal=tot;
     renderAdherenceWindows();
     updateAdherenceTally();
+    if(afterLoad) afterLoad();
   });
 }
 
 function renderAdherenceWindows(){
   const el=document.getElementById("adh-windows");
   if(!el) return;
+  const isBuilt = _adhDayType==="build";
+  const dtLabel = _adhDayType.charAt(0).toUpperCase()+_adhDayType.slice(1);
+
   el.innerHTML=ADH_WINDOWS.map(w=>{
-    const pl=_adhPlan[w.name]||{base_kcal:0,adj_kcal:0};
-    const bk=pl.base_kcal, ak=pl.adj_kcal;
-    const st=_adhState[w.name];
+    const pl  =_adhPlan[w.name]||{base_kcal:0,adj_kcal:0,base_foods:[],adj_foods:[]};
+    const bk  =pl.base_kcal, ak=pl.adj_kcal;
+    const bf  =pl.base_foods, af=pl.adj_foods;
+    const st  =_adhState[w.name];
     const winId=w.name.replace(/\s+/g,'-');
-    const intelNote=w.intel?'<span style="font-size:.65rem;color:var(--muted)"> · Intel-managed</span>':'';
+
+    // Build the ingredient card
+    let foodsHtml="";
+    if(bf.length||af.length){
+      if(isBuilt){
+        // Single column — no header needed, just BASE
+        const col=_foodsColHtml(bf, bk, "", "");
+        foodsHtml=`<div class="adh-foods" style="display:block">${col}</div>`;
+      } else {
+        // Dual column: BASE (green) | ADJ day type (orange)
+        const bCol=_foodsColHtml(bf, bk, "Base (Build)", "adh-hdr-base");
+        const aCol=_foodsColHtml(af, ak, `Adj (${dtLabel})`, "adh-hdr-adj");
+        foodsHtml=`<div class="adh-foods">${bCol}${aCol}</div>`;
+      }
+    } else if(w.intel){
+      foodsHtml=`<div class="adh-foods" style="display:block"><div class="adh-foods-col"><div class="adh-food-row"><span class="adh-food-name">Whey protein</span><span class="adh-food-amt" style="color:var(--muted)">Intel fill</span></div></div></div>`;
+    }
+
+    const intelNote=w.intel?`<span class="adh-intel-note">· Intel-managed</span>`:"";
+
     return `<div class="adh-row" id="adh-row-${winId}">
   <div class="adh-win-label">
     <span class="adh-win-name">${w.name}</span>${intelNote}
     <span class="adh-win-time">${w.time}</span>
   </div>
+  ${foodsHtml}
   <div class="adh-btns">
     <button class="adh-btn adh-base${st==='base'?' active':''}"
       onclick="tapAdherence('${w.name}','base')">
-      Base${bk?`<span class="adh-kcal">${bk} kcal</span>`:''}
+      Base${bk?`<span class="adh-kcal">${bk} kcal</span>`:""}
     </button>
     <button class="adh-btn adh-adj${st==='adj'?' active':''}"
       onclick="tapAdherence('${w.name}','adj')">
-      Adj${ak?`<span class="adh-kcal">${ak} kcal</span>`:''}
+      Adj${ak?`<span class="adh-kcal">${ak} kcal</span>`:""}
     </button>
     <button class="adh-btn adh-skip${st==='skip'?' active':''}"
       onclick="tapAdherence('${w.name}','skip')">
@@ -1064,7 +1134,7 @@ function renderAdherenceWindows(){
     </button>
   </div>
 </div>`;
-  }).join('');
+  }).join("");
 }
 
 function tapAdherence(winName, status){
@@ -1124,31 +1194,29 @@ async function saveAdherence(){
 
 function loadSavedAdherence(adherenceJson, dayType){
   if(!adherenceJson) return;
-  _adhDayType=dayType||"build";
-  const badge=document.getElementById("adh-day-badge");
-  if(badge) badge.textContent=_adhDayType.charAt(0).toUpperCase()+_adhDayType.slice(1)+" Day";
+  // Apply saved tap states first
   ADH_WINDOWS.forEach(w=>{
     const saved=adherenceJson[w.name];
-    if(saved?.status&&saved.status!=="not_logged"){
-      _adhState[w.name]=saved.status;
-      _adhPlan[w.name]={base_kcal:saved.base_kcal||0,adj_kcal:saved.adj_kcal||0};
-    } else { _adhState[w.name]=null; }
+    _adhState[w.name]=(saved?.status&&saved.status!=="not_logged")?saved.status:null;
   });
   _adhTargetKcal=adherenceJson.target_kcal||2696;
-  const total=adherenceJson.total_kcal||0;
-  const target=adherenceJson.target_kcal||2696;
-  const delta=adherenceJson.kcal_delta||0;
-  const carry=document.getElementById("adh-carryover");
-  if(carry&&total){
-    const sign=delta>=0?"+":"";
-    const col=delta>=0?"var(--green)":"var(--red)";
-    carry.style.display="flex";
-    carry.innerHTML=`<span class="adh-carry-label">Walking into tomorrow</span>`+
-      `<span style="color:${col};font-weight:700;font-size:1rem">${sign}${Math.abs(delta).toLocaleString()} kcal ${delta>=0?'surplus':'deficit'}</span>`+
-      `<span style="color:var(--muted);font-size:.75rem">${total.toLocaleString()} consumed · ${target.toLocaleString()} target</span>`;
-  }
-  renderAdherenceWindows();
-  updateAdherenceTally();
+  // Load full plan (fetches ingredient foods) then show carryover
+  loadAdherencePlan(dayType||"build", ()=>{
+    const total=adherenceJson.total_kcal||0;
+    const target=adherenceJson.target_kcal||2696;
+    const delta=adherenceJson.kcal_delta||0;
+    const carry=document.getElementById("adh-carryover");
+    if(carry&&total){
+      const sign=delta>=0?"+":"";
+      const col=delta>=0?"var(--green)":"var(--red)";
+      carry.style.display="flex";
+      carry.innerHTML=`<span class="adh-carry-label">Walking into tomorrow</span>`+
+        `<span style="color:${col};font-weight:700;font-size:1rem">${sign}${Math.abs(delta).toLocaleString()} kcal ${delta>=0?'surplus':'deficit'}</span>`+
+        `<span style="color:var(--muted);font-size:.75rem">${total.toLocaleString()} consumed · ${target.toLocaleString()} target</span>`;
+    }
+    renderAdherenceWindows();
+    updateAdherenceTally();
+  });
 }
 
 // ── Ingredient macro density (brain's own values) ─────────────────────────────
