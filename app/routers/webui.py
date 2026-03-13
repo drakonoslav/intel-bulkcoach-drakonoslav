@@ -187,6 +187,7 @@ body{padding:0 0 80px 0}
 .food-qty{font-size:.95rem;font-weight:700;color:var(--text);min-width:52px;flex-shrink:0;text-align:right}
 .food-name{font-size:.88rem;color:var(--text);flex:1}
 .food-macro-hint{font-size:.68rem;color:var(--muted);flex-shrink:0}
+.food-window-time{font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -641,35 +642,43 @@ function renderResults(json){
       .then(mp=>{
         const plan = mp.plan;
         if(!plan) return;
-        const mealMacros = {};
-        (ds.mealTiming?.sections||[]).forEach(s=>{ mealMacros[s.label]=s; });
 
-        const html = Object.entries(plan).map(([window, foods])=>{
-          const m = mealMacros[window]||{};
-          const macroStr = [
-            m.proteinG ? `${m.proteinG}g P` : '',
-            m.carbsG   ? `${m.carbsG}g C`   : '',
-            m.fatG     ? `${m.fatG}g F`     : '',
-          ].filter(Boolean).join(' · ');
+        const html = Object.entries(plan).map(([windowName, w])=>{
+          const isIntel = w.intel_managed;
 
-          const foodRows = foods.map(f=>{
-            const qty = Number.isInteger(f.amount) ? f.amount
-              : f.amount % 1 === 0.5 ? '½'
-              : f.amount === 0.75 ? '¾'
-              : f.amount === 0.25 ? '¼'
-              : f.amount;
-            return `<div class="food-item">
-              <span class="food-qty">${qty} ${f.unit}</span>
-              <span class="food-name">${f.name}</span>
-              <span class="food-macro-hint">${f.macros}</span>
+          // macro summary line
+          const parts = [];
+          if(w.P) parts.push(`<span style="color:#60a5fa">${w.P}g P</span>`);
+          if(w.C) parts.push(`<span style="color:#facc15">${w.C}g C</span>`);
+          if(w.F) parts.push(`<span style="color:#fb923c">${w.F}g F</span>`);
+          if(w.kcal) parts.push(`<span style="color:var(--muted)">${w.kcal} kcal</span>`);
+          const macroLine = parts.join('<span style="color:#333"> · </span>');
+
+          let foodRows = '';
+          if(isIntel){
+            foodRows = `<div class="food-item" style="border:1px dashed #333">
+              <span class="food-name" style="color:var(--muted);font-style:italic">${w.note}</span>
             </div>`;
-          }).join('');
+          } else {
+            foodRows = (w.foods||[]).map(f=>{
+              if(f.intel_managed) return '';
+              const qty = f.amount === 0.75 ? '¾'
+                : f.amount === 0.5  ? '½'
+                : f.amount === 0.25 ? '¼'
+                : f.amount;
+              return `<div class="food-item">
+                <span class="food-qty">${qty} ${f.unit}</span>
+                <span class="food-name">${f.name}</span>
+              </div>`;
+            }).join('');
+          }
 
           return `<div class="food-window">
             <div class="food-window-header">
-              <span class="food-window-name">${window}</span>
-              ${macroStr ? `<span class="food-window-macros">${macroStr}</span>` : ''}
+              <span class="food-window-name">${windowName}</span>
+              <span class="food-window-time">${w.time||''}</span>
             </div>
+            <div style="font-size:.72rem;margin-bottom:6px;padding-left:2px">${macroLine}</div>
             ${foodRows}
           </div>`;
         }).join('');

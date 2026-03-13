@@ -429,12 +429,13 @@ def build_display_spec(result, log_row):
     meal_timing = {
         "label": "Meal Timing Targets",
         "sections": [
-            {"label": "Pre-Cardio",  "carbsG":    mt.get("preCardioCarbsG")},
-            {"label": "Post-Cardio", "proteinG":  mt.get("postCardioProteinG"),  "carbsG": mt.get("postCardioCarbsG"),  "fatG": mt.get("postCardioFatG")},
-            {"label": "Meal 2",      "proteinG":  mt.get("meal2ProteinG"),        "carbsG": mt.get("meal2CarbsG"),       "fatG": mt.get("meal2FatG")},
-            {"label": "Pre-Lift",    "proteinG":  mt.get("preLiftProteinG"),      "carbsG": mt.get("preLiftCarbsG"),     "fatG": mt.get("preLiftFatG")},
-            {"label": "Post-Lift",   "proteinG":  mt.get("postLiftProteinG"),     "carbsG": mt.get("postLiftCarbsG"),    "fatG": mt.get("postLiftFatG")},
-            {"label": "Final Meal",  "proteinG":  mt.get("finalMealProteinG"),    "carbsG": mt.get("finalMealCarbsG"),   "fatG": mt.get("finalMealFatG")},
+            {"label": "Pre-Cardio",     "time": "05:30", "carbsG":   mt.get("preCardioCarbsG")},
+            {"label": "Post-Cardio",    "time": "06:45", "proteinG": mt.get("postCardioProteinG"), "carbsG": mt.get("postCardioCarbsG"), "fatG": mt.get("postCardioFatG")},
+            {"label": "Mid-Morning",    "time": "11:30", "proteinG": mt.get("meal2ProteinG"),       "carbsG": mt.get("meal2CarbsG"),      "fatG": mt.get("meal2FatG")},
+            {"label": "Pre-Lift",       "time": "15:45", "proteinG": mt.get("preLiftProteinG"),     "carbsG": mt.get("preLiftCarbsG"),    "fatG": mt.get("preLiftFatG")},
+            {"label": "Post-Lift",      "time": "18:20", "proteinG": mt.get("postLiftProteinG"),    "carbsG": mt.get("postLiftCarbsG"),   "fatG": mt.get("postLiftFatG")},
+            {"label": "Evening Meal",   "time": "20:00", "proteinG": mt.get("finalMealProteinG"),   "carbsG": mt.get("finalMealCarbsG"),  "fatG": mt.get("finalMealFatG")},
+            {"label": "Evening Protein","time": "21:30", "note": "Intel-managed — baseline 0g Whey"},
         ],
     }
 
