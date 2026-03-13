@@ -24,6 +24,13 @@ def export_csv():
     )
 
 
+@router.get("/log/meal-plan", include_in_schema=False)
+def get_meal_plan_for_day(day_type: str = "build"):
+    """Return the food plan for a given macro day type."""
+    from app.meal_plan import get_meal_plan
+    return {"dayType": day_type, "plan": get_meal_plan(day_type)}
+
+
 @router.get("/log/data", include_in_schema=False)
 def get_log_data(expo_user_id: str, date: str, db: Session = Depends(get_db)):
     """Return stored values for a given user+date so the form can pre-fill."""
@@ -170,6 +177,16 @@ body{padding:0 0 80px 0}
 .uuid-row input{background:transparent;border:none;color:var(--muted);font-size:.7rem;font-family:monospace;flex:1;min-width:0}
 .csv-btn{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:.75rem;padding:5px 10px;text-decoration:none;white-space:nowrap}
 .csv-btn:hover{border-color:var(--accent);color:var(--accent)}
+.food-window{margin-bottom:14px}
+.food-window:last-child{margin-bottom:0}
+.food-window-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.food-window-name{font-size:.78rem;font-weight:700;color:var(--accent)}
+.food-window-macros{font-size:.68rem;color:var(--muted)}
+.food-item{display:flex;align-items:center;gap:10px;padding:7px 10px;background:var(--input);border-radius:8px;margin-bottom:4px}
+.food-item:last-child{margin-bottom:0}
+.food-qty{font-size:.95rem;font-weight:700;color:var(--text);min-width:52px;flex-shrink:0;text-align:right}
+.food-name{font-size:.88rem;color:var(--text);flex:1}
+.food-macro-hint{font-size:.68rem;color:var(--muted);flex-shrink:0}
 </style>
 </head>
 <body>
@@ -210,6 +227,10 @@ body{padding:0 0 80px 0}
   <div class="result-card" id="r-insights" style="display:none">
     <h3>Insights</h3>
     <div id="insights-body"></div>
+  </div>
+  <div class="result-card" id="r-foodplan" style="display:none">
+    <h3>What To Eat Today</h3>
+    <div id="foodplan-body"></div>
   </div>
 </div>
 
@@ -493,7 +514,7 @@ function clearForm(){
 
 function hideResults(){
   document.getElementById('results').style.display='none';
-  ['r-scores','r-reco','r-notices','r-sleep','r-meals','r-insights'].forEach(id=>{
+  ['r-scores','r-reco','r-notices','r-sleep','r-meals','r-insights','r-foodplan'].forEach(id=>{
     document.getElementById(id).style.display='none';
   });
 }
@@ -610,6 +631,52 @@ function renderResults(json){
     document.getElementById('insights-body').innerHTML=ds.insights.map(i=>`
       <div class="insight">• ${i}</div>`).join('');
     document.getElementById('r-insights').style.display='block';
+  }
+
+  // Food plan — fetch based on macro day type
+  const dayType = rec?.recommendedMacroDayType;
+  if(dayType){
+    fetch(`/log/meal-plan?day_type=${dayType}`)
+      .then(r=>r.json())
+      .then(mp=>{
+        const plan = mp.plan;
+        if(!plan) return;
+        const mealMacros = {};
+        (ds.mealTiming?.sections||[]).forEach(s=>{ mealMacros[s.label]=s; });
+
+        const html = Object.entries(plan).map(([window, foods])=>{
+          const m = mealMacros[window]||{};
+          const macroStr = [
+            m.proteinG ? `${m.proteinG}g P` : '',
+            m.carbsG   ? `${m.carbsG}g C`   : '',
+            m.fatG     ? `${m.fatG}g F`     : '',
+          ].filter(Boolean).join(' · ');
+
+          const foodRows = foods.map(f=>{
+            const qty = Number.isInteger(f.amount) ? f.amount
+              : f.amount % 1 === 0.5 ? '½'
+              : f.amount === 0.75 ? '¾'
+              : f.amount === 0.25 ? '¼'
+              : f.amount;
+            return `<div class="food-item">
+              <span class="food-qty">${qty} ${f.unit}</span>
+              <span class="food-name">${f.name}</span>
+              <span class="food-macro-hint">${f.macros}</span>
+            </div>`;
+          }).join('');
+
+          return `<div class="food-window">
+            <div class="food-window-header">
+              <span class="food-window-name">${window}</span>
+              ${macroStr ? `<span class="food-window-macros">${macroStr}</span>` : ''}
+            </div>
+            ${foodRows}
+          </div>`;
+        }).join('');
+
+        document.getElementById('foodplan-body').innerHTML = html;
+        document.getElementById('r-foodplan').style.display = 'block';
+      }).catch(()=>{});
   }
 }
 
