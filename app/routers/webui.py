@@ -388,9 +388,8 @@ fetch('/users/ensure',{method:'POST',headers:{'Content-Type':'application/json'}
 // ── Date helpers ──────────────────────────────────────────────────────────────
 const dateEl = document.getElementById('log-date');
 function todayStr(){
-  const d=new Date();
-  const pad=n=>String(n).padStart(2,'0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  // toLocaleDateString('en-CA') returns YYYY-MM-DD using the device's local timezone
+  return new Date().toLocaleDateString('en-CA');
 }
 dateEl.value = todayStr();
 
