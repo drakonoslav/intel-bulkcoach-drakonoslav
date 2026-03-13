@@ -134,6 +134,23 @@ class VitalsDailyLog(Base):
     waist_measure_confidence = Column(Numeric(4, 3))
     waist_notes = Column(Text)
 
+    # ── Body circumference measurements (inches, decimal — e.g. 31.25 = 31¼") ──
+    neck_in          = Column(Numeric(6, 2))
+    chest_in         = Column(Numeric(6, 2))
+    hip_in           = Column(Numeric(6, 2))
+    bicep_l_in       = Column(Numeric(6, 2))
+    bicep_r_in       = Column(Numeric(6, 2))
+    forearm_l_in     = Column(Numeric(6, 2))
+    forearm_r_in     = Column(Numeric(6, 2))
+    thigh_l_in       = Column(Numeric(6, 2))
+    thigh_r_in       = Column(Numeric(6, 2))
+    calf_l_in        = Column(Numeric(6, 2))
+    calf_r_in        = Column(Numeric(6, 2))
+    ankle_l_in       = Column(Numeric(6, 2))
+    ankle_r_in       = Column(Numeric(6, 2))
+    wrist_l_in       = Column(Numeric(6, 2))
+    wrist_r_in       = Column(Numeric(6, 2))
+
     libido_score = Column(Integer)
     morning_erection_score = Column(Integer)
     motivation_score = Column(Integer)

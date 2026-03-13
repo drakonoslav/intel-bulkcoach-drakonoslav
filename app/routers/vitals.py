@@ -165,6 +165,22 @@ class DailyLogIn(BaseModel):
     waist_measure_confidence: Optional[float] = None
     waist_notes: Optional[str] = None
 
+    neck_in: Optional[float] = None
+    chest_in: Optional[float] = None
+    hip_in: Optional[float] = None
+    bicep_l_in: Optional[float] = None
+    bicep_r_in: Optional[float] = None
+    forearm_l_in: Optional[float] = None
+    forearm_r_in: Optional[float] = None
+    thigh_l_in: Optional[float] = None
+    thigh_r_in: Optional[float] = None
+    calf_l_in: Optional[float] = None
+    calf_r_in: Optional[float] = None
+    ankle_l_in: Optional[float] = None
+    ankle_r_in: Optional[float] = None
+    wrist_l_in: Optional[float] = None
+    wrist_r_in: Optional[float] = None
+
     libido_score: Optional[int] = Field(None, ge=1, le=5)
     morning_erection_score: Optional[int] = Field(None, ge=0, le=3)
     motivation_score: Optional[int] = Field(None, ge=1, le=5)

@@ -69,7 +69,6 @@ def get_log_data(expo_user_id: str, date: str, db: Session = Depends(get_db)):
         "body_weight_lb":      f(row.body_weight_lb),
         "body_fat_pct":        f(row.body_fat_pct),
         "skeletal_muscle_pct": f(row.skeletal_muscle_pct),
-        "waist_at_navel_in":   f(row.waist_at_navel_in),
         "libido_score":        i(row.libido_score),
         "morning_erection_score": i(row.morning_erection_score),
         "mood_stability_score":   i(row.mood_stability_score),
@@ -77,6 +76,22 @@ def get_log_data(expo_user_id: str, date: str, db: Session = Depends(get_db)):
         "soreness_score":         i(row.soreness_score),
         "joint_friction_score":   i(row.joint_friction_score),
         "stress_load_score":      i(row.stress_load_score),
+        "waist_at_navel_in":   f(row.waist_at_navel_in),
+        "neck_in":             f(row.neck_in),
+        "chest_in":            f(row.chest_in),
+        "hip_in":              f(row.hip_in),
+        "bicep_l_in":          f(row.bicep_l_in),
+        "bicep_r_in":          f(row.bicep_r_in),
+        "forearm_l_in":        f(row.forearm_l_in),
+        "forearm_r_in":        f(row.forearm_r_in),
+        "wrist_l_in":          f(row.wrist_l_in),
+        "wrist_r_in":          f(row.wrist_r_in),
+        "thigh_l_in":          f(row.thigh_l_in),
+        "thigh_r_in":          f(row.thigh_r_in),
+        "calf_l_in":           f(row.calf_l_in),
+        "calf_r_in":           f(row.calf_r_in),
+        "ankle_l_in":          f(row.ankle_l_in),
+        "ankle_r_in":          f(row.ankle_r_in),
         "kcal_actual":         f(row.kcal_actual),
         "protein_g_actual":    f(row.protein_g_actual),
         "carbs_g_actual":      f(row.carbs_g_actual),
@@ -287,6 +302,13 @@ body{padding:0 0 80px 0}
 .log-actuals-btn{width:100%;margin-top:16px;padding:14px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:.95rem;font-weight:700;letter-spacing:.5px;cursor:pointer}
 .log-actuals-btn:active{opacity:.8}
 .log-actuals-btn:disabled{background:#333;color:#666;cursor:not-allowed}
+.meas-bilateral{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:2px}
+.meas-side{background:var(--input);border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:8px}
+.meas-side-lbl{font-size:.68rem;font-weight:700;color:var(--muted);width:12px;flex-shrink:0}
+.meas-side input{background:transparent;border:none;color:var(--text);font-size:.95rem;width:100%;min-width:0;font-weight:600}
+.meas-side input:focus{outline:none}
+.meas-side input::placeholder{color:#333;font-weight:400}
+.meas-group-lbl{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;padding:10px 0 4px;margin:0}
 </style>
 </head>
 <body>
@@ -397,9 +419,63 @@ body{padding:0 0 80px 0}
     <div><label>Skeletal Muscle %</label></div>
     <div class="right"><input type="number" id="sm_pct" placeholder="42.0" step="0.1"><span class="unit">%</span></div>
   </div>
+</div>
+
+<!-- BODY MEASUREMENTS -->
+<div class="section">
+  <div class="section-title">Body Measurements <span style="color:var(--muted);font-size:.6rem">(inches · decimal ok · e.g. 31.25 = 31¼")</span></div>
+
   <div class="row">
-    <div><label>Waist at Navel</label></div>
-    <div class="right"><input type="number" id="waist" placeholder="34.0" step="0.1"><span class="unit">in</span></div>
+    <label>Neck</label>
+    <div class="right"><input type="number" id="neck_in" placeholder="15.5" step="0.25"><span class="unit">in</span></div>
+  </div>
+  <div class="row">
+    <label>Chest</label>
+    <div class="right"><input type="number" id="chest_in" placeholder="38.0" step="0.25"><span class="unit">in</span></div>
+  </div>
+  <div class="row">
+    <label>Waist <span style="color:var(--muted);font-size:.75rem">(at navel)</span></label>
+    <div class="right"><input type="number" id="waist" placeholder="31.0" step="0.25"><span class="unit">in</span></div>
+  </div>
+  <div class="row">
+    <label>Hips</label>
+    <div class="right"><input type="number" id="hip_in" placeholder="36.0" step="0.25"><span class="unit">in</span></div>
+  </div>
+
+  <p class="meas-group-lbl">Bicep</p>
+  <div class="meas-bilateral">
+    <div class="meas-side"><span class="meas-side-lbl">L</span><input type="number" id="bicep_l_in" placeholder="14.0" step="0.25"></div>
+    <div class="meas-side"><span class="meas-side-lbl">R</span><input type="number" id="bicep_r_in" placeholder="14.0" step="0.25"></div>
+  </div>
+
+  <p class="meas-group-lbl">Forearm</p>
+  <div class="meas-bilateral">
+    <div class="meas-side"><span class="meas-side-lbl">L</span><input type="number" id="forearm_l_in" placeholder="11.5" step="0.25"></div>
+    <div class="meas-side"><span class="meas-side-lbl">R</span><input type="number" id="forearm_r_in" placeholder="11.5" step="0.25"></div>
+  </div>
+
+  <p class="meas-group-lbl">Wrist</p>
+  <div class="meas-bilateral">
+    <div class="meas-side"><span class="meas-side-lbl">L</span><input type="number" id="wrist_l_in" placeholder="6.5" step="0.25"></div>
+    <div class="meas-side"><span class="meas-side-lbl">R</span><input type="number" id="wrist_r_in" placeholder="6.5" step="0.25"></div>
+  </div>
+
+  <p class="meas-group-lbl">Thigh</p>
+  <div class="meas-bilateral">
+    <div class="meas-side"><span class="meas-side-lbl">L</span><input type="number" id="thigh_l_in" placeholder="22.0" step="0.25"></div>
+    <div class="meas-side"><span class="meas-side-lbl">R</span><input type="number" id="thigh_r_in" placeholder="22.0" step="0.25"></div>
+  </div>
+
+  <p class="meas-group-lbl">Calf</p>
+  <div class="meas-bilateral">
+    <div class="meas-side"><span class="meas-side-lbl">L</span><input type="number" id="calf_l_in" placeholder="14.0" step="0.25"></div>
+    <div class="meas-side"><span class="meas-side-lbl">R</span><input type="number" id="calf_r_in" placeholder="14.0" step="0.25"></div>
+  </div>
+
+  <p class="meas-group-lbl">Ankle</p>
+  <div class="meas-bilateral">
+    <div class="meas-side"><span class="meas-side-lbl">L</span><input type="number" id="ankle_l_in" placeholder="8.5" step="0.25"></div>
+    <div class="meas-side"><span class="meas-side-lbl">R</span><input type="number" id="ankle_r_in" placeholder="8.5" step="0.25"></div>
   </div>
 </div>
 
@@ -577,7 +653,24 @@ async function loadDate(){
     // body comp
     setNum('bf_pct', d.body_fat_pct);
     setNum('sm_pct', d.skeletal_muscle_pct);
-    setNum('waist',  d.waist_at_navel_in);
+
+    // body measurements
+    setNum('waist',       d.waist_at_navel_in);
+    setNum('neck_in',     d.neck_in);
+    setNum('chest_in',    d.chest_in);
+    setNum('hip_in',      d.hip_in);
+    setNum('bicep_l_in',  d.bicep_l_in);
+    setNum('bicep_r_in',  d.bicep_r_in);
+    setNum('forearm_l_in',d.forearm_l_in);
+    setNum('forearm_r_in',d.forearm_r_in);
+    setNum('wrist_l_in',  d.wrist_l_in);
+    setNum('wrist_r_in',  d.wrist_r_in);
+    setNum('thigh_l_in',  d.thigh_l_in);
+    setNum('thigh_r_in',  d.thigh_r_in);
+    setNum('calf_l_in',   d.calf_l_in);
+    setNum('calf_r_in',   d.calf_r_in);
+    setNum('ankle_l_in',  d.ankle_l_in);
+    setNum('ankle_r_in',  d.ankle_r_in);
 
     // subjective
     setScore('libido',   d.libido_score);
@@ -608,7 +701,11 @@ function clearForm(){
   ['sleep_onset','sleep_wake','rem','core','deep','awake'].forEach(id=>{
     document.getElementById(id).value='';
   });
-  ['hrv','rhr','temp_f','weight','bf_pct','sm_pct','waist','kcal','protein','carbs','fat'].forEach(id=>{
+  ['hrv','rhr','temp_f','weight','bf_pct','sm_pct',
+   'waist','neck_in','chest_in','hip_in',
+   'bicep_l_in','bicep_r_in','forearm_l_in','forearm_r_in','wrist_l_in','wrist_r_in',
+   'thigh_l_in','thigh_r_in','calf_l_in','calf_r_in','ankle_l_in','ankle_r_in',
+   'kcal','protein','carbs','fat'].forEach(id=>{
     document.getElementById(id).value='';
   });
   clearScores();
@@ -653,6 +750,21 @@ async function submitLog(){
     body_fat_pct:       num('bf_pct'),
     skeletal_muscle_pct: num('sm_pct'),
     waist_at_navel_in:  num('waist'),
+    neck_in:         num('neck_in'),
+    chest_in:        num('chest_in'),
+    hip_in:          num('hip_in'),
+    bicep_l_in:      num('bicep_l_in'),
+    bicep_r_in:      num('bicep_r_in'),
+    forearm_l_in:    num('forearm_l_in'),
+    forearm_r_in:    num('forearm_r_in'),
+    wrist_l_in:      num('wrist_l_in'),
+    wrist_r_in:      num('wrist_r_in'),
+    thigh_l_in:      num('thigh_l_in'),
+    thigh_r_in:      num('thigh_r_in'),
+    calf_l_in:       num('calf_l_in'),
+    calf_r_in:       num('calf_r_in'),
+    ankle_l_in:      num('ankle_l_in'),
+    ankle_r_in:      num('ankle_r_in'),
     libido_score:        scores['libido']   ??null,
     morning_erection_score: scores['erection']??null,
     mood_stability_score: scores['mood']    ??null,
