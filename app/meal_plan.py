@@ -299,6 +299,31 @@ MEAL_PLAN = {
 # Locked baseline — stored when all 6 meals are checked (before 21:30 Intel)
 LOCKED_BASELINE_MACROS = {"p": 173.9, "c": 330.9, "f": 54.4}
 
+# ─── BUILD DAY — DAILY INGREDIENT TOTALS (sacred, cross-verified) ────────────
+# Sum of all windows. Whey excludes Intel 21:30 addition (baseline = 0g).
+BUILD_DAILY_TOTALS = {
+    "Oats":         {"amount": 244, "unit": "g",    "note": "Post-Cardio 120g + Evening Meal 124g"},
+    "Dextrin":      {"amount": 120, "unit": "g",    "note": "Pre-Lift 80g + Post-Lift 40g"},
+    "Whey":         {"amount": 90,  "unit": "g",    "note": "Post-Cardio 25g + Mid-Morning 15g + Pre-Lift 20g + Post-Lift 30g (+ Intel 21:30)"},
+    "MCT Powder":   {"amount": 30,  "unit": "g",    "note": "Post-Cardio 10g + Evening Meal 20g"},
+    "Flaxseed":     {"amount": 60,  "unit": "g",    "note": "Mid-Morning 30g + Evening Meal 30g"},
+    "Greek Yogurt": {"amount": 1,   "unit": "cup",  "note": "Mid-Morning 1 cup"},
+    "Eggs":         {"amount": 2,   "unit": "whole","note": "Evening Meal 2 eggs"},
+    "Bananas":      {"amount": 2,   "unit": "whole","note": "Pre-Cardio 1 + Evening Meal 1"},
+}
+
+# ─── ADJUSTMENT PRIORITY — least disruptive first ────────────────────────────
+ADJUSTMENT_PRIORITY = [
+    {"rank": 1, "ingredient": "MCT Powder", "role": "fat-only"},
+    {"rank": 2, "ingredient": "Dextrin",    "role": "fast carb"},
+    {"rank": 3, "ingredient": "Oats",       "role": "slow carb"},
+    {"rank": 4, "ingredient": "Bananas",    "role": "carbs + micros"},
+    {"rank": 5, "ingredient": "Eggs",       "role": "protein + fat"},
+    {"rank": 6, "ingredient": "Flaxseed",   "role": "fiber + fat"},
+    {"rank": 7, "ingredient": "Whey",       "role": "protein anchor"},
+    {"rank": 8, "ingredient": "Yogurt",     "role": "protein anchor"},
+]
+
 # Window display order (always render in this sequence)
 WINDOW_ORDER = [
     "Pre-Cardio",
