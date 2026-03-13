@@ -1219,16 +1219,18 @@ function loadSavedAdherence(adherenceJson, dayType){
   });
 }
 
-// ── Ingredient macro density (brain's own values) ─────────────────────────────
+// ── Ingredient macro density — sourced from user's food tracking app, large-batch measurements.
+// Per-gram values (g-unit foods) or per-unit values (whole/cup foods).
+// Source batches: 10 bananas=1180g | 10 eggs=500g | 10 cups yogurt=2450g | all others per 100g | MCT per 200g.
 const IMACRO = {
-  "Banana":       {p:1.00,  c:27.00, f:0.00,  kcal:104.0},
-  "Oats":         {p:0.17,  c:0.67,  f:0.06,  kcal:3.90},
-  "Whey":         {p:0.80,  c:0.08,  f:0.05,  kcal:3.97},
-  "MCT Powder":   {p:0.00,  c:0.00,  f:0.90,  kcal:8.10},
-  "Dextrin":      {p:0.00,  c:1.00,  f:0.00,  kcal:4.00},
-  "Greek Yogurt": {p:20.00, c:9.00,  f:0.00,  kcal:116.0},
-  "Flaxseed":     {p:0.20,  c:0.27,  f:0.40,  kcal:5.48},
-  "Eggs":         {p:6.00,  c:0.00,  f:5.00,  kcal:70.0},
+  "Banana":       {p:0.8700,  c:25.1200, f:0.3400, kcal:103.8000},  // per whole (118g): P:8.7 C:251.2 F:3.4 /1180g
+  "Oats":         {p:0.1330,  c:0.6000,  f:0.0500, kcal:4.0000},    // per g: 100g→P:13.3 C:60.0 F:5.0 kcal:400
+  "Whey":         {p:0.8780,  c:0.0310,  f:0.0000, kcal:3.7600},    // per g: 100g→P:87.8 C:3.1 F:0.0 kcal:376
+  "MCT Powder":   {p:0.1000,  c:0.0000,  f:0.8000, kcal:7.0000},    // per g: 200g→P:20.0 C:0.0 F:160.0 kcal:1400
+  "Dextrin":      {p:0.0000,  c:0.9730,  f:0.0000, kcal:3.8700},    // per g: 100g→P:0.0 C:97.3 F:0.0 kcal:387
+  "Greek Yogurt": {p:25.2400, c:8.9100,  f:0.9100, kcal:149.5000},  // per cup (245g): 10c→P:252.4 C:89.1 F:9.1 /2450g
+  "Flaxseed":     {p:0.3300,  c:0.0770,  f:0.1000, kcal:3.2400},    // per g: 100g→P:33.0 C:7.7 F:10.0 kcal:324
+  "Eggs":         {p:6.2900,  c:0.5600,  f:5.3000, kcal:77.5000},   // per whole (50g): 10 large→P:62.9 C:5.6 F:53.0 /500g
 };
 
 let _currentPlan = null;

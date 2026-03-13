@@ -26,27 +26,41 @@ This file is the source of truth. Do not modify without explicit user instructio
 """
 
 # ─── EXACT FOOD MACROS (per unit / per g) ────────────────────────────────────
-# Banana (1 whole):   27g C | 1g P | 0g F | 104 kcal
-# Oats (per g):       0.67g C | 0.17g P | 0.06g F
-# Whey (per g):       0.08g C | 0.80g P | 0.05g F
-# MCT Powder (per g): 0g C | 0g P | 0.90g F
-# Dextrin (per g):    1.0g C | 0g P | 0g F
-# Greek Yogurt (1c):  9g C | 20g P | 0g F
-# Flaxseed (per g):   0.27g C | 0.20g P | 0.40g F
-# Eggs (1 whole):     0g C | 6g P | 5g F | 70 kcal
+# Source: user's food tracking app — large-batch measurements for maximum decimal precision.
+#
+# Banana (1 medium, 118g):        P=0.870g  C=25.120g  F=0.340g  | 103.8 kcal
+#   Derived from: 10 medium (1180g) → P:8.7  C:251.2  F:3.4  kcal:1038
+#
+# Oats — Bob's Red Mill WG (per g): P=0.1330  C=0.6000  F=0.0500 | 4.0000 kcal
+#   Derived from: 100g → P:13.3  C:60.0  F:5.0  kcal:400
+#
+# Whey — Transparent Labs Isolate (per g): P=0.8780  C=0.0310  F=0.0000 | 3.7600 kcal
+#   Derived from: 100g → P:87.8  C:3.1  F:0.0  kcal:376
+#
+# MCT Powder — MCT Co. (per g): P=0.1000  C=0.0000  F=0.8000 | 7.0000 kcal
+#   Derived from: 200g → P:20.0  C:0.0  F:160.0  kcal:1400
+#
+# Dextrin — Bulk Powders HBCD (per g): P=0.0000  C=0.9730  F=0.0000 | 3.8700 kcal
+#   Derived from: 100g → P:0.0  C:97.3  F:0.0  kcal:387
+#
+# Greek Yogurt — Plain Nonfat (per cup, 245g): P=25.240  C=8.910  F=0.910 | 149.5 kcal
+#   Derived from: 10 cups (2450g) → P:252.4  C:89.1  F:9.1  kcal:1495
+#
+# Flaxseed — Bio Planete Powder (per g): P=0.3300  C=0.0770  F=0.1000 | 3.2400 kcal
+#   Derived from: 100g → P:33.0  C:7.7  F:10.0  kcal:324
+#
+# Eggs — Whole Hard-Boiled Large (per egg, 50g): P=6.290  C=0.560  F=5.300 | 77.5 kcal
+#   Derived from: 10 large (500g) → P:62.9  C:5.6  F:53.0  kcal:775
 
-# Macro density per unit — used for actual vs planned delta computation.
-# Values are the brain's own per-unit densities (sourced from comment block above).
-# kcal computed as 4*P + 4*C + 9*F (rounded to match plan totals).
 INGREDIENT_MACROS = {
-    "Banana":       {"unit": "whole", "p": 1.00,  "c": 27.00, "f": 0.00,  "kcal": 104.0},
-    "Oats":         {"unit": "g",     "p": 0.17,  "c": 0.67,  "f": 0.06,  "kcal": 3.90},
-    "Whey":         {"unit": "g",     "p": 0.80,  "c": 0.08,  "f": 0.05,  "kcal": 3.97},
-    "MCT Powder":   {"unit": "g",     "p": 0.00,  "c": 0.00,  "f": 0.90,  "kcal": 8.10},
-    "Dextrin":      {"unit": "g",     "p": 0.00,  "c": 1.00,  "f": 0.00,  "kcal": 4.00},
-    "Greek Yogurt": {"unit": "cup",   "p": 20.00, "c": 9.00,  "f": 0.00,  "kcal": 116.0},
-    "Flaxseed":     {"unit": "g",     "p": 0.20,  "c": 0.27,  "f": 0.40,  "kcal": 5.48},
-    "Eggs":         {"unit": "whole", "p": 6.00,  "c": 0.00,  "f": 5.00,  "kcal": 70.0},
+    "Banana":       {"unit": "whole", "p": 0.8700, "c": 25.1200, "f": 0.3400, "kcal": 103.8000},
+    "Oats":         {"unit": "g",     "p": 0.1330, "c":  0.6000, "f": 0.0500, "kcal":   4.0000},
+    "Whey":         {"unit": "g",     "p": 0.8780, "c":  0.0310, "f": 0.0000, "kcal":   3.7600},
+    "MCT Powder":   {"unit": "g",     "p": 0.1000, "c":  0.0000, "f": 0.8000, "kcal":   7.0000},
+    "Dextrin":      {"unit": "g",     "p": 0.0000, "c":  0.9730, "f": 0.0000, "kcal":   3.8700},
+    "Greek Yogurt": {"unit": "cup",   "p": 25.2400,"c":  8.9100, "f": 0.9100, "kcal": 149.5000},
+    "Flaxseed":     {"unit": "g",     "p": 0.3300, "c":  0.0770, "f": 0.1000, "kcal":   3.2400},
+    "Eggs":         {"unit": "whole", "p": 6.2900, "c":  0.5600, "f": 5.3000, "kcal":  77.5000},
 }
 
 MEAL_PLAN = {
@@ -311,7 +325,7 @@ MEAL_PLAN = {
 }
 
 # Locked baseline — stored when all 6 meals are checked (before 21:30 Intel)
-LOCKED_BASELINE_MACROS = {"p": 173.9, "c": 330.9, "f": 54.4}
+LOCKED_BASELINE_MACROS = {"p": 173.9, "c": 330.9, "f": 54.4}  # user's locked display values
 
 # ─── BUILD DAY — DAILY INGREDIENT TOTALS (sacred, cross-verified) ────────────
 # Sum of all windows. Whey excludes Intel 21:30 addition (baseline = 0g).
