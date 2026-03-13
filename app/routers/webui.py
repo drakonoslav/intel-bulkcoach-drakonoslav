@@ -69,6 +69,7 @@ def get_log_data(expo_user_id: str, date: str, db: Session = Depends(get_db)):
         "body_weight_lb":      f(row.body_weight_lb),
         "body_fat_pct":        f(row.body_fat_pct),
         "skeletal_muscle_pct": f(row.skeletal_muscle_pct),
+        "fat_free_mass_lb":    f(row.fat_free_mass_lb),
         "libido_score":        i(row.libido_score),
         "morning_erection_score": i(row.morning_erection_score),
         "mood_stability_score":   i(row.mood_stability_score),
@@ -499,7 +500,7 @@ body{padding:0 0 80px 0}
   </div>
   <div class="row">
     <label>Body Weight</label>
-    <div class="right"><input type="number" id="weight" placeholder="160" step="0.1"><span class="unit">lb</span></div>
+    <div class="right"><input type="number" id="weight" placeholder="160" step="0.1" oninput="autoFfm()"><span class="unit">lb</span></div>
   </div>
 </div>
 
@@ -507,12 +508,16 @@ body{padding:0 0 80px 0}
 <div class="section">
   <div class="section-title">Body Composition <span style="color:var(--muted);font-size:.6rem">(weekly)</span></div>
   <div class="row">
-    <div><label>Body Fat %<div class="hint">e.g. 14.5</div></label></div>
-    <div class="right"><input type="number" id="bf_pct" placeholder="14.5" step="0.1"><span class="unit">%</span></div>
+    <div><label>Body Fat %<div class="hint">e.g. 14.5 — from scale or DEXA</div></label></div>
+    <div class="right"><input type="number" id="bf_pct" placeholder="14.5" step="0.1" oninput="autoFfm()"><span class="unit">%</span></div>
   </div>
   <div class="row">
     <div><label>Skeletal Muscle %</label></div>
     <div class="right"><input type="number" id="sm_pct" placeholder="42.0" step="0.1"><span class="unit">%</span></div>
+  </div>
+  <div class="row">
+    <div><label>Fat Free Mass<div class="hint">lb — DEXA/InBody preferred. Auto-filled from weight × (1−BF%) if blank.</div></label></div>
+    <div class="right"><input type="number" id="ffm_lb" placeholder="165.0" step="0.1"><span class="unit">lb</span></div>
   </div>
 </div>
 
@@ -764,6 +769,7 @@ async function loadDate(){
     // body comp
     setNum('bf_pct', d.body_fat_pct);
     setNum('sm_pct', d.skeletal_muscle_pct);
+    setNum('ffm_lb', d.fat_free_mass_lb);
 
     // body measurements
     setNum('waist',       d.waist_at_navel_in);
@@ -816,11 +822,22 @@ function setNum(id, val){
   if(val!==null && val!==undefined) document.getElementById(id).value = val;
 }
 
+function autoFfm(){
+  // Auto-compute FFM only if the field is currently blank (don't overwrite a manual DEXA entry)
+  const ffmEl = document.getElementById('ffm_lb');
+  if(ffmEl && ffmEl.value !== '') return;  // user has a value already, leave it alone
+  const wt = parseFloat(document.getElementById('weight')?.value);
+  const bf = parseFloat(document.getElementById('bf_pct')?.value);
+  if(wt > 0 && bf > 0 && bf < 100){
+    ffmEl.value = Math.round((wt * (1 - bf/100)) * 10) / 10;
+  }
+}
+
 function clearForm(){
   ['sleep_onset','sleep_wake','rem','core','deep','awake'].forEach(id=>{
     document.getElementById(id).value='';
   });
-  ['hrv','rhr','temp_f','weight','bf_pct','sm_pct',
+  ['hrv','rhr','temp_f','weight','bf_pct','sm_pct','ffm_lb',
    'waist','neck_in','chest_in','hip_in',
    'bicep_l_in','bicep_r_in','forearm_l_in','forearm_r_in','wrist_l_in','wrist_r_in',
    'thigh_l_in','thigh_r_in','calf_l_in','calf_r_in','ankle_l_in','ankle_r_in',
@@ -866,9 +883,10 @@ async function submitLog(){
     resting_hr_bpm:  num('rhr'),
     morning_temp_f:  num('temp_f'),
     body_weight_lb:  num('weight'),
-    body_fat_pct:       num('bf_pct'),
+    body_fat_pct:        num('bf_pct'),
     skeletal_muscle_pct: num('sm_pct'),
-    waist_at_navel_in:  num('waist'),
+    fat_free_mass_lb:    num('ffm_lb'),
+    waist_at_navel_in:   num('waist'),
     neck_in:         num('neck_in'),
     chest_in:        num('chest_in'),
     hip_in:          num('hip_in'),
