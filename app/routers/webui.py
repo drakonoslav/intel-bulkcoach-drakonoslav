@@ -26,9 +26,32 @@ def export_csv():
 
 @router.get("/log/meal-plan", include_in_schema=False)
 def get_meal_plan_for_day(day_type: str = "build"):
-    """Return the food plan for a given macro day type."""
-    from app.meal_plan import get_meal_plan
-    return {"dayType": day_type, "plan": get_meal_plan(day_type)}
+    """Return the food plan for a given macro day type.
+    kcal / P / C / F are computed live from INGREDIENT_MACROS × amounts —
+    the hardcoded plan values are only used as labels, never as the source of truth
+    for caloric math.
+    """
+    from app.meal_plan import get_meal_plan, INGREDIENT_MACROS
+    plan = get_meal_plan(day_type)
+    out = {}
+    for win, data in plan.items():
+        p = c = f = kcal = 0.0
+        for food in data.get("foods", []):
+            m = INGREDIENT_MACROS.get(food["name"])
+            if m:
+                amt = food["amount"]
+                p    += round(m["p"]    * amt, 4)
+                c    += round(m["c"]    * amt, 4)
+                f    += round(m["f"]    * amt, 4)
+                kcal += round(m["kcal"] * amt, 4)
+        out[win] = {
+            **data,
+            "P":    round(p,    1),
+            "C":    round(c,    1),
+            "F":    round(f,    1),
+            "kcal": round(kcal, 1),
+        }
+    return {"dayType": day_type, "plan": out}
 
 
 @router.get("/log/data", include_in_schema=False)
