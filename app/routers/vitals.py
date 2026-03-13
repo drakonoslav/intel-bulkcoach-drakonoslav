@@ -6,10 +6,42 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.vitals_models import (
     VitalsDailyLog, VitalsCardioSession, VitalsLiftSession,
-    VitalsNutritionDayTarget, VitalsUserBaselines,
+    VitalsNutritionDayTarget, VitalsUserBaselines, ArcForgeUser,
     CARDIO_MODES, LIFT_MODES, MACRO_DAY_TYPES,
 )
 from app.vitals_engine import compute_daily_recommendation, persist_oscillator_state
+
+_DEFAULT_DOB = DateType(1990, 1, 1)
+
+
+def _auto_register_user(db, expo_user_id: str):
+    """Silently create user + baselines if they don't exist. Called by daily-log so entries always save."""
+    user = db.query(ArcForgeUser).filter(ArcForgeUser.expo_user_id == expo_user_id).first()
+    if not user:
+        today = DateType.today()
+        age = today.year - _DEFAULT_DOB.year
+        age_mode = "early_adult" if age < 35 else ("mature_adult" if age < 50 else "preservation")
+        db.add(ArcForgeUser(
+            expo_user_id  = expo_user_id,
+            username      = "Athlete",
+            date_of_birth = _DEFAULT_DOB,
+            age_mode      = age_mode,
+        ))
+        baselines = db.query(VitalsUserBaselines).filter(
+            VitalsUserBaselines.expo_user_id == expo_user_id
+        ).first()
+        if not baselines:
+            db.add(VitalsUserBaselines(
+                expo_user_id    = expo_user_id,
+                age_mode        = age_mode,
+                protein_floor_g = 170,
+                fat_floor_avg_g = 55,
+                default_kcal    = 2695,
+            ))
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
 
 router = APIRouter(prefix="/vitals", tags=["vitals"])
 
@@ -429,6 +461,8 @@ def upsert_baselines(expo_user_id: str, payload: BaselineUpsert, db: Session = D
 
 @router.post("/daily-log")
 def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
+    _auto_register_user(db, payload.expo_user_id)
+
     existing = db.query(VitalsDailyLog).filter(
         VitalsDailyLog.expo_user_id == payload.expo_user_id,
         VitalsDailyLog.date == payload.date,
