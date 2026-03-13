@@ -81,7 +81,85 @@ def get_log_data(expo_user_id: str, date: str, db: Session = Depends(get_db)):
         "protein_g_actual":    f(row.protein_g_actual),
         "carbs_g_actual":      f(row.carbs_g_actual),
         "fat_g_actual":        f(row.fat_g_actual),
+        "meal_actuals_json":   row.meal_actuals_json,
     }
+
+
+@router.post("/log/meal-actuals", include_in_schema=False)
+async def save_meal_actuals(payload: dict, db: Session = Depends(get_db)):
+    """Save per-window actual intake JSON and update aggregate CSV columns."""
+    import datetime, json as _json
+    from app.csv_log import _read_all, _write_all, COLUMNS
+
+    expo_user_id = payload.get("expo_user_id")
+    date_str     = payload.get("date")
+    actuals_json = payload.get("meal_actuals_json", {})
+
+    if not expo_user_id or not date_str:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="expo_user_id and date required")
+
+    # Upsert into DB
+    row = db.query(VitalsDailyLog).filter(
+        VitalsDailyLog.expo_user_id == expo_user_id,
+        VitalsDailyLog.date == date_str,
+    ).first()
+
+    if not row:
+        row = VitalsDailyLog(expo_user_id=expo_user_id, date=date_str)
+        db.add(row)
+
+    row.meal_actuals_json = actuals_json
+    totals = actuals_json.get("totals", {})
+    actual_t = totals.get("actual", {})
+
+    # Mirror into whole-day nutrition fields if actuals are present
+    if actual_t.get("kcal"):
+        row.kcal_actual     = actual_t.get("kcal")
+        row.protein_g_actual = actual_t.get("p")
+        row.carbs_g_actual   = actual_t.get("c")
+        row.fat_g_actual     = actual_t.get("f")
+
+    db.commit()
+
+    # Update CSV aggregate columns for this (user, date)
+    logged_at = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    planned_t = totals.get("planned", {})
+    delta_t   = totals.get("delta", {})
+
+    extra = {
+        "meal_actuals_logged_at":    logged_at,
+        "day_kcal_planned":          planned_t.get("kcal", ""),
+        "day_kcal_actual_windows":   actual_t.get("kcal", ""),
+        "day_kcal_delta":            delta_t.get("kcal", ""),
+        "day_p_planned":             planned_t.get("p", ""),
+        "day_p_actual":              actual_t.get("p", ""),
+        "day_p_delta":               delta_t.get("p", ""),
+        "day_c_planned":             planned_t.get("c", ""),
+        "day_c_actual":              actual_t.get("c", ""),
+        "day_c_delta":               delta_t.get("c", ""),
+        "day_f_planned":             planned_t.get("f", ""),
+        "day_f_actual":              actual_t.get("f", ""),
+        "day_f_delta":               delta_t.get("f", ""),
+    }
+
+    existing = _read_all()
+    updated = []
+    found = False
+    for r in existing:
+        if r.get("expo_user_id") == expo_user_id and r.get("date") == date_str:
+            r.update(extra)
+            updated.append(r)
+            found = True
+        else:
+            updated.append(r)
+    if not found:
+        new_row = {"expo_user_id": expo_user_id, "date": date_str}
+        new_row.update(extra)
+        updated.append(new_row)
+    _write_all(updated)
+
+    return {"ok": True, "totals": totals}
 
 
 _HTML = r"""<!DOCTYPE html>
@@ -177,17 +255,38 @@ body{padding:0 0 80px 0}
 .uuid-row input{background:transparent;border:none;color:var(--muted);font-size:.7rem;font-family:monospace;flex:1;min-width:0}
 .csv-btn{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:.75rem;padding:5px 10px;text-decoration:none;white-space:nowrap}
 .csv-btn:hover{border-color:var(--accent);color:var(--accent)}
-.food-window{margin-bottom:14px}
-.food-window:last-child{margin-bottom:0}
-.food-window-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
-.food-window-name{font-size:.78rem;font-weight:700;color:var(--accent)}
-.food-window-macros{font-size:.68rem;color:var(--muted)}
-.food-item{display:flex;align-items:center;gap:10px;padding:7px 10px;background:var(--input);border-radius:8px;margin-bottom:4px}
-.food-item:last-child{margin-bottom:0}
-.food-qty{font-size:.95rem;font-weight:700;color:var(--text);min-width:52px;flex-shrink:0;text-align:right}
-.food-name{font-size:.88rem;color:var(--text);flex:1}
-.food-macro-hint{font-size:.68rem;color:var(--muted);flex-shrink:0}
-.food-window-time{font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.prep-window{margin-bottom:18px;border:1px solid #1e1e1e;border-radius:10px;overflow:hidden}
+.prep-window:last-child{margin-bottom:0}
+.prep-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#111;border-bottom:1px solid #1e1e1e}
+.prep-win-name{font-size:.82rem;font-weight:700;color:var(--accent)}
+.prep-win-time{font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.prep-planned-row{font-size:.68rem;padding:5px 12px;background:#0f0f0f;color:var(--muted);border-bottom:1px solid #1a1a1a;letter-spacing:.3px}
+.prep-ingredient{display:grid;grid-template-columns:1fr auto auto auto;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #141414}
+.prep-ingredient:last-of-type{border-bottom:none}
+.ing-name{font-size:.85rem;color:var(--text)}
+.ing-planned-qty{font-size:.78rem;color:var(--muted);text-align:right;white-space:nowrap}
+.ing-actual-input{width:64px;background:#1c1c1c;border:1px solid #2a2a2a;border-radius:6px;color:var(--text);font-size:.88rem;font-weight:600;padding:4px 6px;text-align:center;-moz-appearance:textfield}
+.ing-actual-input::-webkit-inner-spin-button,.ing-actual-input::-webkit-outer-spin-button{-webkit-appearance:none}
+.ing-actual-input:focus{outline:none;border-color:var(--accent)}
+.ing-actual-input.changed{border-color:#facc15;color:#facc15}
+.ing-unit{font-size:.72rem;color:var(--muted);white-space:nowrap}
+.window-delta{padding:6px 12px;background:#0d0d0d;font-size:.72rem;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.window-delta .dv{font-weight:600}
+.dv-zero{color:#333}
+.dv-pos{color:#4ade80}
+.dv-neg{color:#f87171}
+.delta-label{color:#333;font-size:.65rem;text-transform:uppercase;letter-spacing:.5px}
+.prep-intel-note{padding:10px 12px;font-size:.78rem;color:var(--muted);font-style:italic;border-top:1px dashed #1a1a1a}
+.prep-intel-row{display:flex;align-items:center;justify-content:space-between;padding:8px 12px}
+.day-totals-bar{background:#111;border:1px solid #1e1e1e;border-radius:10px;padding:12px;margin-top:16px}
+.day-totals-bar h4{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+.day-totals-row{display:grid;grid-template-columns:80px repeat(3,1fr);gap:4px;margin-bottom:4px;font-size:.75rem}
+.day-totals-row:last-child{margin-bottom:0}
+.dt-lbl{color:var(--muted)}
+.dt-val{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.log-actuals-btn{width:100%;margin-top:16px;padding:14px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:.95rem;font-weight:700;letter-spacing:.5px;cursor:pointer}
+.log-actuals-btn:active{opacity:.8}
+.log-actuals-btn:disabled{background:#333;color:#666;cursor:not-allowed}
 </style>
 </head>
 <body>
@@ -230,8 +329,10 @@ body{padding:0 0 80px 0}
     <div id="insights-body"></div>
   </div>
   <div class="result-card" id="r-foodplan" style="display:none">
-    <h3>What To Eat Today</h3>
+    <h3>Prep Card — What &amp; How Much</h3>
     <div id="foodplan-body"></div>
+    <div id="day-totals-bar" style="display:none"></div>
+    <button class="log-actuals-btn" id="log-actuals-btn" onclick="logActuals()" style="display:none">Log Actuals</button>
   </div>
 </div>
 
@@ -634,59 +735,258 @@ function renderResults(json){
     document.getElementById('r-insights').style.display='block';
   }
 
-  // Food plan — fetch based on macro day type
+  // Food plan — fetch and render prep card
   const dayType = rec?.recommendedMacroDayType;
-  if(dayType){
-    fetch(`/log/meal-plan?day_type=${dayType}`)
-      .then(r=>r.json())
-      .then(mp=>{
-        const plan = mp.plan;
-        if(!plan) return;
+  if(dayType) renderFoodPlan(dayType);
+}
 
-        const html = Object.entries(plan).map(([windowName, w])=>{
-          const isIntel = w.intel_managed;
+// ── Ingredient macro density (brain's own values) ─────────────────────────────
+const IMACRO = {
+  "Banana":       {p:1.00,  c:27.00, f:0.00,  kcal:104.0},
+  "Oats":         {p:0.17,  c:0.67,  f:0.06,  kcal:3.90},
+  "Whey":         {p:0.80,  c:0.08,  f:0.05,  kcal:3.97},
+  "MCT Powder":   {p:0.00,  c:0.00,  f:0.90,  kcal:8.10},
+  "Dextrin":      {p:0.00,  c:1.00,  f:0.00,  kcal:4.00},
+  "Greek Yogurt": {p:20.00, c:9.00,  f:0.00,  kcal:116.0},
+  "Flaxseed":     {p:0.20,  c:0.27,  f:0.40,  kcal:5.48},
+  "Eggs":         {p:6.00,  c:0.00,  f:5.00,  kcal:70.0},
+};
 
-          // macro summary line
-          const parts = [];
-          if(w.P) parts.push(`<span style="color:#60a5fa">${w.P}g P</span>`);
-          if(w.C) parts.push(`<span style="color:#facc15">${w.C}g C</span>`);
-          if(w.F) parts.push(`<span style="color:#fb923c">${w.F}g F</span>`);
-          if(w.kcal) parts.push(`<span style="color:var(--muted)">${w.kcal} kcal</span>`);
-          const macroLine = parts.join('<span style="color:#333"> · </span>');
+let _currentPlan = null;
+let _currentDayType = null;
 
-          let foodRows = '';
-          if(isIntel){
-            foodRows = `<div class="food-item" style="border:1px dashed #333">
-              <span class="food-name" style="color:var(--muted);font-style:italic">${w.note}</span>
-            </div>`;
-          } else {
-            foodRows = (w.foods||[]).map(f=>{
-              if(f.intel_managed) return '';
-              const qty = f.amount === 0.75 ? '¾'
-                : f.amount === 0.5  ? '½'
-                : f.amount === 0.25 ? '¼'
-                : f.amount;
-              return `<div class="food-item">
-                <span class="food-qty">${qty} ${f.unit}</span>
-                <span class="food-name">${f.name}</span>
-              </div>`;
-            }).join('');
-          }
+function findIngInput(name, windowName){
+  let found = null;
+  document.querySelectorAll('.ing-actual-input').forEach(el=>{
+    if(el.dataset.name === name && el.dataset.window === windowName) found = el;
+  });
+  return found;
+}
 
-          return `<div class="food-window">
-            <div class="food-window-header">
-              <span class="food-window-name">${windowName}</span>
-              <span class="food-window-time">${w.time||''}</span>
-            </div>
-            <div style="font-size:.72rem;margin-bottom:6px;padding-left:2px">${macroLine}</div>
-            ${foodRows}
-          </div>`;
-        }).join('');
+function calcWindowActuals(foods){
+  let p=0, c=0, f=0, kcal=0;
+  foods.forEach(food=>{
+    if(food.intel_managed) return;
+    const m = IMACRO[food.name]; if(!m) return;
+    const inputEl = findIngInput(food.name, food._windowName);
+    const qty = inputEl ? (parseFloat(inputEl.value)||0) : food.amount;
+    p    += m.p    * qty;
+    c    += m.c    * qty;
+    f    += m.f    * qty;
+    kcal += m.kcal * qty;
+  });
+  return {p: Math.round(p*10)/10, c: Math.round(c*10)/10, f: Math.round(f*10)/10, kcal: Math.round(kcal)};
+}
 
-        document.getElementById('foodplan-body').innerHTML = html;
-        document.getElementById('r-foodplan').style.display = 'block';
-      }).catch(()=>{});
+function dv(delta){
+  const r = Math.round(delta*10)/10;
+  const cls = Math.abs(r)<1 ? 'dv-zero' : r>0 ? 'dv-pos' : 'dv-neg';
+  return `<span class="dv ${cls}">${r>0?'+':''}${r}</span>`;
+}
+
+function updateWindowDelta(windowName, foods, planned){
+  const act = calcWindowActuals(foods.map(f=>({...f, _windowName:windowName})));
+  const el  = document.getElementById(`wdelta-${windowName.replace(/\s/g,'-')}`);
+  if(!el) return act;
+  const dp = Math.round((act.p - planned.P)*10)/10;
+  const dc = Math.round((act.c - planned.C)*10)/10;
+  const df = Math.round((act.f - planned.F)*10)/10;
+  const dk = Math.round(act.kcal - planned.kcal);
+  const allZero = Math.abs(dp)<1 && Math.abs(dc)<1 && Math.abs(df)<1 && Math.abs(dk)<2;
+  if(allZero){
+    el.innerHTML = `<span class="dv-zero" style="font-size:.68rem">On plan ✓</span>`;
+  } else {
+    el.innerHTML = `<span class="delta-label">Δ</span> ${dv(dp)}P  ${dv(dc)}C  ${dv(df)}F  ${dv(dk)}kcal`;
   }
+  return act;
+}
+
+function updateDayTotals(){
+  if(!_currentPlan) return;
+  let tp=0,tc=0,tf=0,tk=0, ap=0,ac=0,af=0,ak=0;
+  Object.entries(_currentPlan).forEach(([wn,w])=>{
+    if(w.intel_managed) return;
+    tp+=w.P||0; tc+=w.C||0; tf+=w.F||0; tk+=w.kcal||0;
+    const act = calcWindowActuals((w.foods||[]).map(f=>({...f,_windowName:wn})));
+    ap+=act.p; ac+=act.c; af+=act.f; ak+=act.kcal;
+  });
+  // Intel whey
+  const intelEl = document.querySelector('.ing-actual-input[data-window="Evening Protein"]');
+  if(intelEl){
+    const qty = parseFloat(intelEl.value)||0;
+    const m = IMACRO["Whey"];
+    ap += Math.round(m.p*qty*10)/10;
+    ac += Math.round(m.c*qty*10)/10;
+    af += Math.round(m.f*qty*10)/10;
+    ak += Math.round(m.kcal*qty);
+  }
+  ap=Math.round(ap*10)/10; ac=Math.round(ac*10)/10;
+  af=Math.round(af*10)/10; ak=Math.round(ak);
+  const dp=Math.round((ap-tp)*10)/10, dc=Math.round((ac-tc)*10)/10,
+        df=Math.round((af-tf)*10)/10, dk=Math.round(ak-tk);
+  const bar = document.getElementById('day-totals-bar');
+  if(!bar) return;
+  bar.innerHTML = `<div class="day-totals-bar">
+    <h4>Day Totals</h4>
+    <div class="day-totals-row">
+      <span class="dt-lbl"></span>
+      <span class="dt-val" style="color:#60a5fa">Protein</span>
+      <span class="dt-val" style="color:#facc15">Carbs</span>
+      <span class="dt-val" style="color:#fb923c">Fat</span>
+      <span class="dt-val" style="color:var(--muted)">kcal</span>
+    </div>
+    <div class="day-totals-row">
+      <span class="dt-lbl" style="color:var(--muted)">Planned</span>
+      <span class="dt-val">${tp}g</span><span class="dt-val">${tc}g</span>
+      <span class="dt-val">${tf}g</span><span class="dt-val">${tk}</span>
+    </div>
+    <div class="day-totals-row">
+      <span class="dt-lbl" style="color:var(--muted)">Actual</span>
+      <span class="dt-val">${ap}g</span><span class="dt-val">${ac}g</span>
+      <span class="dt-val">${af}g</span><span class="dt-val">${ak}</span>
+    </div>
+    <div class="day-totals-row" style="border-top:1px solid #1a1a1a;padding-top:4px;margin-top:4px">
+      <span class="dt-lbl" style="color:var(--muted)">Delta</span>
+      <span class="dt-val">${dv(dp)}</span><span class="dt-val">${dv(dc)}</span>
+      <span class="dt-val">${dv(df)}</span><span class="dt-val">${dv(dk)}</span>
+    </div>
+  </div>`;
+  bar.style.display = 'block';
+}
+
+function renderFoodPlan(dayType){
+  _currentDayType = dayType;
+  fetch(`/log/meal-plan?day_type=${dayType}`)
+    .then(r=>r.json())
+    .then(mp=>{
+      const plan = mp.plan; if(!plan) return;
+      _currentPlan = plan;
+
+      const html = Object.entries(plan).map(([wn,w])=>{
+        const wid = wn.replace(/\s/g,'-');
+        const isIntel = w.intel_managed;
+
+        // planned macro bar
+        const plannedBar = isIntel ? 'Intel-managed · baseline 0g Whey'
+          : [w.P?`${w.P}g P`:'', w.C?`${w.C}g C`:'', w.F?`${w.F}g F`:'', w.kcal?`${w.kcal} kcal`:'']
+              .filter(Boolean).join(' · ');
+
+        let ingredientRows = '';
+        if(isIntel){
+          ingredientRows = `
+          <div class="prep-intel-row">
+            <span class="ing-name" style="color:var(--muted);font-style:italic">Whey (Intel)</span>
+            <span class="ing-planned-qty">0g planned</span>
+            <input class="ing-actual-input" type="number" value="0" min="0" step="5"
+              data-window="Evening Protein" data-name="Whey" data-planned="0"
+              oninput="updateDayTotals()">
+            <span class="ing-unit">g</span>
+          </div>`;
+        } else {
+          ingredientRows = (w.foods||[]).filter(f=>!f.intel_managed).map(f=>{
+            const step = f.unit==='whole'||f.unit==='cup' ? 0.5 : 1;
+            return `<div class="prep-ingredient">
+              <span class="ing-name">${f.name}</span>
+              <span class="ing-planned-qty">${f.amount}${f.unit==='g'?'g':' '+f.unit} plan</span>
+              <input class="ing-actual-input" type="number" value="${f.amount}" min="0" step="${step}"
+                data-window="${wn}" data-name="${f.name}" data-planned="${f.amount}"
+                oninput="onIngChange(this,'${wid}')">
+              <span class="ing-unit">${f.unit}</span>
+            </div>`;
+          }).join('');
+        }
+
+        return `<div class="prep-window">
+          <div class="prep-header">
+            <span class="prep-win-name">${wn}</span>
+            <span class="prep-win-time">${w.time||''}</span>
+          </div>
+          <div class="prep-planned-row">Plan: ${plannedBar}</div>
+          ${ingredientRows}
+          ${isIntel
+            ? `<div class="prep-intel-note">Brain sets actual amount based on resource cycle. Enter what you consumed above to track the delta.</div>`
+            : `<div class="window-delta" id="wdelta-${wid}"><span class="dv-zero" style="font-size:.68rem">On plan ✓</span></div>`}
+        </div>`;
+      }).join('');
+
+      document.getElementById('foodplan-body').innerHTML = html;
+      document.getElementById('r-foodplan').style.display = 'block';
+      document.getElementById('log-actuals-btn').style.display = 'block';
+      updateDayTotals();
+    }).catch(()=>{});
+}
+
+function onIngChange(el, wid){
+  const wn = el.dataset.window;
+  const planned = parseFloat(el.dataset.planned)||0;
+  el.classList.toggle('changed', (parseFloat(el.value)||0) !== planned);
+  const w = _currentPlan?.[wn]; if(!w) return;
+  updateWindowDelta(wn, (w.foods||[]).map(f=>({...f,_windowName:wn})), w);
+  updateDayTotals();
+}
+
+async function logActuals(){
+  const btn = document.getElementById('log-actuals-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  if(!_currentPlan){ btn.disabled=false; btn.textContent='Log Actuals'; return; }
+
+  const windowActuals = {};
+  let tp=0,tc=0,tf=0,tk=0, ap=0,ac=0,af=0,ak=0;
+
+  Object.entries(_currentPlan).forEach(([wn,w])=>{
+    if(w.intel_managed){
+      // Evening Protein — Intel window
+      const el = document.querySelector(`.ing-actual-input[data-window="Evening Protein"]`);
+      const qty = el ? (parseFloat(el.value)||0) : 0;
+      const m = IMACRO["Whey"];
+      const act = {p:Math.round(m.p*qty*10)/10, c:Math.round(m.c*qty*10)/10,
+                   f:Math.round(m.f*qty*10)/10, kcal:Math.round(m.kcal*qty)};
+      windowActuals[wn] = {
+        planned:{p:0,c:0,f:0,kcal:0},
+        actual: act,
+        ingredients:{"Whey":{planned_qty:0, actual_qty:qty}}
+      };
+      ap+=act.p; ac+=act.c; af+=act.f; ak+=act.kcal;
+      return;
+    }
+    tp+=w.P||0; tc+=w.C||0; tf+=w.F||0; tk+=w.kcal||0;
+    const ings = {};
+    (w.foods||[]).forEach(f=>{
+      const el = document.querySelector(`.ing-actual-input[data-window="${wn}"][data-name="${f.name}"]`);
+      ings[f.name] = {planned_qty: f.amount, actual_qty: el ? (parseFloat(el.value)||0) : f.amount};
+    });
+    const act = calcWindowActuals((w.foods||[]).map(f=>({...f,_windowName:wn})));
+    windowActuals[wn] = {
+      planned:{p:w.P||0, c:w.C||0, f:w.F||0, kcal:w.kcal||0},
+      actual: act,
+      ingredients: ings
+    };
+    ap+=act.p; ac+=act.c; af+=act.f; ak+=act.kcal;
+  });
+
+  ap=Math.round(ap*10)/10; ac=Math.round(ac*10)/10;
+  af=Math.round(af*10)/10; ak=Math.round(ak);
+
+  const payload = {
+    expo_user_id: USER_ID,
+    date: document.getElementById('log-date').value,
+    meal_actuals_json: {
+      day_type: _currentDayType,
+      windows: windowActuals,
+      totals: {
+        planned: {p:tp, c:tc, f:tf, kcal:tk},
+        actual:  {p:ap, c:ac, f:af, kcal:ak},
+        delta:   {p:Math.round((ap-tp)*10)/10, c:Math.round((ac-tc)*10)/10,
+                  f:Math.round((af-tf)*10)/10, kcal:Math.round(ak-tk)}
+      }
+    }
+  };
+
+  try{
+    const res = await fetch('/log/meal-actuals',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(res.ok){ showToast('Actuals saved ✓'); btn.textContent='Actuals Saved ✓'; }
+    else { showToast('Error saving actuals'); btn.disabled=false; btn.textContent='Log Actuals'; }
+  } catch(e){ showToast('Network error'); btn.disabled=false; btn.textContent='Log Actuals'; }
 }
 
 function fmt(s){return s?s.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()):'—';}

@@ -173,6 +173,11 @@ class VitalsDailyLog(Base):
     recommended_lift_mode = Column(String(30))
     recommended_macro_day = Column(String(30))
 
+    # Per-window actual intake JSON — stored when user logs actuals after eating
+    # Structure: {window_name: {planned:{p,c,f,kcal}, actual:{p,c,f,kcal},
+    #             ingredients:{name:{planned_qty, actual_qty}}}, ..., totals:{...}}
+    meal_actuals_json = Column(JSONB)
+
     notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

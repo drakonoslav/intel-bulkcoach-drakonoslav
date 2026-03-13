@@ -50,7 +50,7 @@ COLUMNS = [
     "exercise_min",
     "cardio_duration_min",
     "cardio_avg_hr_bpm",
-    # nutrition (actual)
+    # nutrition (actual — whole-day totals)
     "kcal_actual",
     "protein_g_actual",
     "carbs_g_actual",
@@ -60,6 +60,20 @@ COLUMNS = [
     "protein_g_target",
     "carbs_g_target",
     "fat_g_target",
+    # per-window actuals vs planned (logged separately after eating)
+    "meal_actuals_logged_at",
+    "day_kcal_planned",
+    "day_kcal_actual_windows",
+    "day_kcal_delta",
+    "day_p_planned",
+    "day_p_actual",
+    "day_p_delta",
+    "day_c_planned",
+    "day_c_actual",
+    "day_c_delta",
+    "day_f_planned",
+    "day_f_actual",
+    "day_f_delta",
 ]
 
 

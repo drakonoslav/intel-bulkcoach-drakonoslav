@@ -35,6 +35,20 @@ This file is the source of truth. Do not modify without explicit user instructio
 # Flaxseed (per g):   0.27g C | 0.20g P | 0.40g F
 # Eggs (1 whole):     0g C | 6g P | 5g F | 70 kcal
 
+# Macro density per unit — used for actual vs planned delta computation.
+# Values are the brain's own per-unit densities (sourced from comment block above).
+# kcal computed as 4*P + 4*C + 9*F (rounded to match plan totals).
+INGREDIENT_MACROS = {
+    "Banana":       {"unit": "whole", "p": 1.00,  "c": 27.00, "f": 0.00,  "kcal": 104.0},
+    "Oats":         {"unit": "g",     "p": 0.17,  "c": 0.67,  "f": 0.06,  "kcal": 3.90},
+    "Whey":         {"unit": "g",     "p": 0.80,  "c": 0.08,  "f": 0.05,  "kcal": 3.97},
+    "MCT Powder":   {"unit": "g",     "p": 0.00,  "c": 0.00,  "f": 0.90,  "kcal": 8.10},
+    "Dextrin":      {"unit": "g",     "p": 0.00,  "c": 1.00,  "f": 0.00,  "kcal": 4.00},
+    "Greek Yogurt": {"unit": "cup",   "p": 20.00, "c": 9.00,  "f": 0.00,  "kcal": 116.0},
+    "Flaxseed":     {"unit": "g",     "p": 0.20,  "c": 0.27,  "f": 0.40,  "kcal": 5.48},
+    "Eggs":         {"unit": "whole", "p": 6.00,  "c": 0.00,  "f": 5.00,  "kcal": 70.0},
+}
+
 MEAL_PLAN = {
 
     # ═══════════════════════════════════════════════════════════════════════════
