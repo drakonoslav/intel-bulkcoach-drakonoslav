@@ -611,6 +611,18 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
     db.commit()
     persist_oscillator_state(db, payload.expo_user_id, existing, result)
 
+    # ── CSV BACKUP — every log appended to data/daily_log.csv ────────────────
+    try:
+        from app.csv_log import append_log
+        _csv_row = payload.dict()
+        _csv_row["date"] = str(payload.date)
+        # write resolved (normalised) stage values so CSV reflects actual minutes
+        for _sf in ("sleep_rem_min", "sleep_core_min", "sleep_deep_min", "sleep_awake_min"):
+            _csv_row[_sf] = getattr(existing, _sf, None)
+        append_log(_csv_row)
+    except Exception as _e:
+        print(f"[csv_log] non-fatal write error: {_e}")
+
     display_spec = build_display_spec(result, existing)
 
     return {

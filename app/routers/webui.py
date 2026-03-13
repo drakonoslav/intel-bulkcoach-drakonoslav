@@ -1,7 +1,22 @@
 from fastapi import APIRouter
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from pathlib import Path
 
 router = APIRouter(tags=["webui"])
+
+CSV_PATH = Path(__file__).parent.parent.parent / "data" / "daily_log.csv"
+
+
+@router.get("/log/export", include_in_schema=False)
+def export_csv():
+    if not CSV_PATH.exists():
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse("No logs yet.", status_code=404)
+    return FileResponse(
+        path=str(CSV_PATH),
+        media_type="text/csv",
+        filename="arcforge_daily_log.csv",
+    )
 
 _HTML = r"""<!DOCTYPE html>
 <html lang="en">
@@ -93,12 +108,17 @@ body{padding:0 0 80px 0}
 .toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid var(--border);border-radius:10px;padding:12px 20px;font-size:.85rem;color:var(--text);z-index:999;display:none;white-space:nowrap}
 .uuid-row{padding:10px 16px;font-size:.7rem;color:var(--muted);display:flex;align-items:center;gap:8px;border-top:1px solid var(--border)}
 .uuid-row input{background:transparent;border:none;color:var(--muted);font-size:.7rem;font-family:monospace;flex:1;min-width:0}
+.csv-btn{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:.75rem;padding:5px 10px;text-decoration:none;white-space:nowrap}
+.csv-btn:hover{border-color:var(--accent);color:var(--accent)}
 </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>⚡ ArcForge Daily Log</h1>
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <h1>⚡ ArcForge Daily Log</h1>
+    <a href="/log/export" download="arcforge_daily_log.csv" class="csv-btn">↓ CSV</a>
+  </div>
   <div class="date-row">
     <input type="date" id="log-date">
   </div>
