@@ -305,6 +305,116 @@ def get_baselines(expo_user_id: str, db: Session = Depends(get_db)):
     }
 
 
+# ── displaySpec helpers (module-level so GET endpoint can reuse them) ─────────
+
+def _ds_score_color(score):
+    if score is None: return "grey"
+    if score >= 67:   return "green"
+    if score >= 34:   return "yellow"
+    return "red"
+
+def _ds_min_to_hhmm(mins):
+    if mins is None: return None
+    h = int(float(mins)) // 60
+    m = int(float(mins)) % 60
+    return f"{h}h {m:02d}m"
+
+def _ds_midpoint_clock(mins):
+    if mins is None: return None
+    h = int(float(mins)) // 60
+    m = int(float(mins)) % 60
+    suffix = "AM" if h < 12 else "PM"
+    h12 = h if h <= 12 else h - 12
+    if h12 == 0: h12 = 12
+    return f"{h12}:{m:02d} {suffix}"
+
+def build_display_spec(result, log_row):
+    """Build a display-ready spec from a computed recommendation result + log row.
+    Every value has a human-readable .display string — Expo loops and renders, no logic needed.
+    """
+    _sleep_dur = float(log_row.sleep_duration_min)   if log_row.sleep_duration_min  else None
+    _sleep_eff = float(log_row.sleep_efficiency_pct) if log_row.sleep_efficiency_pct else None
+    _sleep_mid = float(log_row.sleep_midpoint_min)   if log_row.sleep_midpoint_min   else None
+    _sleep_tib = float(log_row.time_in_bed_min)      if log_row.time_in_bed_min      else None
+    _rem       = float(log_row.sleep_rem_min)        if log_row.sleep_rem_min        else None
+    _core      = float(log_row.sleep_core_min)       if log_row.sleep_core_min       else None
+    _deep      = float(log_row.sleep_deep_min)       if log_row.sleep_deep_min       else None
+    _awake     = float(log_row.sleep_awake_min)      if log_row.sleep_awake_min      else None
+
+    sleep_summary = {
+        "duration":   {"value": _sleep_dur, "display": _ds_min_to_hhmm(_sleep_dur),  "label": "Total Sleep"},
+        "efficiency": {"value": _sleep_eff, "display": f"{_sleep_eff:.1f}%" if _sleep_eff else None, "label": "Efficiency"},
+        "midpoint":   {"value": _sleep_mid, "display": _ds_midpoint_clock(_sleep_mid), "label": "Midpoint"},
+        "timeInBed":  {"value": _sleep_tib, "display": _ds_min_to_hhmm(_sleep_tib),  "label": "Time in Bed"},
+        "stages": {
+            "rem":   {"value": _rem,   "display": _ds_min_to_hhmm(_rem),   "label": "REM"},
+            "core":  {"value": _core,  "display": _ds_min_to_hhmm(_core),  "label": "Core"},
+            "deep":  {"value": _deep,  "display": _ds_min_to_hhmm(_deep),  "label": "Deep"},
+            "awake": {"value": _awake, "display": _ds_min_to_hhmm(_awake), "label": "Awake"},
+        },
+    }
+
+    _a = result["acuteResult"]["score"]
+    _r = result["resourceResult"]["score"]
+    _s = result["adaptationResult"]["score"]
+    score_cards = [
+        {"id": "acute",      "label": "Acute Readiness",   "sublabel": "Today's recovery state",         "score": _a, "maxScore": 100, "color": _ds_score_color(_a), "confidence": result["acuteResult"].get("overallConfidence"),      "topDrivers": (result["acuteResult"].get("breakdown")      or [])[:3]},
+        {"id": "resource",   "label": "Resource Tank",      "sublabel": "7-day training & nutrition load", "score": _r, "maxScore": 100, "color": _ds_score_color(_r), "confidence": result["resourceResult"].get("overallConfidence"),   "topDrivers": (result["resourceResult"].get("breakdown")   or [])[:3]},
+        {"id": "adaptation", "label": "Adaptation Arc",     "sublabel": "28-day trend trajectory",        "score": _s, "maxScore": 100, "color": _ds_score_color(_s), "confidence": result["adaptationResult"].get("overallConfidence"), "topDrivers": (result["adaptationResult"].get("breakdown") or [])[:3]},
+    ]
+
+    _warn_map = {
+        "bodyCompConfidenceLow":                  {"type": "warn", "message": "Body composition data is sparse. Add a weekly measurement to sharpen recommendations."},
+        "hrvDataSparse":                          {"type": "warn", "message": "HRV baseline is still building. Keep logging daily for more accurate readiness scores."},
+        "waistMeasurementStale":                  {"type": "info", "message": "Waist measurement is stale. Log a new waist reading when you get a chance."},
+        "ffmDataInsufficient":                    {"type": "warn", "message": "Fat-free mass history is too short to trend. Keep logging body composition weekly."},
+        "lightExposureNotTracked":                {"type": "info", "message": "Sunlight exposure isn't being tracked. This affects adaptation score accuracy."},
+        "insufficientHistoryForDeloadAssessment": {"type": "info", "message": "Not enough history yet to assess deload compliance. Recommendations improve over 4+ weeks."},
+    }
+    _flag_map = {
+        "hardStopFatigue":        {"type": "stop", "message": "Hard stop — fatigue signals are high. Today is a mandatory recovery day."},
+        "lowSleep":               {"type": "warn", "message": f"Sleep was below 6 hours ({_ds_min_to_hhmm(_sleep_dur) or '—'}). Recovery mode applied."},
+        "suppressedHrv":          {"type": "warn", "message": "HRV is suppressed below your baseline. Extra recovery recommended."},
+        "elevatedRhr":            {"type": "warn", "message": "Resting heart rate is elevated above your baseline. Monitor recovery."},
+        "resensitizePhaseActive": {"type": "info", "message": "Resensitize phase active. Reduced volume and recalibration in effect."},
+        "deloadPhaseActive":      {"type": "info", "message": "Deload phase active. Reduced load is intentional — trust the process."},
+    }
+    notices = []
+    for flag, active in result["flags"].items():
+        if active and flag in _flag_map:
+            notices.insert(0, _flag_map[flag])
+    for w in _build_data_quality_warnings(result):
+        notices.append(_warn_map.get(w, {"type": "info", "message": w}))
+    cg = result.get("crossGearDiagnostics", {})
+    if cg.get("strengthWithoutFfm"):
+        notices.append({"type": "warn", "message": "Strength trending up but muscle mass isn't following. Check protein and recovery quality."})
+    if cg.get("ffmFallingUnderLoad"):
+        notices.append({"type": "stop", "message": "Muscle mass declining under training load. Increase calories and protein immediately."})
+    if cg.get("waistRisingFasterThanFfm"):
+        notices.append({"type": "warn", "message": "Waist growing faster than muscle. Fat gain is outpacing muscle gain — review nutrition."})
+
+    mt = result["mealTimingTargets"]
+    meal_timing = {
+        "label": "Meal Timing Targets",
+        "sections": [
+            {"label": "Pre-Cardio",  "carbsG":    mt.get("preCardioCarbsG")},
+            {"label": "Post-Cardio", "proteinG":  mt.get("postCardioProteinG"),  "carbsG": mt.get("postCardioCarbsG"),  "fatG": mt.get("postCardioFatG")},
+            {"label": "Meal 2",      "proteinG":  mt.get("meal2ProteinG"),        "carbsG": mt.get("meal2CarbsG"),       "fatG": mt.get("meal2FatG")},
+            {"label": "Pre-Lift",    "proteinG":  mt.get("preLiftProteinG"),      "carbsG": mt.get("preLiftCarbsG"),     "fatG": mt.get("preLiftFatG")},
+            {"label": "Post-Lift",   "proteinG":  mt.get("postLiftProteinG"),     "carbsG": mt.get("postLiftCarbsG"),    "fatG": mt.get("postLiftFatG")},
+            {"label": "Final Meal",  "proteinG":  mt.get("finalMealProteinG"),    "carbsG": mt.get("finalMealCarbsG"),   "fatG": mt.get("finalMealFatG")},
+        ],
+    }
+
+    return {
+        "scoreCards":   score_cards,
+        "sleepSummary": sleep_summary,
+        "notices":      notices,
+        "insights":     result.get("reasoning", []),
+        "mealTiming":   meal_timing,
+    }
+
+
 @router.put("/baselines/{expo_user_id}")
 def upsert_baselines(expo_user_id: str, payload: BaselineUpsert, db: Session = Depends(get_db)):
     row = db.query(VitalsUserBaselines).filter(VitalsUserBaselines.expo_user_id == expo_user_id).first()
@@ -467,142 +577,7 @@ def post_daily_log(payload: DailyLogIn, db: Session = Depends(get_db)):
     db.commit()
     persist_oscillator_state(db, payload.expo_user_id, existing, result)
 
-    def _score_color(score):
-        if score is None: return "grey"
-        if score >= 67:   return "green"
-        if score >= 34:   return "yellow"
-        return "red"
-
-    def _min_to_hhmm(mins):
-        if mins is None: return None
-        h = int(float(mins)) // 60
-        m = int(float(mins)) % 60
-        return f"{h}h {m:02d}m"
-
-    def _midpoint_clock(mins):
-        if mins is None: return None
-        h = int(float(mins)) // 60
-        m = int(float(mins)) % 60
-        suffix = "AM" if h < 12 else "PM"
-        h12 = h if h <= 12 else h - 12
-        if h12 == 0: h12 = 12
-        return f"{h12}:{m:02d} {suffix}"
-
-    # ── Build sleep summary from the derived values on the log row ────────────
-    _sleep_dur  = float(existing.sleep_duration_min)   if existing.sleep_duration_min  else None
-    _sleep_eff  = float(existing.sleep_efficiency_pct) if existing.sleep_efficiency_pct else None
-    _sleep_mid  = float(existing.sleep_midpoint_min)   if existing.sleep_midpoint_min   else None
-    _sleep_tib  = float(existing.time_in_bed_min)      if existing.time_in_bed_min      else None
-    _rem        = float(existing.sleep_rem_min)        if existing.sleep_rem_min        else None
-    _core       = float(existing.sleep_core_min)       if existing.sleep_core_min       else None
-    _deep       = float(existing.sleep_deep_min)       if existing.sleep_deep_min       else None
-    _awake      = float(existing.sleep_awake_min)      if existing.sleep_awake_min      else None
-
-    sleep_summary = {
-        "duration":   {"value": _sleep_dur,  "display": _min_to_hhmm(_sleep_dur),  "label": "Total Sleep"},
-        "efficiency": {"value": _sleep_eff,  "display": f"{_sleep_eff:.1f}%" if _sleep_eff else None, "label": "Efficiency"},
-        "midpoint":   {"value": _sleep_mid,  "display": _midpoint_clock(_sleep_mid), "label": "Midpoint"},
-        "timeInBed":  {"value": _sleep_tib,  "display": _min_to_hhmm(_sleep_tib),  "label": "Time in Bed"},
-        "stages": {
-            "rem":   {"value": _rem,   "display": _min_to_hhmm(_rem),   "label": "REM"},
-            "core":  {"value": _core,  "display": _min_to_hhmm(_core),  "label": "Core"},
-            "deep":  {"value": _deep,  "display": _min_to_hhmm(_deep),  "label": "Deep"},
-            "awake": {"value": _awake, "display": _min_to_hhmm(_awake), "label": "Awake"},
-        },
-    }
-
-    # ── Score cards for all three oscillators ────────────────────────────────
-    _a_score  = result["acuteResult"]["score"]
-    _r_score  = result["resourceResult"]["score"]
-    _s_score  = result["adaptationResult"]["score"]
-    score_cards = [
-        {
-            "id": "acute",
-            "label": "Acute Readiness",
-            "sublabel": "Today's recovery state",
-            "score": _a_score,
-            "maxScore": 100,
-            "color": _score_color(_a_score),
-            "confidence": result["acuteResult"].get("overallConfidence"),
-            "topDrivers": result["acuteResult"]["breakdown"][:3] if result["acuteResult"].get("breakdown") else [],
-        },
-        {
-            "id": "resource",
-            "label": "Resource Tank",
-            "sublabel": "7-day training & nutrition load",
-            "score": _r_score,
-            "maxScore": 100,
-            "color": _score_color(_r_score),
-            "confidence": result["resourceResult"].get("overallConfidence"),
-            "topDrivers": result["resourceResult"]["breakdown"][:3] if result["resourceResult"].get("breakdown") else [],
-        },
-        {
-            "id": "adaptation",
-            "label": "Adaptation Arc",
-            "sublabel": "28-day trend trajectory",
-            "score": _s_score,
-            "maxScore": 100,
-            "color": _score_color(_s_score),
-            "confidence": result["adaptationResult"].get("overallConfidence"),
-            "topDrivers": result["adaptationResult"]["breakdown"][:3] if result["adaptationResult"].get("breakdown") else [],
-        },
-    ]
-
-    # ── Notices: warnings formatted as user-facing messages ──────────────────
-    _warning_messages = {
-        "bodyCompConfidenceLow":             {"type": "warn",  "message": "Body composition data is sparse. Add a weekly measurement to sharpen recommendations."},
-        "hrvDataSparse":                     {"type": "warn",  "message": "HRV baseline is still building. Keep logging daily for more accurate readiness scores."},
-        "waistMeasurementStale":             {"type": "info",  "message": "Waist measurement is stale. Log a new waist reading when you get a chance."},
-        "ffmDataInsufficient":               {"type": "warn",  "message": "Fat-free mass history is too short to trend. Keep logging body composition weekly."},
-        "lightExposureNotTracked":           {"type": "info",  "message": "Sunlight exposure isn't being tracked. This affects adaptation score accuracy."},
-        "insufficientHistoryForDeloadAssessment": {"type": "info", "message": "Not enough history yet to assess deload compliance. Recommendations improve over 4+ weeks."},
-    }
-    notices = []
-    for w in _build_data_quality_warnings(result):
-        if w in _warning_messages:
-            notices.append(_warning_messages[w])
-        else:
-            notices.append({"type": "info", "message": w})
-
-    # Active flags as notices
-    _flag_messages = {
-        "hardStopFatigue":  {"type": "stop",  "message": "Hard stop — fatigue signals are high. Today is a mandatory recovery day."},
-        "lowSleep":         {"type": "warn",  "message": f"Sleep was below 6 hours ({_min_to_hhmm(_sleep_dur) or '—'}). Recovery mode applied."},
-        "suppressedHrv":    {"type": "warn",  "message": "HRV is suppressed below your baseline. Extra recovery recommended."},
-        "elevatedRhr":      {"type": "warn",  "message": "Resting heart rate is elevated above your baseline. Monitor recovery."},
-        "resensitizePhaseActive": {"type": "info", "message": "Resensitize phase is active. Reduced volume and recalibration in effect."},
-        "deloadPhaseActive":      {"type": "info", "message": "Deload phase is active. Reduced load is intentional — trust the process."},
-    }
-    for flag, active in result["flags"].items():
-        if active and flag in _flag_messages:
-            notices.insert(0, _flag_messages[flag])
-
-    # ── Cross-gear notices ────────────────────────────────────────────────────
-    cg = result.get("crossGearDiagnostics", {})
-    if cg.get("strengthWithoutFfm"):
-        notices.append({"type": "warn", "message": "Strength is trending up but muscle mass isn't following. Check protein and recovery quality."})
-    if cg.get("ffmFallingUnderLoad"):
-        notices.append({"type": "stop", "message": "Muscle mass is declining under training load. Increase calories and protein immediately."})
-    if cg.get("waistRisingFasterThanFfm"):
-        notices.append({"type": "warn", "message": "Waist is growing faster than muscle. Review nutrition — fat gain is outpacing muscle gain."})
-
-    display_spec = {
-        "scoreCards":    score_cards,
-        "sleepSummary":  sleep_summary,
-        "notices":       notices,
-        "insights":      result.get("reasoning", []),
-        "mealTiming": {
-            "label": "Meal Timing Targets",
-            "sections": [
-                {"label": "Pre-Cardio",  "carbsG": result["mealTimingTargets"].get("preCardioCarbsG")},
-                {"label": "Post-Cardio", "proteinG": result["mealTimingTargets"].get("postCardioProteinG"), "carbsG": result["mealTimingTargets"].get("postCardioCarbsG"), "fatG": result["mealTimingTargets"].get("postCardioFatG")},
-                {"label": "Meal 2",      "proteinG": result["mealTimingTargets"].get("meal2ProteinG"),      "carbsG": result["mealTimingTargets"].get("meal2CarbsG"),      "fatG": result["mealTimingTargets"].get("meal2FatG")},
-                {"label": "Pre-Lift",    "proteinG": result["mealTimingTargets"].get("preLiftProteinG"),    "carbsG": result["mealTimingTargets"].get("preLiftCarbsG"),    "fatG": result["mealTimingTargets"].get("preLiftFatG")},
-                {"label": "Post-Lift",   "proteinG": result["mealTimingTargets"].get("postLiftProteinG"),   "carbsG": result["mealTimingTargets"].get("postLiftCarbsG"),   "fatG": result["mealTimingTargets"].get("postLiftFatG")},
-                {"label": "Final Meal",  "proteinG": result["mealTimingTargets"].get("finalMealProteinG"),  "carbsG": result["mealTimingTargets"].get("finalMealCarbsG"),  "fatG": result["mealTimingTargets"].get("finalMealFatG")},
-            ],
-        },
-    }
+    display_spec = build_display_spec(result, existing)
 
     return {
         "ok": True,
@@ -713,6 +688,47 @@ def get_dashboard(
             "resource": result["resourceResult"]["breakdown"],
             "adaptation": result["adaptationResult"]["breakdown"],
         },
+    }
+
+
+@router.get("/display-spec")
+def get_display_spec(
+    expo_user_id: str = Query(..., description="Expo device UUID for this user"),
+    date: Optional[str] = Query(None, description="ISO date YYYY-MM-DD (defaults to today)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the fully formatted displaySpec for the user's vitals log on a given date.
+
+    This is the exact same displaySpec block returned inside POST /daily-log,
+    available as a standalone GET so the Today screen can load it without resubmitting.
+
+    Every value has a human-readable .display string. No math or conditionals needed in Expo.
+
+    scoreCards[]  — Acute / Resource / Adaptation scores with color + topDrivers
+    sleepSummary  — duration, efficiency, midpoint, timeInBed, stages (rem/core/deep/awake)
+    notices[]     — type: "stop" | "warn" | "info" with pre-written message strings
+    insights[]    — Plain-text reasoning sentences
+    mealTiming    — Per-meal protein/carbs/fat targets in grams
+    """
+    target_date = DateType.fromisoformat(date) if date else DateType.today()
+    log_row = db.query(VitalsDailyLog).filter(
+        VitalsDailyLog.expo_user_id == expo_user_id,
+        VitalsDailyLog.date == target_date,
+    ).first()
+
+    if not log_row:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No vitals log found for {expo_user_id} on {target_date}. POST /vitals/daily-log first."
+        )
+
+    result = compute_daily_recommendation(db, expo_user_id, log_row)
+    return {
+        "ok": True,
+        "date": str(target_date),
+        "expo_user_id": expo_user_id,
+        "displaySpec": build_display_spec(result, log_row),
     }
 
 
