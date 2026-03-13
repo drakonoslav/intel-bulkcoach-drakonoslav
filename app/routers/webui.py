@@ -1,15 +1,115 @@
-from fastapi import APIRouter, Depends
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 from pathlib import Path
 from typing import Optional
+import datetime
 
 from app.database import get_db
-from app.vitals_models import VitalsDailyLog
+from app.vitals_models import (
+    VitalsDailyLog, VitalsCardioSession, VitalsLiftSession, LiftExerciseEntry
+)
 
 router = APIRouter(tags=["webui"])
 
 CSV_PATH = Path(__file__).parent.parent.parent / "data" / "daily_log.csv"
+
+# ── Shared design constants ────────────────────────────────────────────────────
+_EXPO_USER_ID = "beeb9b83-58d3-4a22-a1a7-a252fd86a0e0"
+
+_CSS_VARS = """
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0a0a0a;--card:#141414;--border:#222;--accent:#f97316;
+  --green:#4ade80;--yellow:#facc15;--red:#f87171;--teal:#2dd4bf;
+  --blue:#60a5fa;--purple:#a78bfa;
+  --text:#e5e5e5;--muted:#666;--input:#1c1c1c;--radius:12px
+}
+html,body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+body{padding:0 0 88px 0}
+.header{background:var(--card);border-bottom:1px solid var(--border);padding:16px 20px;position:sticky;top:0;z-index:100}
+.header-top{display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:1.1rem;font-weight:700;color:var(--accent)}
+.date-row{display:flex;align-items:center;gap:10px;margin-top:10px}
+.date-row input[type=date]{background:var(--input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.95rem;padding:8px 12px;flex:1;text-align:center}
+.date-nav{background:var(--input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:1rem;padding:7px 14px;cursor:pointer;flex-shrink:0}
+.date-nav:active{background:var(--border)}
+.section{margin:16px 12px 0;background:var(--card);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden}
+.section-title{padding:14px 16px 10px;font-size:.65rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);border-bottom:1px solid var(--border)}
+.row{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #1a1a1a;gap:12px}
+.row:last-child{border-bottom:none}
+.row label{font-size:.88rem;color:var(--text);flex:1;line-height:1.3}
+.row .hint{font-size:.72rem;color:var(--muted);margin-top:2px}
+.row .right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.row input[type=number],.row input[type=time],.row input[type=text],.row select{
+  background:var(--input);border:1px solid var(--border);border-radius:8px;
+  color:var(--text);font-size:.95rem;padding:8px 10px;
+  width:100px;text-align:right;-moz-appearance:textfield
+}
+.row select{width:auto;text-align:left;padding-right:28px}
+.row input[type=time]{width:110px;text-align:center}
+.row input:focus,.row select:focus{outline:none;border-color:var(--accent)}
+.row input::-webkit-outer-spin-button,.row input::-webkit-inner-spin-button{-webkit-appearance:none}
+.unit{font-size:.75rem;color:var(--muted);width:28px}
+.score-btn{flex:1;padding:9px 4px;background:var(--input);border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:.9rem;font-weight:600;cursor:pointer;text-align:center;transition:all .15s}
+.score-btn.active{background:var(--accent);border-color:var(--accent);color:#000}
+.score-row{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #1a1a1a;gap:8px;flex-wrap:wrap}
+.score-row:last-child{border-bottom:none}
+.score-label{font-size:.88rem;color:var(--text);flex:1 1 100%;margin-bottom:8px}
+.submit-wrap{padding:20px 12px}
+.submit-btn{width:100%;padding:16px;background:var(--accent);border:none;border-radius:var(--radius);color:#000;font-size:1rem;font-weight:700;cursor:pointer;letter-spacing:.5px}
+.submit-btn:active{opacity:.85}
+.submit-btn:disabled{opacity:.4;cursor:not-allowed}
+.toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid var(--border);border-radius:10px;padding:12px 20px;font-size:.85rem;color:var(--text);z-index:999;display:none;white-space:nowrap}
+/* ── Bottom nav ── */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);display:flex;padding:8px 0 max(8px,env(safe-area-inset-bottom));z-index:200}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 0;text-decoration:none;color:var(--muted);font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;transition:color .15s}
+.nav-item.active,.nav-item:active{color:var(--accent)}
+.nav-icon{font-size:1.35rem;line-height:1}
+/* ── Cards / history ── */
+.hist-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin:12px 12px 0}
+.hist-card h3{font-size:.65rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px}
+.hist-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #1a1a1a;font-size:.85rem}
+.hist-row:last-child{border-bottom:none}
+.hist-lbl{color:var(--muted)}
+.hist-val{font-weight:600}
+.chip{display:inline-block;font-size:.68rem;padding:2px 8px;border-radius:6px;font-weight:600}
+.chip-build{background:#1a2a1a;color:var(--green)}
+.chip-surge{background:#2a1a0a;color:var(--accent)}
+.chip-reset{background:#1a1a2a;color:var(--blue)}
+.chip-resensitize{background:#2a1a2a;color:var(--purple)}
+.chip-zone2{background:#0a2a2a;color:var(--teal)}
+.chip-zone3{background:#2a1a0a;color:var(--yellow)}
+.chip-recovery{background:#1a1a1a;color:var(--muted)}
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 12px 0}
+.stat-box{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 10px;text-align:center}
+.stat-val{font-size:1.5rem;font-weight:700;line-height:1;color:var(--accent)}
+.stat-lbl{font-size:.62rem;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
+.sys-section{margin:12px 12px 0;background:var(--card);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden}
+.sys-section-title{padding:12px 16px 8px;font-size:.62rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);border-bottom:1px solid var(--border)}
+.spark-row{display:flex;align-items:flex-end;gap:3px;padding:12px 16px;height:60px}
+.spark-bar{flex:1;background:var(--accent);border-radius:3px 3px 0 0;min-height:3px;opacity:.8}
+.spark-bar.dim{opacity:.3}
+"""
+
+_NAV_HTML = lambda active: f"""
+<nav class="bottom-nav">
+  <a href="/log"    class="nav-item {'active' if active=='log' else ''}"><span class="nav-icon">📋</span>Log</a>
+  <a href="/cardio" class="nav-item {'active' if active=='cardio' else ''}"><span class="nav-icon">🏃</span>Cardio</a>
+  <a href="/lift"   class="nav-item {'active' if active=='lift' else ''}"><span class="nav-icon">🏋️</span>Lift</a>
+  <a href="/system" class="nav-item {'active' if active=='system' else ''}"><span class="nav-icon">⚡</span>System</a>
+</nav>"""
+
+_TOAST_JS = """
+function showToast(msg,type){
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.style.borderColor=type==='err'?'var(--red)':type==='ok'?'var(--green)':'var(--border)';
+  t.style.display='block';
+  clearTimeout(t._timer);t._timer=setTimeout(()=>t.style.display='none',3000);
+}
+"""
 
 
 @router.get("/log/export", include_in_schema=False)
@@ -291,7 +391,7 @@ _HTML = r"""<!DOCTYPE html>
   --text:#e5e5e5;--muted:#666;--input:#1c1c1c;--radius:12px
 }
 html,body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
-body{padding:0 0 80px 0}
+body{padding:0 0 88px 0}
 
 .header{background:var(--card);border-bottom:1px solid var(--border);padding:16px 20px;position:sticky;top:0;z-index:100}
 .header-top{display:flex;align-items:center;justify-content:space-between}
@@ -363,7 +463,11 @@ body{padding:0 0 80px 0}
 .status-saved{background:#1a2e1a;color:var(--green)}
 .status-blank{background:#1a1a1a;color:var(--muted)}
 
-.toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid var(--border);border-radius:10px;padding:12px 20px;font-size:.85rem;color:var(--text);z-index:999;display:none;white-space:nowrap}
+.toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid var(--border);border-radius:10px;padding:12px 20px;font-size:.85rem;color:var(--text);z-index:999;display:none;white-space:nowrap}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);display:flex;padding:8px 0 max(8px,env(safe-area-inset-bottom));z-index:200}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 0;text-decoration:none;color:var(--muted);font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;transition:color .15s}
+.nav-item.active{color:var(--accent)}
+.nav-icon{font-size:1.35rem;line-height:1}
 .uuid-row{padding:10px 16px;font-size:.7rem;color:var(--muted);display:flex;align-items:center;gap:8px;border-top:1px solid var(--border)}
 .uuid-row input{background:transparent;border:none;color:var(--muted);font-size:.7rem;font-family:monospace;flex:1;min-width:0}
 .csv-btn{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:.75rem;padding:5px 10px;text-decoration:none;white-space:nowrap}
@@ -1503,6 +1607,12 @@ function showToast(msg){
 // Load today's data on page open
 loadDate();
 </script>
+<nav class="bottom-nav">
+  <a href="/log"    class="nav-item active"><span class="nav-icon">📋</span>Log</a>
+  <a href="/cardio" class="nav-item"><span class="nav-icon">🏃</span>Cardio</a>
+  <a href="/lift"   class="nav-item"><span class="nav-icon">🏋️</span>Lift</a>
+  <a href="/system" class="nav-item"><span class="nav-icon">⚡</span>System</a>
+</nav>
 </body>
 </html>"""
 
@@ -1510,3 +1620,677 @@ loadDate();
 @router.get("/log", response_class=HTMLResponse, include_in_schema=False)
 def daily_log_page():
     return _HTML
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CARDIO PAGE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/cardio/data", include_in_schema=False)
+def get_cardio_data(expo_user_id: str, date: str, db: Session = Depends(get_db)):
+    from datetime import date as ddate
+    d = ddate.fromisoformat(date)
+    rows = (db.query(VitalsCardioSession)
+            .filter(VitalsCardioSession.expo_user_id == expo_user_id,
+                    VitalsCardioSession.date == d)
+            .order_by(desc(VitalsCardioSession.created_at))
+            .all())
+    sessions = []
+    for r in rows:
+        sessions.append({
+            "id": r.id,
+            "mode": r.mode,
+            "duration_min": float(r.duration_min) if r.duration_min else None,
+            "avg_hr_bpm": float(r.avg_hr_bpm) if r.avg_hr_bpm else None,
+            "max_hr_bpm": float(r.max_hr_bpm) if r.max_hr_bpm else None,
+            "zone2_min": float(r.zone2_min) if r.zone2_min else None,
+            "zone3_min": float(r.zone3_min) if r.zone3_min else None,
+        })
+    return {"sessions": sessions}
+
+
+@router.post("/cardio/save", include_in_schema=False)
+async def save_cardio(request: Request, db: Session = Depends(get_db)):
+    from datetime import date as ddate
+    body = await request.json()
+    expo_user_id = body.get("expo_user_id", _EXPO_USER_ID)
+    d = ddate.fromisoformat(body["date"])
+    row = VitalsCardioSession(
+        expo_user_id=expo_user_id,
+        date=d,
+        mode=body.get("mode", "zone_2"),
+        duration_min=body.get("duration_min") or None,
+        avg_hr_bpm=body.get("avg_hr_bpm") or None,
+        max_hr_bpm=body.get("max_hr_bpm") or None,
+        zone2_min=body.get("zone2_min") or None,
+        zone3_min=body.get("zone3_min") or None,
+        source="manual",
+    )
+    db.add(row)
+    db.commit()
+    return {"ok": True, "id": row.id}
+
+
+_CARDIO_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ArcForge — Cardio</title>
+<style>
+""" + _CSS_VARS + """
+.chip-zone_2{background:#0a2a2a;color:#2dd4bf}
+.chip-zone_3{background:#2a200a;color:#facc15}
+.chip-recovery_walk{background:#1a1a1a;color:#666}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-top">
+    <h1>⚡ ArcForge — Cardio</h1>
+    <span id="day-badge" style="font-size:.72rem;color:var(--muted)"></span>
+  </div>
+  <div class="date-row">
+    <button class="date-nav" onclick="shiftDate(-1)">‹</button>
+    <input type="date" id="date-input" onchange="loadDate()">
+    <button class="date-nav" onclick="shiftDate(1)">›</button>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Session Details</div>
+  <div class="row">
+    <label>Mode</label>
+    <div class="right">
+      <select id="mode">
+        <option value="zone_2">Zone 2</option>
+        <option value="zone_3">Zone 3</option>
+        <option value="recovery_walk">Recovery Walk</option>
+      </select>
+    </div>
+  </div>
+  <div class="row">
+    <label>Duration<div class="hint">total session time</div></label>
+    <div class="right"><input type="number" id="duration_min" placeholder="—"><span class="unit">min</span></div>
+  </div>
+  <div class="row">
+    <label>Avg Heart Rate</label>
+    <div class="right"><input type="number" id="avg_hr_bpm" placeholder="—"><span class="unit">bpm</span></div>
+  </div>
+  <div class="row">
+    <label>Max Heart Rate</label>
+    <div class="right"><input type="number" id="max_hr_bpm" placeholder="—"><span class="unit">bpm</span></div>
+  </div>
+  <div class="row">
+    <label>Zone 2 Time<div class="hint">fat-burning aerobic</div></label>
+    <div class="right"><input type="number" id="zone2_min" placeholder="—"><span class="unit">min</span></div>
+  </div>
+  <div class="row">
+    <label>Zone 3 Time<div class="hint">aerobic tempo</div></label>
+    <div class="right"><input type="number" id="zone3_min" placeholder="—"><span class="unit">min</span></div>
+  </div>
+</div>
+
+<div id="history-section" style="display:none">
+  <div class="hist-card">
+    <h3>Today's Sessions</h3>
+    <div id="history-list"></div>
+  </div>
+</div>
+
+<div class="submit-wrap">
+  <button class="submit-btn" onclick="saveCardio()">Log Session</button>
+</div>
+
+<div id="toast" class="toast"></div>
+""" + _NAV_HTML('cardio') + """
+<script>
+const EXPO = "beeb9b83-58d3-4a22-a1a7-a252fd86a0e0";
+
+function today(){const n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');}
+function shiftDate(d){const dt=new Date(document.getElementById('date-input').value+'T12:00:00');dt.setDate(dt.getDate()+d);document.getElementById('date-input').value=dt.toISOString().slice(0,10);loadDate();}
+
+async function loadDate(){
+  const date=document.getElementById('date-input').value||today();
+  document.getElementById('date-input').value=date;
+  const r=await fetch(`/cardio/data?expo_user_id=${EXPO}&date=${date}`);
+  const d=await r.json();
+  renderHistory(d.sessions||[]);
+}
+
+function renderHistory(sessions){
+  const sec=document.getElementById('history-section');
+  const list=document.getElementById('history-list');
+  if(!sessions.length){sec.style.display='none';return;}
+  sec.style.display='block';
+  list.innerHTML=sessions.map(s=>`
+    <div class="hist-row">
+      <span class="hist-lbl"><span class="chip chip-${s.mode}">${s.mode.replace('_',' ')}</span></span>
+      <span class="hist-val">${s.duration_min||'—'} min · ${s.avg_hr_bpm||'—'} bpm avg</span>
+    </div>
+  `).join('');
+}
+
+async function saveCardio(){
+  const btn=document.querySelector('.submit-btn');
+  btn.disabled=true;btn.textContent='Saving…';
+  const payload={
+    expo_user_id:EXPO,
+    date:document.getElementById('date-input').value||today(),
+    mode:document.getElementById('mode').value,
+    duration_min:parseFloat(document.getElementById('duration_min').value)||null,
+    avg_hr_bpm:parseFloat(document.getElementById('avg_hr_bpm').value)||null,
+    max_hr_bpm:parseFloat(document.getElementById('max_hr_bpm').value)||null,
+    zone2_min:parseFloat(document.getElementById('zone2_min').value)||null,
+    zone3_min:parseFloat(document.getElementById('zone3_min').value)||null,
+  };
+  const res=await fetch('/cardio/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(res.ok){
+    showToast('Session logged ✓','ok');
+    btn.textContent='Log Session';btn.disabled=false;
+    // clear fields
+    ['duration_min','avg_hr_bpm','max_hr_bpm','zone2_min','zone3_min'].forEach(id=>document.getElementById(id).value='');
+    loadDate();
+  } else {showToast('Error — try again','err');btn.disabled=false;btn.textContent='Log Session';}
+}
+
+""" + _TOAST_JS + """
+document.getElementById('date-input').value=today();
+loadDate();
+</script>
+</body>
+</html>"""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LIFT PAGE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/lift/data", include_in_schema=False)
+def get_lift_data(expo_user_id: str, date: str, db: Session = Depends(get_db)):
+    from datetime import date as ddate
+    d = ddate.fromisoformat(date)
+    rows = (db.query(VitalsLiftSession)
+            .filter(VitalsLiftSession.expo_user_id == expo_user_id,
+                    VitalsLiftSession.date == d)
+            .order_by(desc(VitalsLiftSession.created_at))
+            .all())
+    sessions = []
+    for r in rows:
+        exs = (db.query(LiftExerciseEntry)
+               .filter(LiftExerciseEntry.lift_session_id == r.id)
+               .all())
+        sessions.append({
+            "id": r.id,
+            "completed_lift_mode": r.completed_lift_mode,
+            "duration_min": float(r.duration_min) if r.duration_min else None,
+            "top_set_rpe": float(r.top_set_rpe) if r.top_set_rpe else None,
+            "pump_quality_score": r.pump_quality_score,
+            "notes": r.notes,
+            "exercises": [{"name": e.exercise_name_raw, "sets": e.sets_completed,
+                           "reps": e.reps_per_set, "load_lbs": float(e.load_lbs) if e.load_lbs else None,
+                           "rpe": float(e.rpe) if e.rpe else None} for e in exs],
+        })
+    return {"sessions": sessions}
+
+
+@router.post("/lift/save", include_in_schema=False)
+async def save_lift(request: Request, db: Session = Depends(get_db)):
+    from datetime import date as ddate
+    body = await request.json()
+    expo_user_id = body.get("expo_user_id", _EXPO_USER_ID)
+    d = ddate.fromisoformat(body["date"])
+    session = VitalsLiftSession(
+        expo_user_id=expo_user_id,
+        date=d,
+        completed_lift_mode=body.get("completed_lift_mode") or None,
+        duration_min=body.get("duration_min") or None,
+        top_set_rpe=body.get("top_set_rpe") or None,
+        pump_quality_score=body.get("pump_quality_score") or None,
+        rep_speed_subjective_score=body.get("rep_speed") or None,
+        notes=body.get("notes") or None,
+    )
+    db.add(session)
+    db.flush()
+    for ex in body.get("exercises", []):
+        if not ex.get("name"): continue
+        entry = LiftExerciseEntry(
+            expo_user_id=expo_user_id,
+            date=d,
+            lift_session_id=session.id,
+            exercise_name_raw=ex["name"],
+            sets_completed=ex.get("sets") or None,
+            reps_per_set=ex.get("reps") or None,
+            load_lbs=ex.get("load_lbs") or None,
+            rpe=ex.get("rpe") or None,
+            set_type="working",
+        )
+        db.add(entry)
+    db.commit()
+    return {"ok": True, "id": session.id}
+
+
+_LIFT_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ArcForge — Lift</title>
+<style>
+""" + _CSS_VARS + """
+.ex-row{display:grid;grid-template-columns:1fr 48px 48px 72px 52px 36px;gap:6px;padding:10px 12px;border-bottom:1px solid #1a1a1a;align-items:center}
+.ex-row:last-of-type{border-bottom:none}
+.ex-input{background:var(--input);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.85rem;padding:6px 6px;text-align:center;width:100%;-moz-appearance:textfield}
+.ex-input::-webkit-outer-spin-button,.ex-input::-webkit-inner-spin-button{-webkit-appearance:none}
+.ex-input:focus{outline:none;border-color:var(--accent)}
+.ex-name{background:var(--input);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.85rem;padding:6px 8px;width:100%}
+.ex-name:focus{outline:none;border-color:var(--accent)}
+.ex-hdr{display:grid;grid-template-columns:1fr 48px 48px 72px 52px 36px;gap:6px;padding:6px 12px;font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.del-btn{background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;padding:4px;line-height:1}
+.del-btn:active{color:var(--red)}
+.add-ex-btn{width:calc(100% - 24px);margin:10px 12px;padding:10px;background:transparent;border:1px dashed var(--border);border-radius:8px;color:var(--muted);font-size:.85rem;cursor:pointer;text-align:center}
+.add-ex-btn:active{border-color:var(--accent);color:var(--accent)}
+.vol-bar{background:#111;padding:10px 16px;font-size:.78rem;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap}
+.vol-bar span{color:var(--text);font-weight:600}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-top">
+    <h1>⚡ ArcForge — Lift</h1>
+  </div>
+  <div class="date-row">
+    <button class="date-nav" onclick="shiftDate(-1)">‹</button>
+    <input type="date" id="date-input" onchange="loadDate()">
+    <button class="date-nav" onclick="shiftDate(1)">›</button>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Session</div>
+  <div class="row">
+    <label>Mode</label>
+    <div class="right">
+      <select id="completed_lift_mode">
+        <option value="hypertrophy_build">Hypertrophy Build</option>
+        <option value="neural_tension">Neural Tension</option>
+        <option value="pump">Pump</option>
+        <option value="recovery_patterning">Recovery Patterning</option>
+        <option value="mobility">Mobility</option>
+        <option value="off">Off</option>
+      </select>
+    </div>
+  </div>
+  <div class="row">
+    <label>Duration</label>
+    <div class="right"><input type="number" id="duration_min" placeholder="—"><span class="unit">min</span></div>
+  </div>
+  <div class="row">
+    <label>Top Set RPE<div class="hint">how hard was the hardest set?</div></label>
+    <div class="right"><input type="number" id="top_set_rpe" placeholder="—" min="1" max="10" step="0.5"><span class="unit">/10</span></div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:12px">
+  <div class="section-title">Pump Quality</div>
+  <div class="score-row" style="padding:12px 16px">
+    <div style="display:flex;gap:8px;width:100%">
+      <button class="score-btn" onclick="setPump(1)">1</button>
+      <button class="score-btn" onclick="setPump(2)">2</button>
+      <button class="score-btn" onclick="setPump(3)">3</button>
+      <button class="score-btn" onclick="setPump(4)">4</button>
+      <button class="score-btn" onclick="setPump(5)">5</button>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:12px">
+  <div class="section-title">Exercises</div>
+  <div class="ex-hdr"><span>Exercise</span><span style="text-align:center">Sets</span><span style="text-align:center">Reps</span><span style="text-align:center">Load (lbs)</span><span style="text-align:center">RPE</span><span></span></div>
+  <div id="ex-list"></div>
+  <div class="vol-bar" id="vol-bar" style="display:none">Volume: <span id="vol-val">0</span> lbs · <span id="ex-count">0</span> exercises</div>
+  <button class="add-ex-btn" onclick="addExercise()">+ Add Exercise</button>
+</div>
+
+<div id="history-section" style="display:none">
+  <div class="hist-card">
+    <h3>Today's Sessions</h3>
+    <div id="history-list"></div>
+  </div>
+</div>
+
+<div class="submit-wrap">
+  <button class="submit-btn" onclick="saveLift()">Log Session</button>
+</div>
+
+<div id="toast" class="toast"></div>
+""" + _NAV_HTML('lift') + """
+<script>
+const EXPO="beeb9b83-58d3-4a22-a1a7-a252fd86a0e0";
+let _pump=null;
+let _exCount=0;
+
+function today(){const n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');}
+function shiftDate(d){const dt=new Date(document.getElementById('date-input').value+'T12:00:00');dt.setDate(dt.getDate()+d);document.getElementById('date-input').value=dt.toISOString().slice(0,10);loadDate();}
+
+function setPump(v){
+  _pump=v;
+  document.querySelectorAll('.score-btn').forEach((b,i)=>b.classList.toggle('active',i+1===v));
+}
+
+function addExercise(){
+  _exCount++;
+  const id='ex'+_exCount;
+  const div=document.createElement('div');
+  div.className='ex-row';div.id=id;
+  div.innerHTML=`
+    <input class="ex-name" type="text" placeholder="Exercise name" oninput="calcVol()">
+    <input class="ex-input" type="number" placeholder="—" min="1" title="Sets" oninput="calcVol()">
+    <input class="ex-input" type="number" placeholder="—" min="1" title="Reps" oninput="calcVol()">
+    <input class="ex-input" type="number" placeholder="—" min="0" step="2.5" title="Load lbs" oninput="calcVol()">
+    <input class="ex-input" type="number" placeholder="—" min="1" max="10" step="0.5" title="RPE" oninput="calcVol()">
+    <button class="del-btn" onclick="this.closest('.ex-row').remove();calcVol()">✕</button>`;
+  document.getElementById('ex-list').appendChild(div);
+  div.querySelector('.ex-name').focus();
+  calcVol();
+}
+
+function calcVol(){
+  const rows=document.querySelectorAll('#ex-list .ex-row');
+  let vol=0,cnt=0;
+  rows.forEach(row=>{
+    const inputs=row.querySelectorAll('input');
+    const sets=parseFloat(inputs[1].value)||0;
+    const reps=parseFloat(inputs[2].value)||0;
+    const load=parseFloat(inputs[3].value)||0;
+    if(sets&&reps&&load){vol+=sets*reps*load;cnt++;}
+    else if(inputs[0].value){cnt++;}
+  });
+  const bar=document.getElementById('vol-bar');
+  bar.style.display=rows.length?'flex':'none';
+  document.getElementById('vol-val').textContent=Math.round(vol).toLocaleString();
+  document.getElementById('ex-count').textContent=cnt;
+}
+
+function getExercises(){
+  const rows=document.querySelectorAll('#ex-list .ex-row');
+  const exs=[];
+  rows.forEach(row=>{
+    const inputs=row.querySelectorAll('input');
+    const name=inputs[0].value.trim();
+    if(!name)return;
+    exs.push({
+      name,
+      sets:parseInt(inputs[1].value)||null,
+      reps:parseInt(inputs[2].value)||null,
+      load_lbs:parseFloat(inputs[3].value)||null,
+      rpe:parseFloat(inputs[4].value)||null,
+    });
+  });
+  return exs;
+}
+
+async function loadDate(){
+  const date=document.getElementById('date-input').value||today();
+  document.getElementById('date-input').value=date;
+  const r=await fetch(`/lift/data?expo_user_id=${EXPO}&date=${date}`);
+  const d=await r.json();
+  renderHistory(d.sessions||[]);
+}
+
+function renderHistory(sessions){
+  const sec=document.getElementById('history-section');
+  const list=document.getElementById('history-list');
+  if(!sessions.length){sec.style.display='none';return;}
+  sec.style.display='block';
+  list.innerHTML=sessions.map(s=>`
+    <div class="hist-row">
+      <span class="hist-lbl">${(s.completed_lift_mode||'session').replace(/_/g,' ')}</span>
+      <span class="hist-val">${s.duration_min||'—'}min · ${s.exercises.length} exercises · RPE ${s.top_set_rpe||'—'}</span>
+    </div>
+  `).join('');
+}
+
+async function saveLift(){
+  const btn=document.querySelector('.submit-btn');
+  btn.disabled=true;btn.textContent='Saving…';
+  const payload={
+    expo_user_id:EXPO,
+    date:document.getElementById('date-input').value||today(),
+    completed_lift_mode:document.getElementById('completed_lift_mode').value,
+    duration_min:parseFloat(document.getElementById('duration_min').value)||null,
+    top_set_rpe:parseFloat(document.getElementById('top_set_rpe').value)||null,
+    pump_quality_score:_pump,
+    exercises:getExercises(),
+  };
+  const res=await fetch('/lift/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(res.ok){
+    showToast('Session logged ✓','ok');
+    btn.textContent='Log Session';btn.disabled=false;
+    document.getElementById('ex-list').innerHTML='';
+    calcVol();_pump=null;
+    document.querySelectorAll('.score-btn').forEach(b=>b.classList.remove('active'));
+    ['duration_min','top_set_rpe'].forEach(id=>document.getElementById(id).value='');
+    loadDate();
+  } else {showToast('Error — try again','err');btn.disabled=false;btn.textContent='Log Session';}
+}
+
+""" + _TOAST_JS + """
+document.getElementById('date-input').value=today();
+loadDate();
+</script>
+</body>
+</html>"""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SYSTEM PAGE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/system/data", include_in_schema=False)
+def get_system_data(expo_user_id: str, db: Session = Depends(get_db)):
+    from datetime import date as ddate, timedelta
+    today = ddate.today()
+    week_ago = today - timedelta(days=6)
+    rows = (db.query(VitalsDailyLog)
+            .filter(VitalsDailyLog.expo_user_id == expo_user_id,
+                    VitalsDailyLog.date >= week_ago,
+                    VitalsDailyLog.date <= today)
+            .order_by(VitalsDailyLog.date)
+            .all())
+    days = []
+    for r in rows:
+        adh = r.meal_adherence_json or {}
+        days.append({
+            "date": str(r.date),
+            "weight": float(r.body_weight_lb) if r.body_weight_lb else None,
+            "bf_pct": float(r.body_fat_pct) if r.body_fat_pct else None,
+            "ffm": float(r.fat_free_mass_lb) if r.fat_free_mass_lb else None,
+            "sleep_hr": round(float(r.sleep_duration_min)/60, 1) if r.sleep_duration_min else None,
+            "hrv": float(r.hrv_ms) if r.hrv_ms else None,
+            "rhr": float(r.resting_hr_bpm) if r.resting_hr_bpm else None,
+            "steps": r.step_count,
+            "kcal_consumed": float(r.kcal_actual) if r.kcal_actual else None,
+            "day_type": adh.get("day_type"),
+            "cardio_mode": r.actual_cardio_mode,
+            "lift_mode": r.completed_lift_mode,
+            "motivation": r.motivation_score,
+            "soreness": r.soreness_score,
+            "mood": r.mood_stability_score,
+        })
+    return {"days": days, "today": str(today)}
+
+
+_SYSTEM_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ArcForge — System State</title>
+<style>
+""" + _CSS_VARS + """
+.score-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+.trend-up{color:var(--green)}
+.trend-down{color:var(--red)}
+.trend-flat{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-top">
+    <h1>⚡ ArcForge — System</h1>
+    <span id="today-lbl" style="font-size:.75rem;color:var(--muted)"></span>
+  </div>
+  <div style="font-size:.7rem;color:var(--muted);margin-top:6px">7-day rolling state · live from log</div>
+</div>
+
+<div id="loading" style="text-align:center;padding:40px;color:var(--muted);font-size:.9rem">Loading system state…</div>
+<div id="content" style="display:none"></div>
+
+<div id="toast" class="toast"></div>
+""" + _NAV_HTML('system') + """
+<script>
+const EXPO="beeb9b83-58d3-4a22-a1a7-a252fd86a0e0";
+
+const DAY_COLORS={build:'#4ade80',surge:'#f97316',reset:'#60a5fa',resensitize:'#a78bfa'};
+const DAY_BG={build:'#1a2a1a',surge:'#2a1a0a',reset:'#1a1a2a',resensitize:'#2a1a2a'};
+
+async function loadSystem(){
+  const r=await fetch(`/system/data?expo_user_id=${EXPO}`);
+  const d=await r.json();
+  document.getElementById('loading').style.display='none';
+  document.getElementById('content').style.display='block';
+  document.getElementById('today-lbl').textContent=d.today;
+  render(d.days, d.today);
+}
+
+function avg(arr, key){
+  const vals=arr.map(d=>d[key]).filter(v=>v!=null);
+  return vals.length?Math.round(vals.reduce((a,b)=>a+b,0)/vals.length*10)/10:null;
+}
+
+function render(days, today){
+  const c=document.getElementById('content');
+  if(!days.length){
+    c.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted)">No log data in the past 7 days.<br>Start logging on the Log tab.</div>';
+    return;
+  }
+
+  // Stats row
+  const avgWeight=avg(days,'weight');
+  const avgSleep=avg(days,'sleep_hr');
+  const avgHrv=avg(days,'hrv');
+
+  // Day type history
+  const dayBadges=days.map(d=>{
+    const dt=d.day_type||'—';
+    const col=DAY_COLORS[dt]||'#666';
+    const bg=DAY_BG[dt]||'#1a1a1a';
+    const label=d.date.slice(5); // MM-DD
+    return `<div style="text-align:center;flex:1">
+      <div style="font-size:.6rem;color:var(--muted);margin-bottom:4px">${label}</div>
+      <div style="background:${bg};color:${col};border-radius:6px;padding:4px 2px;font-size:.62rem;font-weight:700">${dt}</div>
+    </div>`;
+  }).join('');
+
+  // Weight sparkline
+  const weights=days.map(d=>d.weight).filter(v=>v);
+  const wMax=Math.max(...weights)||1;
+  const wMin=Math.min(...weights)||0;
+  const wRange=wMax-wMin||1;
+  const wBars=days.map(d=>{
+    const h=d.weight?Math.max(8,Math.round(((d.weight-wMin)/wRange)*40)+8):4;
+    const active=d.date===today;
+    return `<div class="spark-bar${active?'':' dim'}" style="height:${h}px" title="${d.weight||'—'} lbs"></div>`;
+  }).join('');
+
+  // Readiness score (motivation avg)
+  const motAvg=avg(days,'motivation');
+  const sorenessAvg=avg(days,'soreness');
+
+  // Build HTML
+  c.innerHTML=`
+    <div class="stat-grid">
+      <div class="stat-box">
+        <div class="stat-val">${avgWeight||'—'}</div>
+        <div class="stat-lbl">Avg Weight<br>lbs</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val">${avgSleep||'—'}</div>
+        <div class="stat-lbl">Avg Sleep<br>hrs</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val">${avgHrv||'—'}</div>
+        <div class="stat-lbl">Avg HRV<br>ms</div>
+      </div>
+    </div>
+
+    <div class="sys-section">
+      <div class="sys-section-title">Day Type — 7 Days</div>
+      <div style="display:flex;gap:4px;padding:12px 12px 8px">${dayBadges}</div>
+    </div>
+
+    ${weights.length>=2?`
+    <div class="sys-section">
+      <div class="sys-section-title">Body Weight Trend</div>
+      <div class="spark-row">${wBars}</div>
+      <div style="display:flex;justify-content:space-between;padding:4px 16px 10px;font-size:.7rem;color:var(--muted)">
+        <span>${wMin.toFixed(1)} lb low</span><span>${wMax.toFixed(1)} lb high</span>
+      </div>
+    </div>`:''}
+
+    <div class="sys-section">
+      <div class="sys-section-title">Last 7 Days Log</div>
+      ${days.slice().reverse().map(d=>`
+        <div class="hist-row" style="padding:10px 16px">
+          <span>
+            <div style="font-size:.75rem;font-weight:600;color:var(--text)">${d.date}</div>
+            <div style="font-size:.65rem;color:var(--muted);margin-top:2px">
+              ${d.day_type?`<span style="color:${DAY_COLORS[d.day_type]||'#666'}">${d.day_type}</span> · `:''
+              }${d.kcal_consumed?d.kcal_consumed+' kcal · ':''
+              }${d.sleep_hr?d.sleep_hr+'h sleep':''}</div>
+          </span>
+          <span style="text-align:right">
+            ${d.weight?`<div style="font-weight:600">${d.weight} lb</div>`:''}
+            ${d.hrv?`<div style="font-size:.7rem;color:var(--teal)">${d.hrv} ms HRV</div>`:''}
+          </span>
+        </div>
+      `).join('')}
+    </div>
+
+    ${(motAvg||sorenessAvg)?`
+    <div class="sys-section">
+      <div class="sys-section-title">Readiness Signals (7-day avg)</div>
+      ${motAvg!=null?`<div class="hist-row" style="padding:10px 16px"><span class="hist-lbl">Motivation</span><span class="hist-val">${motAvg} / 5</span></div>`:''}
+      ${sorenessAvg!=null?`<div class="hist-row" style="padding:10px 16px"><span class="hist-lbl">Soreness</span><span class="hist-val">${sorenessAvg} / 5</span></div>`:''}
+    </div>`:''}
+
+    <div style="height:8px"></div>
+  `;
+}
+
+""" + _TOAST_JS + """
+loadSystem();
+</script>
+</body>
+</html>"""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ROUTES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/cardio", response_class=HTMLResponse, include_in_schema=False)
+def cardio_page():
+    return _CARDIO_HTML
+
+@router.get("/lift", response_class=HTMLResponse, include_in_schema=False)
+def lift_page():
+    return _LIFT_HTML
+
+@router.get("/system", response_class=HTMLResponse, include_in_schema=False)
+def system_page():
+    return _SYSTEM_HTML
