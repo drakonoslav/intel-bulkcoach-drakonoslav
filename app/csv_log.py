@@ -1,9 +1,9 @@
 """
-Append every daily log submission to data/daily_log.csv.
-File persists across restarts — never lost.
+Persist every daily log to data/daily_log.csv.
+Upserts by (expo_user_id, date) — re-submitting a date replaces that row.
+File survives restarts, crashes, redeployments.
 """
 import csv
-import os
 import datetime
 from pathlib import Path
 
@@ -45,7 +45,6 @@ COLUMNS = [
     "stress_load_score",
     "motivation_score",
     # activity
-    "resting_hr_bpm",
     "step_count",
     "active_energy_kcal",
     "exercise_min",
@@ -63,18 +62,44 @@ COLUMNS = [
     "fat_g_target",
 ]
 
-# dedupe (resting_hr_bpm appears twice in list above by mistake)
-COLUMNS = list(dict.fromkeys(COLUMNS))
+
+def _read_all() -> list[dict]:
+    if not CSV_PATH.exists() or CSV_PATH.stat().st_size == 0:
+        return []
+    with CSV_PATH.open(newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def _write_all(rows: list[dict]) -> None:
+    CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with CSV_PATH.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def append_log(row: dict) -> None:
-    """Append a single log row to the CSV.  Creates the file + header if needed."""
-    CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
-    new_file = not CSV_PATH.exists() or CSV_PATH.stat().st_size == 0
+    """Upsert a log row by (expo_user_id, date). Replaces existing row for that date."""
+    row = dict(row)
+    row["logged_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    with CSV_PATH.open("a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
-        if new_file:
-            writer.writeheader()
-        row["logged_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-        writer.writerow(row)
+    # Normalise date to string
+    row["date"] = str(row.get("date", ""))
+
+    existing = _read_all()
+    uid = row.get("expo_user_id", "")
+    dt  = row.get("date", "")
+
+    replaced = False
+    updated = []
+    for r in existing:
+        if r.get("expo_user_id") == uid and r.get("date") == dt:
+            updated.append(row)   # replace with new data
+            replaced = True
+        else:
+            updated.append(r)
+
+    if not replaced:
+        updated.append(row)
+
+    _write_all(updated)

@@ -1,6 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, FileResponse
+from sqlalchemy.orm import Session
 from pathlib import Path
+from typing import Optional
+
+from app.database import get_db
+from app.vitals_models import VitalsDailyLog
 
 router = APIRouter(tags=["webui"])
 
@@ -17,6 +22,60 @@ def export_csv():
         media_type="text/csv",
         filename="arcforge_daily_log.csv",
     )
+
+
+@router.get("/log/data", include_in_schema=False)
+def get_log_data(expo_user_id: str, date: str, db: Session = Depends(get_db)):
+    """Return stored values for a given user+date so the form can pre-fill."""
+    row = db.query(VitalsDailyLog).filter(
+        VitalsDailyLog.expo_user_id == expo_user_id,
+        VitalsDailyLog.date == date,
+    ).first()
+
+    if not row:
+        return {"found": False}
+
+    def f(v):
+        return float(v) if v is not None else None
+
+    def i(v):
+        return int(v) if v is not None else None
+
+    # Convert stored stage minutes back to HH:MM for the time input
+    def min_to_hhmm(v):
+        if v is None:
+            return None
+        total = int(float(v))
+        return f"{total // 60:02d}:{total % 60:02d}"
+
+    return {
+        "found": True,
+        "sleep_onset_hhmm":    row.sleep_onset_hhmm,
+        "sleep_wake_hhmm":     row.sleep_wake_hhmm,
+        "sleep_rem_hhmm":      min_to_hhmm(row.sleep_rem_min),
+        "sleep_core_hhmm":     min_to_hhmm(row.sleep_core_min),
+        "sleep_deep_hhmm":     min_to_hhmm(row.sleep_deep_min),
+        "sleep_awake_hhmm":    min_to_hhmm(row.sleep_awake_min),
+        "hrv_ms":              f(row.hrv_ms),
+        "resting_hr_bpm":      f(row.resting_hr_bpm),
+        "morning_temp_f":      f(row.morning_temp_f),
+        "body_weight_lb":      f(row.body_weight_lb),
+        "body_fat_pct":        f(row.body_fat_pct),
+        "skeletal_muscle_pct": f(row.skeletal_muscle_pct),
+        "waist_at_navel_in":   f(row.waist_at_navel_in),
+        "libido_score":        i(row.libido_score),
+        "morning_erection_score": i(row.morning_erection_score),
+        "mood_stability_score":   i(row.mood_stability_score),
+        "mental_drive_score":     i(row.mental_drive_score),
+        "soreness_score":         i(row.soreness_score),
+        "joint_friction_score":   i(row.joint_friction_score),
+        "stress_load_score":      i(row.stress_load_score),
+        "kcal_actual":         f(row.kcal_actual),
+        "protein_g_actual":    f(row.protein_g_actual),
+        "carbs_g_actual":      f(row.carbs_g_actual),
+        "fat_g_actual":        f(row.fat_g_actual),
+    }
+
 
 _HTML = r"""<!DOCTYPE html>
 <html lang="en">
@@ -36,17 +95,17 @@ _HTML = r"""<!DOCTYPE html>
 html,body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
 body{padding:0 0 80px 0}
 
-/* HEADER */
 .header{background:var(--card);border-bottom:1px solid var(--border);padding:16px 20px;position:sticky;top:0;z-index:100}
+.header-top{display:flex;align-items:center;justify-content:space-between}
 .header h1{font-size:1.1rem;font-weight:700;color:var(--accent)}
-.header .date-row{display:flex;align-items:center;gap:10px;margin-top:6px}
-.header input[type=date]{background:var(--input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.85rem;padding:6px 10px;flex:1}
+.date-row{display:flex;align-items:center;gap:10px;margin-top:10px}
+.date-row input[type=date]{background:var(--input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.95rem;padding:8px 12px;flex:1;text-align:center}
+.date-nav{background:var(--input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:1rem;padding:7px 14px;cursor:pointer;flex-shrink:0}
+.date-nav:active{background:var(--border)}
 
-/* SECTIONS */
 .section{margin:16px 12px 0;background:var(--card);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden}
 .section-title{padding:14px 16px 10px;font-size:.65rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);border-bottom:1px solid var(--border)}
 
-/* ROWS */
 .row{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #1a1a1a;gap:12px}
 .row:last-child{border-bottom:none}
 .row label{font-size:.88rem;color:var(--text);flex:1;line-height:1.3}
@@ -62,21 +121,17 @@ body{padding:0 0 80px 0}
 .row input::-webkit-outer-spin-button,.row input::-webkit-inner-spin-button{-webkit-appearance:none}
 .unit{font-size:.75rem;color:var(--muted);width:28px}
 
-/* SCORE BUTTONS */
 .score-row{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #1a1a1a;gap:8px;flex-wrap:wrap}
 .score-row:last-child{border-bottom:none}
 .score-label{font-size:.88rem;color:var(--text);flex:1 1 100%;margin-bottom:8px}
 .score-btn{flex:1;padding:9px 4px;background:var(--input);border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:.9rem;font-weight:600;cursor:pointer;text-align:center;transition:all .15s}
 .score-btn.active{background:var(--accent);border-color:var(--accent);color:#000}
-.score-btn:hover{border-color:var(--accent);color:var(--text)}
 
-/* SUBMIT */
 .submit-wrap{padding:20px 12px}
 .submit-btn{width:100%;padding:16px;background:var(--accent);border:none;border-radius:var(--radius);color:#000;font-size:1rem;font-weight:700;cursor:pointer;letter-spacing:.5px}
 .submit-btn:active{opacity:.85}
 .submit-btn:disabled{opacity:.4;cursor:not-allowed}
 
-/* RESULTS */
 #results{margin:0 12px 16px;display:none}
 .result-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px}
 .result-card h3{font-size:.65rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:12px}
@@ -105,6 +160,11 @@ body{padding:0 0 80px 0}
 .reco-row:last-child{border-bottom:none}
 .reco-row .lbl{color:var(--muted)}
 .reco-row .val{font-weight:600;color:var(--accent)}
+
+.day-status{display:inline-block;font-size:.7rem;padding:3px 8px;border-radius:6px;margin-left:8px;vertical-align:middle}
+.status-saved{background:#1a2e1a;color:var(--green)}
+.status-blank{background:#1a1a1a;color:var(--muted)}
+
 .toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid var(--border);border-radius:10px;padding:12px 20px;font-size:.85rem;color:var(--text);z-index:999;display:none;white-space:nowrap}
 .uuid-row{padding:10px 16px;font-size:.7rem;color:var(--muted);display:flex;align-items:center;gap:8px;border-top:1px solid var(--border)}
 .uuid-row input{background:transparent;border:none;color:var(--muted);font-size:.7rem;font-family:monospace;flex:1;min-width:0}
@@ -115,16 +175,17 @@ body{padding:0 0 80px 0}
 <body>
 
 <div class="header">
-  <div style="display:flex;align-items:center;justify-content:space-between">
+  <div class="header-top">
     <h1>⚡ ArcForge Daily Log</h1>
     <a href="/log/export" download="arcforge_daily_log.csv" class="csv-btn">↓ CSV</a>
   </div>
   <div class="date-row">
-    <input type="date" id="log-date">
+    <button class="date-nav" onclick="shiftDate(-1)">‹</button>
+    <input type="date" id="log-date" onchange="loadDate()">
+    <button class="date-nav" onclick="shiftDate(1)">›</button>
   </div>
 </div>
 
-<!-- RESULTS (shown after submit) -->
 <div id="results">
   <div class="result-card" id="r-scores" style="display:none">
     <h3>Oscillator Scores</h3>
@@ -155,73 +216,47 @@ body{padding:0 0 80px 0}
 <!-- SLEEP -->
 <div class="section">
   <div class="section-title">Sleep</div>
-
   <div class="row">
-    <div><label>Sleep Onset<div class="hint">Time you fell asleep (military)</div></label></div>
-    <div class="right">
-      <input type="time" id="sleep_onset" placeholder="23:20">
-    </div>
+    <div><label>Sleep Onset<div class="hint">Time you fell asleep</div></label></div>
+    <div class="right"><input type="time" id="sleep_onset"></div>
   </div>
-
   <div class="row">
-    <div><label>Wake Time<div class="hint">Time you woke up (military)</div></label></div>
-    <div class="right">
-      <input type="time" id="sleep_wake" placeholder="06:30">
-    </div>
+    <div><label>Wake Time<div class="hint">Time you woke up</div></label></div>
+    <div class="right"><input type="time" id="sleep_wake"></div>
   </div>
-
   <div class="row">
     <div><label>REM<div class="hint">e.g. 01:34 = 1h 34m</div></label></div>
-    <div class="right">
-      <input type="time" id="rem" placeholder="01:30">
-      <span class="unit">h:m</span>
-    </div>
+    <div class="right"><input type="time" id="rem"><span class="unit">h:m</span></div>
   </div>
-
   <div class="row">
     <div><label>Core Sleep<div class="hint">e.g. 03:10 = 3h 10m</div></label></div>
-    <div class="right">
-      <input type="time" id="core" placeholder="03:00">
-      <span class="unit">h:m</span>
-    </div>
+    <div class="right"><input type="time" id="core"><span class="unit">h:m</span></div>
   </div>
-
   <div class="row">
     <div><label>Deep Sleep<div class="hint">e.g. 01:20 = 1h 20m</div></label></div>
-    <div class="right">
-      <input type="time" id="deep" placeholder="01:00">
-      <span class="unit">h:m</span>
-    </div>
+    <div class="right"><input type="time" id="deep"><span class="unit">h:m</span></div>
   </div>
-
   <div class="row">
     <div><label>Awake in Bed<div class="hint">e.g. 00:15 = 15 min</div></label></div>
-    <div class="right">
-      <input type="time" id="awake" placeholder="00:10">
-      <span class="unit">h:m</span>
-    </div>
+    <div class="right"><input type="time" id="awake"><span class="unit">h:m</span></div>
   </div>
 </div>
 
 <!-- BIOMETRICS -->
 <div class="section">
   <div class="section-title">Morning Biometrics</div>
-
   <div class="row">
     <label>HRV</label>
     <div class="right"><input type="number" id="hrv" placeholder="55" step="0.1"><span class="unit">ms</span></div>
   </div>
-
   <div class="row">
     <label>Resting HR</label>
     <div class="right"><input type="number" id="rhr" placeholder="58" step="0.1"><span class="unit">bpm</span></div>
   </div>
-
   <div class="row">
     <label>Morning Temp</label>
     <div class="right"><input type="number" id="temp_f" placeholder="97.4" step="0.1"><span class="unit">°F</span></div>
   </div>
-
   <div class="row">
     <label>Body Weight</label>
     <div class="right"><input type="number" id="weight" placeholder="160" step="0.1"><span class="unit">lb</span></div>
@@ -231,28 +266,24 @@ body{padding:0 0 80px 0}
 <!-- BODY COMP -->
 <div class="section">
   <div class="section-title">Body Composition <span style="color:var(--muted);font-size:.6rem">(weekly)</span></div>
-
   <div class="row">
     <div><label>Body Fat %<div class="hint">e.g. 14.5</div></label></div>
     <div class="right"><input type="number" id="bf_pct" placeholder="14.5" step="0.1"><span class="unit">%</span></div>
   </div>
-
   <div class="row">
-    <div><label>Skeletal Muscle %<div class="hint">from InBody / scale</div></label></div>
+    <div><label>Skeletal Muscle %</label></div>
     <div class="right"><input type="number" id="sm_pct" placeholder="42.0" step="0.1"><span class="unit">%</span></div>
   </div>
-
   <div class="row">
-    <div><label>Waist at Navel<div class="hint">weekly tape measure</div></label></div>
+    <div><label>Waist at Navel</label></div>
     <div class="right"><input type="number" id="waist" placeholder="34.0" step="0.1"><span class="unit">in</span></div>
   </div>
 </div>
 
 <!-- SUBJECTIVE -->
 <div class="section">
-  <div class="section-title">Subjective Scores — tap to rate</div>
-
-  <div class="score-row" id="sr-libido">
+  <div class="section-title">Subjective Scores</div>
+  <div class="score-row">
     <div class="score-label">Libido <span style="color:var(--muted);font-size:.75rem">(1–5)</span></div>
     <button class="score-btn" data-field="libido" data-val="1">1</button>
     <button class="score-btn" data-field="libido" data-val="2">2</button>
@@ -260,16 +291,14 @@ body{padding:0 0 80px 0}
     <button class="score-btn" data-field="libido" data-val="4">4</button>
     <button class="score-btn" data-field="libido" data-val="5">5</button>
   </div>
-
-  <div class="score-row" id="sr-erection">
+  <div class="score-row">
     <div class="score-label">Morning Erection <span style="color:var(--muted);font-size:.75rem">(0–3)</span></div>
     <button class="score-btn" data-field="erection" data-val="0">0</button>
     <button class="score-btn" data-field="erection" data-val="1">1</button>
     <button class="score-btn" data-field="erection" data-val="2">2</button>
     <button class="score-btn" data-field="erection" data-val="3">3</button>
   </div>
-
-  <div class="score-row" id="sr-mood">
+  <div class="score-row">
     <div class="score-label">Mood <span style="color:var(--muted);font-size:.75rem">(1–5)</span></div>
     <button class="score-btn" data-field="mood" data-val="1">1</button>
     <button class="score-btn" data-field="mood" data-val="2">2</button>
@@ -277,8 +306,7 @@ body{padding:0 0 80px 0}
     <button class="score-btn" data-field="mood" data-val="4">4</button>
     <button class="score-btn" data-field="mood" data-val="5">5</button>
   </div>
-
-  <div class="score-row" id="sr-drive">
+  <div class="score-row">
     <div class="score-label">Mental Drive <span style="color:var(--muted);font-size:.75rem">(1–5)</span></div>
     <button class="score-btn" data-field="drive" data-val="1">1</button>
     <button class="score-btn" data-field="drive" data-val="2">2</button>
@@ -286,8 +314,7 @@ body{padding:0 0 80px 0}
     <button class="score-btn" data-field="drive" data-val="4">4</button>
     <button class="score-btn" data-field="drive" data-val="5">5</button>
   </div>
-
-  <div class="score-row" id="sr-soreness">
+  <div class="score-row">
     <div class="score-label">Soreness <span style="color:var(--muted);font-size:.75rem">(1=none, 5=wrecked)</span></div>
     <button class="score-btn" data-field="soreness" data-val="1">1</button>
     <button class="score-btn" data-field="soreness" data-val="2">2</button>
@@ -295,8 +322,7 @@ body{padding:0 0 80px 0}
     <button class="score-btn" data-field="soreness" data-val="4">4</button>
     <button class="score-btn" data-field="soreness" data-val="5">5</button>
   </div>
-
-  <div class="score-row" id="sr-joints">
+  <div class="score-row">
     <div class="score-label">Joint Friction <span style="color:var(--muted);font-size:.75rem">(1=smooth, 5=grinding)</span></div>
     <button class="score-btn" data-field="joints" data-val="1">1</button>
     <button class="score-btn" data-field="joints" data-val="2">2</button>
@@ -304,8 +330,7 @@ body{padding:0 0 80px 0}
     <button class="score-btn" data-field="joints" data-val="4">4</button>
     <button class="score-btn" data-field="joints" data-val="5">5</button>
   </div>
-
-  <div class="score-row" id="sr-stress">
+  <div class="score-row">
     <div class="score-label">Stress Load <span style="color:var(--muted);font-size:.75rem">(1=calm, 5=maxed)</span></div>
     <button class="score-btn" data-field="stress" data-val="1">1</button>
     <button class="score-btn" data-field="stress" data-val="2">2</button>
@@ -315,37 +340,31 @@ body{padding:0 0 80px 0}
   </div>
 </div>
 
-<!-- NUTRITION (actual eaten today) -->
+<!-- NUTRITION -->
 <div class="section">
   <div class="section-title">Nutrition — Actual Today</div>
-
   <div class="row">
     <label>Calories</label>
     <div class="right"><input type="number" id="kcal" placeholder="2600" step="1"><span class="unit">kcal</span></div>
   </div>
-
   <div class="row">
     <label>Protein</label>
     <div class="right"><input type="number" id="protein" placeholder="175" step="1"><span class="unit">g</span></div>
   </div>
-
   <div class="row">
     <label>Carbs</label>
     <div class="right"><input type="number" id="carbs" placeholder="250" step="1"><span class="unit">g</span></div>
   </div>
-
   <div class="row">
     <label>Fat</label>
     <div class="right"><input type="number" id="fat" placeholder="90" step="1"><span class="unit">g</span></div>
   </div>
 </div>
 
-<!-- SUBMIT -->
 <div class="submit-wrap">
   <button class="submit-btn" id="submit-btn" onclick="submitLog()">Submit Daily Log</button>
 </div>
 
-<!-- UUID row -->
 <div class="uuid-row">
   <span>Your ID:</span>
   <input type="text" id="uuid-display" readonly>
@@ -354,7 +373,7 @@ body{padding:0 0 80px 0}
 <div class="toast" id="toast"></div>
 
 <script>
-// ── UUID management ──────────────────────────────────────────────────────────
+// ── UUID ──────────────────────────────────────────────────────────────────────
 function genUUID(){
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
     const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16);
@@ -363,18 +382,27 @@ function genUUID(){
 let USER_ID = localStorage.getItem('arcforge_uid');
 if(!USER_ID){ USER_ID=genUUID(); localStorage.setItem('arcforge_uid',USER_ID); }
 document.getElementById('uuid-display').value = USER_ID;
-
-// Ensure user exists in brain
 fetch('/users/ensure',{method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify({expo_user_id:USER_ID})}).catch(()=>{});
 
-// ── Date default ─────────────────────────────────────────────────────────────
+// ── Date helpers ──────────────────────────────────────────────────────────────
 const dateEl = document.getElementById('log-date');
-const today = new Date();
-const pad = n=>String(n).padStart(2,'0');
-dateEl.value = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+function todayStr(){
+  const d=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+dateEl.value = todayStr();
 
-// ── Score buttons ─────────────────────────────────────────────────────────────
+function shiftDate(delta){
+  const d = new Date(dateEl.value + 'T12:00:00');
+  d.setDate(d.getDate() + delta);
+  const pad=n=>String(n).padStart(2,'0');
+  dateEl.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  loadDate();
+}
+
+// ── Score state ───────────────────────────────────────────────────────────────
 const scores = {};
 document.querySelectorAll('.score-btn').forEach(btn=>{
   btn.addEventListener('click',()=>{
@@ -385,173 +413,216 @@ document.querySelectorAll('.score-btn').forEach(btn=>{
   });
 });
 
-// ── Time helpers ──────────────────────────────────────────────────────────────
-// HH:MM → "HH:MM" string for onset/wake (brain accepts this directly)
-function timeToHHMM(val){ return val||null; }
+function setScore(field, val){
+  if(val===null||val===undefined) return;
+  scores[field]=val;
+  document.querySelectorAll(`[data-field="${field}"]`).forEach(b=>{
+    b.classList.toggle('active', parseInt(b.dataset.val)===val);
+  });
+}
 
-// HH:MM → H.MM decimal for stage durations (brain normalises 1.34 → 94min)
+function clearScores(){
+  ['libido','erection','mood','drive','soreness','joints','stress'].forEach(f=>{
+    delete scores[f];
+    document.querySelectorAll(`[data-field="${f}"]`).forEach(b=>b.classList.remove('active'));
+  });
+}
+
+// ── Load existing data for a date ─────────────────────────────────────────────
+async function loadDate(){
+  clearForm();
+  hideResults();
+  const date = dateEl.value;
+  try {
+    const res = await fetch(`/log/data?expo_user_id=${USER_ID}&date=${date}`);
+    const d = await res.json();
+    if(!d.found) return;
+
+    // sleep
+    setTime('sleep_onset', d.sleep_onset_hhmm);
+    setTime('sleep_wake',  d.sleep_wake_hhmm);
+    setTime('rem',  d.sleep_rem_hhmm);
+    setTime('core', d.sleep_core_hhmm);
+    setTime('deep', d.sleep_deep_hhmm);
+    setTime('awake',d.sleep_awake_hhmm);
+
+    // biometrics
+    setNum('hrv',    d.hrv_ms);
+    setNum('rhr',    d.resting_hr_bpm);
+    setNum('temp_f', d.morning_temp_f);
+    setNum('weight', d.body_weight_lb);
+
+    // body comp
+    setNum('bf_pct', d.body_fat_pct);
+    setNum('sm_pct', d.skeletal_muscle_pct);
+    setNum('waist',  d.waist_at_navel_in);
+
+    // subjective
+    setScore('libido',   d.libido_score);
+    setScore('erection', d.morning_erection_score);
+    setScore('mood',     d.mood_stability_score);
+    setScore('drive',    d.mental_drive_score);
+    setScore('soreness', d.soreness_score);
+    setScore('joints',   d.joint_friction_score);
+    setScore('stress',   d.stress_load_score);
+
+    // nutrition
+    setNum('kcal',    d.kcal_actual);
+    setNum('protein', d.protein_g_actual);
+    setNum('carbs',   d.carbs_g_actual);
+    setNum('fat',     d.fat_g_actual);
+
+  } catch(e){ /* no data for this date, form stays blank */ }
+}
+
+function setTime(id, val){
+  if(val) document.getElementById(id).value = val;
+}
+function setNum(id, val){
+  if(val!==null && val!==undefined) document.getElementById(id).value = val;
+}
+
+function clearForm(){
+  ['sleep_onset','sleep_wake','rem','core','deep','awake'].forEach(id=>{
+    document.getElementById(id).value='';
+  });
+  ['hrv','rhr','temp_f','weight','bf_pct','sm_pct','waist','kcal','protein','carbs','fat'].forEach(id=>{
+    document.getElementById(id).value='';
+  });
+  clearScores();
+}
+
+function hideResults(){
+  document.getElementById('results').style.display='none';
+  ['r-scores','r-reco','r-notices','r-sleep','r-meals','r-insights'].forEach(id=>{
+    document.getElementById(id).style.display='none';
+  });
+}
+
+// ── Time conversion ───────────────────────────────────────────────────────────
+function timeToHHMM(val){ return val||null; }
 function timeToDecimal(val){
   if(!val) return null;
   const [h,m]=val.split(':').map(Number);
   if(isNaN(h)||isNaN(m)) return null;
-  // encode as H.MM — brain reads frac*100 as minutes when 01-59
   return parseFloat(`${h}.${String(m).padStart(2,'0')}`);
 }
 
 // ── Submit ────────────────────────────────────────────────────────────────────
 async function submitLog(){
   const btn = document.getElementById('submit-btn');
-  btn.disabled = true;
-  btn.textContent = 'Saving…';
+  btn.disabled=true; btn.textContent='Saving…';
 
-  const num = id => { const v=document.getElementById(id).value; return v===''?null:parseFloat(v); };
+  const num = id=>{const v=document.getElementById(id).value;return v===''?null:parseFloat(v);};
 
-  const body = {
+  const body={
     expo_user_id: USER_ID,
     date: dateEl.value,
-
-    // sleep times
     sleep_onset_hhmm: timeToHHMM(document.getElementById('sleep_onset').value),
     sleep_wake_hhmm:  timeToHHMM(document.getElementById('sleep_wake').value),
-
-    // sleep stages — HH:MM → H.MM decimal
     sleep_rem_min:   timeToDecimal(document.getElementById('rem').value),
     sleep_core_min:  timeToDecimal(document.getElementById('core').value),
     sleep_deep_min:  timeToDecimal(document.getElementById('deep').value),
     sleep_awake_min: timeToDecimal(document.getElementById('awake').value),
-
-    // biometrics
     hrv_ms:          num('hrv'),
     resting_hr_bpm:  num('rhr'),
     morning_temp_f:  num('temp_f'),
     body_weight_lb:  num('weight'),
-
-    // body comp
     body_fat_pct:       num('bf_pct'),
     skeletal_muscle_pct: num('sm_pct'),
     waist_at_navel_in:  num('waist'),
-
-    // subjective
-    libido_score:        scores['libido']   ?? null,
-    morning_erection_score: scores['erection'] ?? null,
-    mood_stability_score: scores['mood']    ?? null,
-    mental_drive_score:  scores['drive']    ?? null,
-    soreness_score:      scores['soreness'] ?? null,
-    joint_friction_score: scores['joints']  ?? null,
-    stress_load_score:   scores['stress']   ?? null,
-
-    // nutrition
+    libido_score:        scores['libido']   ??null,
+    morning_erection_score: scores['erection']??null,
+    mood_stability_score: scores['mood']    ??null,
+    mental_drive_score:  scores['drive']    ??null,
+    soreness_score:      scores['soreness'] ??null,
+    joint_friction_score: scores['joints']  ??null,
+    stress_load_score:   scores['stress']   ??null,
     kcal_actual:      num('kcal'),
     protein_g_actual: num('protein'),
     carbs_g_actual:   num('carbs'),
     fat_g_actual:     num('fat'),
   };
+  Object.keys(body).forEach(k=>{if(body[k]===null||body[k]===undefined)delete body[k];});
 
-  // strip nulls
-  Object.keys(body).forEach(k=>{ if(body[k]===null||body[k]===undefined) delete body[k]; });
-
-  try {
-    const res = await fetch('/vitals/daily-log',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
-    });
-    const json = await res.json();
-    if(!res.ok){ showToast('Error: '+(json.detail||res.status)); return; }
+  try{
+    const res=await fetch('/vitals/daily-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const json=await res.json();
+    if(!res.ok){showToast('Error: '+(json.detail||res.status));return;}
     renderResults(json);
-    showToast('Logged ✓');
-    // scroll to results
+    showToast('Saved ✓');
     document.getElementById('results').scrollIntoView({behavior:'smooth'});
-  } catch(e){
-    showToast('Network error — check connection');
-  } finally {
-    btn.disabled=false;
-    btn.textContent='Submit Daily Log';
-  }
+  }catch(e){showToast('Network error');}
+  finally{btn.disabled=false;btn.textContent='Submit Daily Log';}
 }
 
 // ── Render results ────────────────────────────────────────────────────────────
 function renderResults(json){
-  const ds = json.displaySpec;
-  const rec = json.recommendation;
+  const ds=json.displaySpec; const rec=json.recommendation;
   document.getElementById('results').style.display='block';
 
-  // Score cards
   if(ds.scoreCards?.length){
-    const grid = document.getElementById('score-grid');
-    grid.innerHTML = ds.scoreCards.map(c=>`
-      <div class="score-box">
-        <div class="val ${c.color}">${Math.round(c.score)}</div>
-        <div class="lbl">${c.label.replace(' ','\n')}</div>
-      </div>`).join('');
+    document.getElementById('score-grid').innerHTML=ds.scoreCards.map(c=>`
+      <div class="score-box"><div class="val ${c.color}">${Math.round(c.score)}</div><div class="lbl">${c.label}</div></div>`).join('');
     document.getElementById('r-scores').style.display='block';
   }
 
-  // Recommendation
   if(rec){
-    document.getElementById('reco-body').innerHTML = `
+    document.getElementById('reco-body').innerHTML=`
       <div class="reco-row"><span class="lbl">Lift</span><span class="val">${fmt(rec.recommendedLiftMode)}</span></div>
       <div class="reco-row"><span class="lbl">Cardio</span><span class="val">${fmt(rec.recommendedCardioMode)}</span></div>
       <div class="reco-row"><span class="lbl">Macro Day</span><span class="val">${fmt(rec.recommendedMacroDayType)}</span></div>
-      ${rec.macroTargets ? `
-      <div class="reco-row"><span class="lbl">Calories</span><span class="val">${rec.macroTargets.kcalTarget ?? '—'} kcal</span></div>
-      <div class="reco-row"><span class="lbl">Protein</span><span class="val">${rec.macroTargets.proteinG ?? '—'} g</span></div>
-      <div class="reco-row"><span class="lbl">Carbs</span><span class="val">${rec.macroTargets.carbsG ?? '—'} g</span></div>
-      <div class="reco-row"><span class="lbl">Fat</span><span class="val">${rec.macroTargets.fatG ?? '—'} g</span></div>` : ''}
-    `;
+      ${rec.macroTargets?`
+      <div class="reco-row"><span class="lbl">Calories</span><span class="val">${rec.macroTargets.kcalTarget??'—'} kcal</span></div>
+      <div class="reco-row"><span class="lbl">Protein</span><span class="val">${rec.macroTargets.proteinG??'—'} g</span></div>
+      <div class="reco-row"><span class="lbl">Carbs</span><span class="val">${rec.macroTargets.carbsG??'—'} g</span></div>
+      <div class="reco-row"><span class="lbl">Fat</span><span class="val">${rec.macroTargets.fatG??'—'} g</span></div>`:''}`;
     document.getElementById('r-reco').style.display='block';
   }
 
-  // Notices
   if(ds.notices?.length){
-    document.getElementById('notices-body').innerHTML = ds.notices.map(n=>`
-      <div class="notice">
-        <div class="dot dot-${n.type}"></div>
-        <div class="msg">${n.message}</div>
-      </div>`).join('');
+    document.getElementById('notices-body').innerHTML=ds.notices.map(n=>`
+      <div class="notice"><div class="dot dot-${n.type}"></div><div class="msg">${n.message}</div></div>`).join('');
     document.getElementById('r-notices').style.display='block';
   }
 
-  // Sleep summary
-  const sl = ds.sleepSummary;
+  const sl=ds.sleepSummary;
   if(sl){
-    const items = [
-      sl.duration, sl.efficiency, sl.midpoint, sl.timeInBed,
-      sl.stages?.rem, sl.stages?.core, sl.stages?.deep, sl.stages?.awake
-    ].filter(x=>x?.display);
+    const items=[sl.duration,sl.efficiency,sl.midpoint,sl.timeInBed,
+      sl.stages?.rem,sl.stages?.core,sl.stages?.deep,sl.stages?.awake].filter(x=>x?.display);
     if(items.length){
-      document.getElementById('sleep-grid').innerHTML = items.map(i=>`
+      document.getElementById('sleep-grid').innerHTML=items.map(i=>`
         <div class="sleep-item"><div class="val">${i.display}</div><div class="lbl">${i.label}</div></div>`).join('');
       document.getElementById('r-sleep').style.display='block';
     }
   }
 
-  // Meal timing
-  const meals = ds.mealTiming?.sections?.filter(m=>m.proteinG||m.carbsG||m.fatG);
+  const meals=ds.mealTiming?.sections?.filter(m=>m.proteinG||m.carbsG||m.fatG);
   if(meals?.length){
-    document.getElementById('meals-body').innerHTML = meals.map(m=>`
-      <div class="meal-row">
-        <span class="meal-lbl">${m.label}</span>
-        ${m.proteinG ? `<span class="macro-chip chip-p">${m.proteinG}g P</span>` : ''}
-        ${m.carbsG   ? `<span class="macro-chip chip-c">${m.carbsG}g C</span>`   : ''}
-        ${m.fatG     ? `<span class="macro-chip chip-f">${m.fatG}g F</span>`     : ''}
-      </div>`).join('');
+    document.getElementById('meals-body').innerHTML=meals.map(m=>`
+      <div class="meal-row"><span class="meal-lbl">${m.label}</span>
+      ${m.proteinG?`<span class="macro-chip chip-p">${m.proteinG}g P</span>`:''}
+      ${m.carbsG?`<span class="macro-chip chip-c">${m.carbsG}g C</span>`:''}
+      ${m.fatG?`<span class="macro-chip chip-f">${m.fatG}g F</span>`:''}</div>`).join('');
     document.getElementById('r-meals').style.display='block';
   }
 
-  // Insights
   if(ds.insights?.length){
-    document.getElementById('insights-body').innerHTML = ds.insights.map(i=>`
+    document.getElementById('insights-body').innerHTML=ds.insights.map(i=>`
       <div class="insight">• ${i}</div>`).join('');
     document.getElementById('r-insights').style.display='block';
   }
 }
 
-function fmt(s){ return s ? s.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()) : '—'; }
+function fmt(s){return s?s.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()):'—';}
 function showToast(msg){
   const t=document.getElementById('toast');
-  t.textContent=msg; t.style.display='block';
-  clearTimeout(t._timer);
-  t._timer=setTimeout(()=>t.style.display='none',3000);
+  t.textContent=msg;t.style.display='block';
+  clearTimeout(t._timer);t._timer=setTimeout(()=>t.style.display='none',3000);
 }
+
+// Load today's data on page open
+loadDate();
 </script>
 </body>
 </html>"""
